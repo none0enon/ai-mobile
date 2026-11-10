@@ -84,6 +84,6 @@ export class MockLLM implements LLMClient {
       cb?.onText?.(full);
       await sleep(38 + Math.random() * 40, req.signal);
     }
-    return { text: full, model: 'claude-sonnet-5-5（演示）', connectionId: 'conn-relay', fellBack: false };
+    return { text: full, model: '演示模型', connectionId: 'conn-relay', fellBack: false };
   }
 }

@@ -18,7 +18,7 @@ if (import.meta.env.MODE === 'preview') {
 
 try {
   // 申请持久化存储，减少 iOS / 浏览器清理本地数据的概率（M1 起本地库存在 IndexedDB）
-  void navigator.storage?.persist?.();
+  navigator.storage?.persist?.().catch(() => undefined);
 } catch {
   // 忽略
 }

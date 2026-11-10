@@ -14,7 +14,7 @@ export const connections: ProviderConnection[] = [
     keyStorage: 'device',
     hasKey: true,
     capabilities: ['chat', 'vision'],
-    models: ['claude-sonnet-5-5', 'claude-haiku-5-5', 'deepseek-chat'],
+    models: ['relay-main-model', 'relay-fast-model', 'deepseek-chat'],
     viaWorker: false,
     lastTest: { ok: true, at: at(0, '09:12'), latencyMs: 820 },
   },
@@ -90,13 +90,13 @@ export const connections: ProviderConnection[] = [
 ];
 
 export const agentRoutes: AgentRoute[] = [
-  { role: 'main', connectionId: 'conn-relay', model: 'claude-sonnet-5-5', fallbackConnectionId: 'conn-deepseek', fallbackModel: 'deepseek-chat', runsOn: 'device', params: { temperature: 0.9 } },
+  { role: 'main', connectionId: 'conn-relay', model: 'relay-main-model', fallbackConnectionId: 'conn-deepseek', fallbackModel: 'deepseek-chat', runsOn: 'device', params: { temperature: 0.9 } },
   { role: 'summary', connectionId: 'conn-deepseek', model: 'deepseek-chat', fallbackConnectionId: null, runsOn: 'auto', dailyTokenBudget: 200_000 },
   { role: 'embedding', connectionId: 'conn-sf', model: 'BAAI/bge-m3', fallbackConnectionId: 'conn-cf', fallbackModel: '@cf/baai/bge-m3', runsOn: 'auto', dims: 1024 },
   { role: 'imagePrompt', connectionId: 'conn-deepseek', model: 'deepseek-chat', fallbackConnectionId: null, runsOn: 'auto' },
   { role: 'image', connectionId: 'conn-nai', model: 'nai-diffusion-4-5-full', fallbackConnectionId: null, runsOn: 'hub' },
-  { role: 'proactive', connectionId: 'conn-deepseek', model: 'deepseek-chat', fallbackConnectionId: 'conn-relay', fallbackModel: 'claude-haiku-5-5', runsOn: 'hub', dailyTokenBudget: 100_000 },
-  { role: 'vision', connectionId: 'conn-relay', model: 'claude-sonnet-5-5', fallbackConnectionId: null, runsOn: 'device' },
+  { role: 'proactive', connectionId: 'conn-deepseek', model: 'deepseek-chat', fallbackConnectionId: 'conn-relay', fallbackModel: 'relay-fast-model', runsOn: 'hub', dailyTokenBudget: 100_000 },
+  { role: 'vision', connectionId: 'conn-relay', model: 'relay-main-model', fallbackConnectionId: null, runsOn: 'device' },
   { role: 'tts', connectionId: 'conn-sf', model: 'FunAudioLLM/CosyVoice2-0.5B', fallbackConnectionId: null, runsOn: 'device' },
   { role: 'stt', connectionId: 'conn-sf', model: 'FunAudioLLM/SenseVoiceSmall', fallbackConnectionId: null, runsOn: 'device' },
 ];

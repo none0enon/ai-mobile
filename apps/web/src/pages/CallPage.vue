@@ -149,7 +149,7 @@ const status = computed(() => (speaker.value === 'her' ? `${character.value.name
         <span class="glow" />
         <Avatar :character="character" :size="128" live />
       </div>
-      <div class="text-[13px] text-accent-ink">{{ status }}</div>
+      <div class="text-[13px]" style="color: var(--accent)">{{ status }}</div>
       <Waveform :level="level" :tone="speaker === 'you' ? 'var(--ink-2)' : 'var(--accent)'" class="mt-1" />
       <div v-if="captionsOn" class="captions">
         <p v-for="(c, i) in captions.slice(-3)" :key="`${captions.length}-${i}`" :class="c.who">
