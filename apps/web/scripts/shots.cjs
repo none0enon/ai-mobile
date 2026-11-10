@@ -7,8 +7,25 @@
  * 截图写到 ../../screenshots（已在 .gitignore 里）。
  */
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright');
+
+/** 测试用的"照片"（晚霞渐变），给聊天背景上传用；运行时生成，不放进仓库 */
+const PHOTO = path.join(os.tmpdir(), 'ai-mobile-test-photo.png');
+async function makePhoto(browser) {
+  const p = await browser.newPage({ viewport: { width: 600, height: 1000 } });
+  await p.setContent(
+    '<body style="margin:0"><div style="width:600px;height:1000px;background:radial-gradient(circle at 25% 30%,rgba(255,230,190,.9) 0 50px,transparent 52px),radial-gradient(circle at 70% 60%,rgba(255,200,230,.5) 0 80px,transparent 82px),linear-gradient(170deg,#ffb38a,#f78fb3 35%,#7b6fd6 70%,#2c3e7a)"></div></body>',
+  );
+  await p.screenshot({ path: PHOTO });
+  await p.close();
+}
+/** 在当前页面里跳到另一个路由（hash 路由，不刷新页面） */
+async function goTo(p, route) {
+  await p.evaluate((r) => (location.hash = `#${r}`), route);
+  await p.waitForTimeout(500);
+}
 
 const BASE = process.env.BASE || 'http://127.0.0.1:4173/';
 const OUT = path.resolve(__dirname, '../../../screenshots');
@@ -75,12 +92,35 @@ const SHOTS = [
   ['environment', '/me/environment'],
   ['sync', '/me/sync'],
   ['appearance', '/me/appearance'],
+  [
+    'appearance-split',
+    '/me/appearance',
+    async (p) => {
+      await p.click('[data-palette="pink"]');
+      await p.click('.van-switch');
+      await p.click('[aria-label="夜里配色 森绿"]');
+      await p.$eval('.page-scroll', (el) => el.scrollTo(0, 0));
+    },
+  ],
+  [
+    'chat-wallpaper',
+    '/chat/chat-suwan',
+    async (p) => {
+      await goTo(p, '/me/appearance');
+      await p.click('[data-palette="blue"]');
+      await p.setInputFiles('.wall-editor input[type=file]', PHOTO);
+      await p.setInputFiles('[data-upload="persona-me"] input[type=file]', PHOTO);
+      await p.waitForTimeout(400);
+      await goTo(p, '/chat/chat-suwan');
+    },
+  ],
   ['import', '/import'],
 ];
 
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch();
+  await makePhoto(browser);
   const ctx = await browser.newContext({
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: 1,
@@ -89,6 +129,14 @@ const SHOTS = [
     locale: 'zh-CN',
     timezoneId: 'Asia/Shanghai',
     colorScheme: light ? 'light' : 'dark',
+  });
+  // 每张截图都从干净的本机设置开始（外观里换的配色、上传的图不会带到下一张）
+  await ctx.addInitScript(() => {
+    try {
+      localStorage.clear();
+    } catch {
+      // 忽略
+    }
   });
   const problems = [];
   let count = 0;

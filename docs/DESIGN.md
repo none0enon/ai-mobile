@@ -519,13 +519,13 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 
 - **角色与配置**：Character（含 ST 字段、外观 tags、语音、主动配置、关系状态、此刻所在地点 `locationId`）、Persona、Lorebook / LoreEntry、Preset / PromptBlock、SpriteSet / PokeHotspot。
 - **对话**：
-  - Chat：一个角色一条；`togetherAt` / `currentScene` 记你们此刻在哪、在做什么；
+  - Chat：一个角色一条；`togetherAt` / `currentScene` 记你们此刻在哪、在做什么；`background` 是这个聊天单独的背景（ChatBackground：图片 key、遮罩、模糊）；
   - Message：parts 有文字 / 语音 / 图片 / 歌曲 / 拍一拍 / 通话记录 / 运动 / 饭照 / 学习 / 约会 / 礼物 / 场景分段；还有 swipes。
 - **地点**：MapLocation（`locations.ts`，地图坐标、背景、在那里能做的事）。
 - **记忆**：Memory（带向量）、ChapterSummary、DiaryEntry。
 - **活动**：ActivityLog（运动 / 步数 / 吃饭 / 学习 / 睡眠 / 听歌 / 约会）。
 - **API**：ProviderConnection（`keyStorage`：device / hub / none）、AgentRoute。
-- **主动与设置**：ProactiveRule、Touchpoint、PushChannel、AppSettings。
+- **主动与设置**：ProactiveRule、Touchpoint、PushChannel、AppSettings（外观里有模式、白天 / 夜里配色、点缀色来源、通用聊天背景）。
 
 所有可同步记录都带 `id / createdAt / updatedAt / deleted / seq`。
 
@@ -642,6 +642,7 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
 - **targetSdk**：侧载 APK 保持 ≤33，避开 Android 14 对前台服务类型、全屏来电、精确闹钟的默认限制。
 - **国产 ROM**：引导用户打开自启动、电池无限制、锁屏显示（App 内做一页说明）。
 - **网页更新**：先沿用打包方式，稳定、离线可用。以后可加"网页包热更新"。
+- **选图片**：上传头像、聊天背景用的是网页的 `<input type="file">`，壳里要实现 `WebChromeClient.onShowFileChooser`（math-reader 的 MainActivity 已有，照搬）。
 - **CI**：沿用 `build-apk.yml` → `sign-apk.yml`（受保护环境 + 证书指纹）。构建前先 `pnpm build`，把 `apps/web/dist` 拷进 `assets/www`。
 
 ---
@@ -668,11 +669,25 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
   - 文字只截断不换行；
   - 剧场顶栏把位置让给"她在哪"；对话框工具条只留图标；
   - 地图上的地点名不被边缘裁掉。
-- **主题**：
-  - 深色"夜"优先，浅色"昼"可选（`styles/tokens.css`）；
-  - 主题开关只切换 `<html data-theme>`，"跟随系统"时不带它；
-  - 点缀色跟随当前角色：`AccentScope` 用 JS 算好派生色（`utils/color.ts`）再内联注入，并同步给 Vant 主色。不用 CSS `color-mix()`，因为有些国产 WebView 不支持；
-  - Vant 变量统一映射到主题变量（`styles/vant.css`）。
+- **主题**（参考 math-reader 的主题设置，在"我的 → 外观"）：
+  - 模式：跟随系统 / 夜 / 日。开关只切换 `<html data-theme>`，"跟随系统"时不带它；深色优先（`styles/tokens.css`）。
+  - 配色有 6 套：暮紫（默认）、素墨、蓝调、森绿、暖橙、樱粉（`theme/palettes.ts`）。
+    - 每套都有白天、夜里两版，跟着模式切换；也可以白天、夜里分开选。
+    - 每版只写几种基础色（底色、卡片、输入框、边框、三级文字、点缀色），毛玻璃、遮罩、地图等其余变量按规则算出来，注入到 `<html>`。
+    - 默认的暮紫不注入任何变量，直接用样式表。
+  - 点缀色默认跟随当前角色：`AccentScope` 用 JS 算好派生色（`utils/color.ts`）再内联注入，并同步给 Vant 主色。不用 CSS `color-mix()`，因为有些国产 WebView 不支持。也可以改成"跟随配色"，用配色自带的点缀色。
+  - Vant 变量统一映射到主题变量（`styles/vant.css`），所以换配色时 Vant 组件也跟着变。
+- **聊天背景与头像**：
+  - 聊天背景：
+    - 在外观里设一张通用的；单个聊天在 ⋯ → 聊天背景里另设、关掉，或恢复成跟随通用；
+    - 可调遮罩（用配色底色盖一层，气泡更清楚）和模糊。只用在聊天气泡模式；剧场模式还是按地点画背景。
+  - 头像：
+    - 你和她们的头像都能自己上传，居中裁成正方形；
+    - 你上传头像后，聊天里你的消息旁也会显示。
+  - 图片处理：
+    - 在本机压缩：背景长边 1440px，头像 320px，优先 WebP（iOS 退回 JPEG）。
+    - 骨架阶段存在 localStorage（`stores/appearance.ts`）；
+    - M1 起存 IndexedDB，按内容哈希传 R2，随 `Chat.background`、`Character.avatar`、`Persona.avatar` 同步。
 - **占位美术**：
   - 立绘是 SVG 简笔画，11 种表情、5 套服装、5 种姿势（`components/figure/CharacterFigure.vue`）；
   - 背景按场景和时段画（`SceneBackdrop.vue`）；

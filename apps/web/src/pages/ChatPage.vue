@@ -8,7 +8,9 @@ import MessageItem from '@/components/chat/MessageItem.vue';
 import Avatar from '@/components/common/Avatar.vue';
 import CgArt from '@/components/figure/CgArt.vue';
 import DialogBox from '@/components/stage/DialogBox.vue';
+import Wallpaper from '@/components/common/Wallpaper.vue';
 import { backdropAt } from '@/components/scene/location';
+import BackgroundEditor from '@/components/settings/BackgroundEditor.vue';
 import StageView from '@/components/stage/StageView.vue';
 import { usePoke } from '@/composables/usePoke';
 import PageHeader from '@/layouts/PageHeader.vue';
@@ -17,6 +19,7 @@ import { presets } from '@/mock/library';
 import { goBack } from '@/router';
 import { services } from '@/services';
 import { useAppStore } from '@/stores/app';
+import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 import { dividerTime, hhmm } from '@/utils/time';
@@ -138,7 +141,14 @@ function openImage(p: MessagePart) {
 }
 
 const moreOpen = ref(false);
+// —— 聊天背景：这个聊天单独设的 → 外观里的通用背景 ——
+const looks = useAppearanceStore();
+const wall = computed(() => looks.backgroundOf(chatId.value));
+const hasWall = computed(() => !!looks.imageUrl(wall.value?.assetKey));
+const wallOpen = ref(false);
+
 const moreActions = computed(() => [
+  { name: '聊天背景', subname: looks.hasOwnBackground(chatId.value) ? '这个聊天单独设置了' : '跟随外观里的通用背景', key: 'background' },
   { name: '查看提示词', subname: '按预设组装后的完整提示（含世界书、记忆、环境）', key: 'inspect' },
   { name: '角色设定', subname: character.value?.name, key: 'character' },
   { name: '记忆本', subname: '她记得的事，可以改', key: 'memory' },
@@ -156,7 +166,8 @@ function onMore(a: { key: string }) {
     lore: `/me/lorebooks/${c?.lorebookIds[0] ?? ''}`,
     preset: `/me/presets/${preset.value?.id ?? 'preset-daily'}`,
   };
-  if (target[a.key]) void router.push(target[a.key] as string);
+  if (a.key === 'background') wallOpen.value = true;
+  else if (target[a.key]) void router.push(target[a.key] as string);
   else showToast('M1 实现');
 }
 
@@ -185,6 +196,7 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
   <div v-if="chat && character" class="page chat-page" data-page="chat">
     <!-- IM 模式 -->
     <template v-if="mode === 'im'">
+      <Wallpaper :background="wall" />
       <PageHeader fallback="/chats">
         <template #title>
           <div class="flex items-center gap-2.5 min-w-0">
@@ -208,7 +220,7 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
         </template>
       </PageHeader>
 
-      <div ref="scroller" class="page-scroll chat-bg">
+      <div ref="scroller" class="page-scroll" :class="{ 'chat-bg': !hasWall }">
         <div class="py-3">
           <template v-for="r in rows" :key="r.id">
             <div v-if="r.kind === 'divider'" class="divider num">{{ dividerTime(r.ts) }}</div>
@@ -267,6 +279,13 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
 
     <van-action-sheet v-model:show="moreOpen" :actions="moreActions" cancel-text="取消" close-on-click-action @select="onMore" />
 
+    <van-popup v-model:show="wallOpen" position="bottom" round :style="{ maxHeight: '86%' }">
+      <div class="sheet">
+        <div class="sheet-title mb-3">聊天背景 · {{ character.name }}</div>
+        <BackgroundEditor :scope="chatId" />
+      </div>
+    </van-popup>
+
     <van-popup v-model:show="logOpen" position="bottom" round :style="{ maxHeight: '72%' }">
       <div class="p-4">
         <div class="text-[15px] font-600 mb-2">对话记录</div>
@@ -294,6 +313,10 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
 </template>
 
 <style scoped>
+/* 背景图层（Wallpaper，z-index -1）只在这一页里垫在底下 */
+.chat-page {
+  isolation: isolate;
+}
 .chat-bg {
   background:
     radial-gradient(120% 60% at 50% -10%, var(--accent-soft), transparent 60%),

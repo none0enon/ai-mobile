@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import type { ThemeName } from '@/utils/color';
 
 export type ThemeSetting = 'system' | 'dark' | 'light';
@@ -75,14 +75,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   applyTheme();
-
-  watch(
-    resolvedTheme,
-    (t) => {
-      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', t === 'dark' ? '#0c0815' : '#f6f2f7');
-    },
-    { immediate: true },
-  );
+  // 地址栏颜色（meta theme-color）跟着配色走，在 stores/appearance.ts 里设
 
   /** "一起"和"回忆"页当前陪着你的角色 */
   const activeCharacterId = ref('suwan');

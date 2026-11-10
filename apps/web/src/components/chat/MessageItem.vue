@@ -3,6 +3,10 @@ import type { Character, Message, MessagePart } from '@app/shared';
 import { computed } from 'vue';
 import PartCard from './PartCard.vue';
 import Avatar from '@/components/common/Avatar.vue';
+import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
+import { personas } from '@/mock/characters';
+import { useAppearanceStore } from '@/stores/appearance';
+import { useChatStore } from '@/stores/chat';
 
 const props = defineProps<{
   message: Message;
@@ -21,6 +25,12 @@ const emit = defineEmits<{
 }>();
 
 const mine = computed(() => props.message.role === 'user');
+
+/** 你上传过头像时，你的消息右边也显示头像（没上传就不占地方） */
+const chatStore = useChatStore();
+const looks = useAppearanceStore();
+const me = computed(() => personas.find((p) => p.id === chatStore.chatById(props.message.chatId)?.personaId) ?? personas[0]);
+const showMyAvatar = computed(() => !!me.value && !!looks.imageUrl(looks.avatarKey('persona', me.value.id) ?? me.value.avatar));
 const narrator = computed(() => props.message.role === 'narrator' || props.message.role === 'system');
 const textParts = computed(() => props.message.parts.filter((p) => p.type === 'text' && p.text));
 const pokeParts = computed(() => props.message.parts.filter((p) => p.type === 'poke'));
@@ -89,6 +99,7 @@ function segments(text: string) {
         </div>
         <span v-if="message.meta.interrupted" class="text-[12px] text-warn">回复被打断了 · 点重新生成继续</span>
       </div>
+      <PersonaAvatar v-if="mine && showMyAvatar && me" :persona="me" :size="34" class="mt-0.5" />
     </div>
   </div>
 </template>

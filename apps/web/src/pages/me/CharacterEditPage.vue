@@ -4,15 +4,25 @@ import { showToast } from 'vant';
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import Avatar from '@/components/common/Avatar.vue';
+import ImagePick from '@/components/common/ImagePick.vue';
 import CharacterFigure from '@/components/figure/CharacterFigure.vue';
 import StageView from '@/components/stage/StageView.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { FIGURE } from '@/mock/characters';
 import { lorebooks, pokeHotspots } from '@/mock/library';
+import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
 
 const route = useRoute();
 const chars = useCharacterStore();
+const looks = useAppearanceStore();
+async function pickAvatar(file: File) {
+  try {
+    showToast((await looks.pickAvatar('character', character.value.id, file)) ? '头像换好了' : '换好了，但本机存储不够，下次打开会恢复原样');
+  } catch {
+    showToast('这张图读不出来，换一张试试');
+  }
+}
 const character = computed(() => chars.byId(route.params.id as string) ?? chars.list[0]!);
 const figure = computed(() => FIGURE[character.value.id] ?? { hairStyle: 'long' as const, eye: '#3b2531' });
 const TABS = ['basic', 'persona', 'greeting', 'example', 'lore', 'sprite', 'voice', 'proactive', 'look'] as const;
@@ -32,7 +42,10 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
     </PageHeader>
     <div class="page-scroll pb-10">
       <div class="hero mx-4 mt-3" :style="{ '--tone': character.accent }">
-        <Avatar :character="character" :size="64" live />
+        <ImagePick class="ava-pick" :aria-label="`给${character.name}换头像`" @pick="pickAvatar">
+          <Avatar :character="character" :size="64" live />
+          <span class="ava-badge"><span class="i-lucide-camera" /></span>
+        </ImagePick>
         <div class="flex-1 min-w-0">
           <div class="text-[20px] font-700">{{ character.name }}</div>
           <div class="text-[12.5px] text-ink-3">v{{ character.card.characterVersion }} · {{ character.card.creator }}</div>
@@ -166,6 +179,25 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
 </template>
 
 <style scoped>
+.ava-pick {
+  position: relative;
+  flex-shrink: 0;
+}
+.ava-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 13px;
+  box-shadow: 0 0 0 2px var(--surface);
+}
 .hero {
   display: flex;
   align-items: center;

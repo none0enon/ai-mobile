@@ -16,7 +16,7 @@ const model = defineModel<T>({ required: true });
         :class="{ on: model === o.value }"
         @click="model = o.value"
       >
-        <span v-if="o.icon" :class="o.icon" />{{ o.label }}
+        <span v-if="o.icon" :class="o.icon" class="seg-icon" /><span class="seg-label">{{ o.label }}</span>
       </button>
     </div>
   </div>
@@ -50,6 +50,24 @@ const model = defineModel<T>({ required: true });
   transition:
     background 0.2s,
     color 0.2s;
+}
+.seg-item {
+  min-width: 0;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+.seg-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.seg-icon {
+  flex-shrink: 0;
+}
+/* 窄屏 + 系统大字体：图标让位给文字，不折成两行 */
+@media (max-width: 360px) {
+  .seg-icon {
+    display: none;
+  }
 }
 .seg-item.on {
   background: var(--surface);

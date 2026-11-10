@@ -1,5 +1,6 @@
 import type { MealSlot } from './activity.ts';
 import type { SyncMeta } from './common.ts';
+import type { ChatBackground } from './settings.ts';
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'narrator';
 
@@ -92,4 +93,6 @@ export interface Chat extends SyncMeta {
   summaryUntilMessageId: string | null;
   pinned: boolean;
   lastMessageAt: number;
+  /** 这个聊天单独的背景；为空时用外观设置里的通用背景 */
+  background: ChatBackground | null;
 }

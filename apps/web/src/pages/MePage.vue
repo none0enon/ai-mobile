@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { connections, agentRoutes } from '@/mock/api';
+import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
 import { personas } from '@/mock/characters';
 import { lorebooks, presets } from '@/mock/library';
 import { memories, album } from '@/mock/memories';
@@ -72,7 +73,7 @@ function demoCall() {
   <div class="page" data-page="me">
     <div class="page-scroll pb-8">
       <header class="profile gutter pt-[calc(var(--safe-top)+18px)]">
-        <span class="me-avatar">{{ me.name.slice(-1) }}</span>
+        <RouterLink to="/me/appearance" class="shrink-0" aria-label="换头像"><PersonaAvatar :persona="me" :size="60" /></RouterLink>
         <div class="flex-1 min-w-0">
           <div class="text-[22px] font-700">{{ me.name }}</div>
           <div class="text-[12.5px] text-ink-3 line-clamp-2">{{ me.description }}</div>
@@ -118,19 +119,6 @@ function demoCall() {
   display: flex;
   align-items: center;
   gap: 14px;
-}
-.me-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #8db8ff, #6f5b9e);
-  color: #fff;
-  font-size: 24px;
-  font-weight: 700;
-  flex-shrink: 0;
 }
 .switch {
   height: 32px;
