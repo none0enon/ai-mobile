@@ -44,6 +44,8 @@ const SHOTS = [
   ['map', '/map'],
   ['map-sheet', '/map', async (p) => p.click('[data-loc="library"]')],
   ['map-char', '/map', async (p) => p.click('.who >> nth=0')],
+  ['map-activity', '/map', async (p) => p.click('.act >> nth=0')],
+  ['map-activity-date', '/map', async (p) => p.click('.act >> nth=5')],
   ['scene-exercise', '/scene/exercise'],
   ['scene-meal', '/scene/meal'],
   ['scene-study', '/scene/study'],

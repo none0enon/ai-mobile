@@ -1,5 +1,17 @@
 <script setup lang="ts">
-import { AREA_LABEL, defaultLocationFor, getLocation, LOCATIONS, SCENES, timeOfDay, type Character, type LocationActivity, type MapLocation, type SceneId } from '@app/shared';
+import {
+  AREA_LABEL,
+  defaultLocationFor,
+  getLocation,
+  LOCATIONS,
+  SCENES,
+  timeOfDay,
+  type Character,
+  type LocationActivity,
+  type MapLocation,
+  type SceneDef,
+  type SceneId,
+} from '@app/shared';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Avatar from '@/components/common/Avatar.vue';
@@ -56,6 +68,7 @@ function go(loc: MapLocation, activity: LocationActivity, characterId: string) {
   app.activeCharacterId = characterId;
   locOpen.value = false;
   charOpen.value = false;
+  actOpen.value = false;
   void router.push({ path: `/scene/${activity.sceneId}`, query: { at: loc.id } });
 }
 
@@ -79,10 +92,28 @@ function openChar(c: Character) {
   charOpen.value = true;
 }
 
-/** 能一起做的事：点一下打开最常去的那个地点 */
-const ACTIVITY_CHIPS = SCENES.map((s) => ({ id: s.id, name: s.name, icon: s.icon, tint: s.tint }));
-function openActivity(sceneId: SceneId) {
-  openLoc(defaultLocationFor(sceneId));
+// —— 一起做点什么：先选做什么，再选去哪儿、和谁 ——
+function placesFor(sceneId: SceneId) {
+  return LOCATIONS.filter((l) => l.activities.some((a) => a.sceneId === sceneId));
+}
+const TILES = SCENES.map((s) => {
+  const places = placesFor(s.id);
+  return { scene: s, where: places.length > 1 ? `${places.length} 个地方` : (places[0]?.name ?? '') };
+});
+const selectedScene = ref<SceneDef | null>(null);
+const actOpen = ref(false);
+const places = computed(() => (selectedScene.value ? placesFor(selectedScene.value.id) : []));
+function openActivity(s: SceneDef) {
+  selectedScene.value = s;
+  companionId.value = app.activeCharacterId;
+  actOpen.value = true;
+}
+function activityAt(l: MapLocation, sceneId: SceneId): LocationActivity {
+  return l.activities.find((a) => a.sceneId === sceneId) ?? (l.activities[0] as LocationActivity);
+}
+function whoAt(l: MapLocation) {
+  const list = chars.list.filter((c) => c.locationId === l.id);
+  return list.length ? `${list.map((c) => c.name).join('、')}在这里` : '';
 }
 
 onMounted(() => {
@@ -119,25 +150,32 @@ onMounted(() => {
       </div>
       <p class="text-[12px] text-ink-3 text-center mt-2 mb-0">点地点：在那里能做什么、和谁一起去 · 点头像：去找她</p>
 
-      <!-- 能一起做的事 -->
-      <div class="flex gap-2 overflow-x-auto hide-scrollbar px-4 pt-3">
-        <button v-for="a in ACTIVITY_CHIPS" :key="a.id" class="act press" :style="{ '--tone': a.tint }" @click="openActivity(a.id)">
-          <span :class="a.icon" />{{ a.name }}
+      <!-- 一起做点什么 -->
+      <div class="group-title">一起做点什么</div>
+      <div class="acts">
+        <button v-for="t in TILES" :key="t.scene.id" class="act press" :style="{ '--tone': t.scene.tint }" @click="openActivity(t.scene)">
+          <span class="act-icon"><span :class="t.scene.icon" /></span>
+          <span class="act-name">{{ t.scene.name }}</span>
+          <span class="act-where">{{ t.where }}</span>
         </button>
+        <RouterLink :to="`/call/${active.id}`" class="act press" style="--tone: #e8c26a">
+          <span class="act-icon"><span class="i-lucide-phone" /></span>
+          <span class="act-name">打电话</span>
+          <span class="act-where">给{{ active.name }}</span>
+        </RouterLink>
       </div>
 
-      <!-- 她们在哪 -->
+      <!-- 她们在哪：点开是去找她 / 发消息 / 打电话 -->
       <div class="group-title">她们在哪</div>
-      <div class="px-4 grid gap-2">
-        <div v-for="c in chars.list" :key="c.id" class="person">
-          <Avatar :character="c" :size="40" live />
-          <div class="flex-1 min-w-0">
-            <div class="text-[15px] font-600">{{ c.name }}</div>
-            <div class="text-[12.5px] text-ink-3 truncate"><span class="i-lucide-map-pin" /> {{ locOf(c).name }} · {{ c.status }}</div>
+      <div class="flex gap-2 overflow-x-auto hide-scrollbar px-4">
+        <button v-for="c in chars.list" :key="c.id" class="person press" @click="openChar(c)">
+          <Avatar :character="c" :size="30" live />
+          <div class="flex-1 min-w-0 text-left leading-tight">
+            <div class="text-[13.5px] font-600 truncate">{{ c.name }}</div>
+            <div class="text-[11.5px] text-ink-3 truncate">{{ locOf(c).name }} · {{ c.status }}</div>
           </div>
-          <RouterLink :to="`/chat/${chat.chatOfCharacter(c.id)?.id}`" class="mini-btn">发消息</RouterLink>
-          <button class="mini-btn primary" @click="go(locOf(c), locOf(c).activities[0]!, c.id)">去找她</button>
-        </div>
+          <span class="i-lucide-chevron-right text-ink-3 shrink-0" />
+        </button>
       </div>
 
       <!-- 今天的你 -->
@@ -149,6 +187,35 @@ onMounted(() => {
         <div class="stat"><span class="i-lucide-moon-star" /><b class="num">{{ today.lastSleep.hours }}h</b><small>睡眠</small></div>
       </div>
     </div>
+
+    <!-- 活动面板：去哪儿、和谁 -->
+    <van-popup v-model:show="actOpen" position="bottom" round :style="{ maxHeight: '82%' }">
+      <div v-if="selectedScene" class="sheet" :style="{ '--tone': selectedScene.tint }">
+        <div class="flex items-center gap-3">
+          <span class="act-icon"><span :class="selectedScene.icon" /></span>
+          <div class="flex-1 min-w-0">
+            <div class="sheet-title">{{ selectedScene.name }}</div>
+            <div class="text-[12.5px] text-ink-3">{{ selectedScene.tagline }}</div>
+          </div>
+        </div>
+        <label class="field-label">和谁一起</label>
+        <div class="flex gap-2">
+          <button v-for="c in chars.list" :key="c.id" class="with" :class="{ on: companionId === c.id }" @click="companionId = c.id">
+            <Avatar :character="c" :size="24" />{{ c.name }}
+          </button>
+        </div>
+        <label class="field-label">去哪儿</label>
+        <div class="grid gap-2" :class="places.length > 1 ? 'grid-cols-2' : 'grid-cols-1'">
+          <button v-for="l in places" :key="l.id" class="place press" :data-place="l.id" @click="go(l, activityAt(l, selectedScene.id), companion.id)">
+            <span class="place-icon"><span :class="l.icon" /></span>
+            <div class="flex-1 min-w-0 text-left leading-tight">
+              <div class="text-[14px] font-600 truncate">{{ l.name }}</div>
+              <div class="text-[11.5px] truncate mt-0.5" :class="whoAt(l) ? 'text-accent-ink' : 'text-ink-3'">{{ whoAt(l) || l.blurb }}</div>
+            </div>
+          </button>
+        </div>
+      </div>
+    </van-popup>
 
     <!-- 地点面板 -->
     <van-popup v-model:show="locOpen" position="bottom" round>
@@ -226,46 +293,93 @@ onMounted(() => {
   line-height: 32px;
   flex-shrink: 0;
 }
+.acts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 16px;
+}
 .act {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 5px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 99px;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 4px 10px;
+  border-radius: 18px;
   background: var(--surface);
   border: 1px solid var(--border);
-  font-size: 13px;
-  white-space: nowrap;
+  color: inherit;
+  text-decoration: none;
+}
+.act-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  color: var(--tone);
+  font-size: 23px;
   flex-shrink: 0;
 }
-.act span {
-  color: var(--tone);
+.act-icon::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--tone);
+  opacity: 0.18;
+}
+.act-icon > span {
+  position: relative;
+}
+.act-name {
+  margin-top: 2px;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.act-where {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .person {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 16px;
+  gap: 8px;
+  flex: 0 0 calc(50% - 4px);
+  min-width: 0;
+  padding: 8px 8px 8px 10px;
+  border-radius: 14px;
   background: var(--surface);
   border: 1px solid var(--border);
 }
-.mini-btn {
-  height: 30px;
-  padding: 0 10px;
-  border-radius: 99px;
+.place {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
   background: var(--panel);
-  color: var(--ink);
-  font-size: 12.5px;
-  line-height: 30px;
-  text-decoration: none;
-  flex-shrink: 0;
 }
-.mini-btn.primary {
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
+.place-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--tone);
+  font-size: 17px;
+  flex-shrink: 0;
 }
 .stat {
   display: flex;
