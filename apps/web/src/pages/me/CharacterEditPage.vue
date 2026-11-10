@@ -5,6 +5,7 @@ import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import Avatar from '@/components/common/Avatar.vue';
 import ImagePick from '@/components/common/ImagePick.vue';
+import Segmented from '@/components/common/Segmented.vue';
 import CharacterFigure from '@/components/figure/CharacterFigure.vue';
 import StageView from '@/components/stage/StageView.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
@@ -60,7 +61,16 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
           <div class="px-4">
             <label class="field-label" for="ce-name">名字</label>
             <input id="ce-name" v-model="character.name" class="input" />
-            <label class="field-label" for="ce-status">状态行（她此刻在做什么，模拟作息会自动更新）</label>
+            <label class="field-label">界面里怎么称呼（导入的角色卡没有这一项，要自己选）</label>
+            <Segmented
+              v-model="character.pronoun"
+              :options="[
+                { value: '她', label: '她' },
+                { value: '他', label: '他' },
+                { value: 'TA', label: 'TA' },
+              ]"
+            />
+            <label class="field-label" for="ce-status">状态行（{{ character.pronoun }}此刻在做什么，模拟作息会自动更新）</label>
             <input id="ce-status" v-model="character.status" class="input" />
             <label class="field-label">标签</label>
             <div class="flex flex-wrap gap-1.5"><span v-for="t in character.card.tags" :key="t" class="tag">{{ t }}</span></div>

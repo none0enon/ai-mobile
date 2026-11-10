@@ -55,7 +55,7 @@ const suggestion = computed(() => {
   const c = active.value;
   const here = locOf(c);
   if (here.id !== 'home' && here.activities[0]) {
-    return { character: c, loc: here, activity: here.activities[0], text: `${c.name}在${here.name}${c.status}，去陪她？` };
+    return { character: c, loc: here, activity: here.activities[0], text: `${c.name}在${here.name}${c.status}，去陪${c.pronoun}？` };
   }
   const t = TIME_SUGGEST[timeOfDay(now.getHours())] ?? TIME_SUGGEST.night!;
   const loc = defaultLocationFor(t.scene);
@@ -260,7 +260,7 @@ onMounted(() => {
         </div>
         <div class="grid grid-cols-3 gap-2 mt-4">
           <button class="big-btn primary" @click="go(locOf(selectedChar), locOf(selectedChar).activities[0]!, selectedChar.id)">
-            <span class="i-lucide-footprints" />去找她
+            <span class="i-lucide-footprints" />去找{{ selectedChar.pronoun }}
           </button>
           <RouterLink :to="`/chat/${chat.chatOfCharacter(selectedChar.id)?.id}`" class="big-btn"><span class="i-lucide-message-circle" />发消息</RouterLink>
           <RouterLink :to="`/call/${selectedChar.id}`" class="big-btn"><span class="i-lucide-phone" />打电话</RouterLink>

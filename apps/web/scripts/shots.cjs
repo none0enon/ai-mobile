@@ -78,6 +78,8 @@ const SHOTS = [
   ['memories-diary', '/memories?tab=diary'],
   ['memories-album', '/memories?tab=album'],
   ['memories-book', '/memories?tab=book'],
+  ['memories-jiangyu', '/memories?char=jiangyu'],
+  ['memories-jiangyu-diary', '/memories?char=jiangyu&tab=diary'],
   ['me', '/me'],
   ['characters', '/me/characters'],
   ['character-edit', '/me/characters/suwan'],

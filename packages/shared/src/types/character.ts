@@ -66,6 +66,8 @@ export interface Relationship {
 
 export interface Character extends SyncMeta {
   name: string;
+  /** 界面里怎么称呼：她 / 他 / TA（"她叫你…""去找他"） */
+  pronoun: '她' | '他' | 'TA';
   /** 资源 key（R2 内容哈希）；为空时用占位头像 */
   avatar: string | null;
   /** 角色主题色，界面点缀色跟随它 */

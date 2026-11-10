@@ -17,7 +17,17 @@ const route = useRoute();
 const router = useRouter();
 const app = useAppStore();
 const chars = useCharacterStore();
-const character = computed(() => chars.byId(app.activeCharacterId) ?? chars.list[0]!);
+/**
+ * 回忆按人分：上面一排头像切换看谁的回忆（?char=），默认是当前陪着你的角色。
+ * 换人时点缀色也跟着换（App.vue 读 ?char）。
+ */
+const character = computed(() => chars.byId(route.query.char as string | undefined) ?? chars.byId(app.activeCharacterId) ?? chars.list[0]!);
+function pick(id: string) {
+  void router.replace({ query: { ...route.query, char: id } });
+}
+const myTimeline = computed(() => timeline.filter((t) => t.characterId === character.value.id));
+const myDiaries = computed(() => diaries.filter((d) => d.characterId === character.value.id));
+const myAlbum = computed(() => album.filter((a) => a.characterId === character.value.id));
 const rel = computed(() => character.value.relationship);
 const metDays = computed(() => daysBetween(rel.value.metAt, Date.now()));
 
@@ -43,10 +53,11 @@ const FILTERS: { value: MemoryType | 'all' | 'pinned'; label: string }[] = [
 ];
 function forget(id: string) {
   items.value = items.value.filter((m) => m.id !== id);
-  showToast('她已经忘了这件事');
+  showToast(`${character.value.pronoun}已经忘了这件事`);
 }
 
-const expanded = ref<string | null>(diaries[0]?.id ?? null);
+const expanded = ref<string | null>(null);
+watch(character, () => (expanded.value = myDiaries.value[0]?.id ?? null), { immediate: true });
 const viewing = ref<AlbumItem | null>(null);
 const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.value = v ? viewing.value : null) });
 </script>
@@ -56,6 +67,21 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
     <header class="gutter pt-[calc(var(--safe-top)+14px)] pb-1 flex items-center">
       <h1 class="m-0 text-[28px] font-700">回忆</h1>
     </header>
+    <!-- 看谁的回忆 -->
+    <div class="flex gap-2 overflow-x-auto hide-scrollbar px-4 pt-1 pb-1 shrink-0" role="tablist" aria-label="看谁的回忆">
+      <button
+        v-for="c in chars.list"
+        :key="c.id"
+        role="tab"
+        :aria-selected="c.id === character.id"
+        class="person-tab press"
+        :class="{ on: c.id === character.id }"
+        :style="{ '--tone': c.accent }"
+        @click="pick(c.id)"
+      >
+        <Avatar :character="c" :size="26" />{{ c.name }}
+      </button>
+    </div>
 
     <div class="page-scroll pb-6">
       <!-- 关系状态（由总结智能体维护） -->
@@ -66,7 +92,7 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
             <span class="text-[17px] font-700">{{ character.name }}</span>
             <span class="mood">心情：{{ rel.mood }}</span>
           </div>
-          <div class="text-[12.5px] text-ink-3 mt-0.5">相识 {{ metDays }} 天 · 她叫你"{{ rel.userNickname }}"，你叫她"{{ rel.charNickname }}"</div>
+          <div class="text-[12.5px] text-ink-3 mt-0.5">相识 {{ metDays }} 天 · {{ character.pronoun }}叫你"{{ rel.userNickname }}"，你叫{{ character.pronoun }}"{{ rel.charNickname }}"</div>
           <div class="flex items-center gap-2 mt-2">
             <span class="i-lucide-heart text-accent text-[14px]" />
             <van-progress :percentage="rel.affection" :show-pivot="false" stroke-width="5" class="flex-1" />
@@ -92,7 +118,7 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
 
       <!-- 时间线 -->
       <ol v-if="tab === 'timeline'" class="timeline">
-        <li v-for="t in timeline" :key="t.id" :style="{ '--tone': t.tint }">
+        <li v-for="t in myTimeline" :key="t.id" :style="{ '--tone': t.tint }">
           <span class="dot"><span :class="t.icon" /></span>
           <div class="flex-1 min-w-0">
             <div class="text-[12px] text-ink-3 num">{{ monthDay(t.when) }}</div>
@@ -104,8 +130,8 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
 
       <!-- 日记 -->
       <div v-else-if="tab === 'diary'" class="px-4 grid gap-3 mt-1">
-        <p class="text-[12px] text-ink-3 m-0">每晚由总结智能体用{{ character.name }}的口吻写，也是她的"情景记忆"</p>
-        <article v-for="d in diaries" :key="d.id" class="diary press" @click="expanded = expanded === d.id ? null : d.id">
+        <p class="text-[12px] text-ink-3 m-0">每晚由总结智能体用{{ character.name }}的口吻写，也是{{ character.pronoun }}的"情景记忆"</p>
+        <article v-for="d in myDiaries" :key="d.id" class="diary press" @click="expanded = expanded === d.id ? null : d.id">
           <div class="flex items-center gap-2 text-[12.5px] text-ink-3">
             <span class="text-[15px] font-600 text-ink">{{ d.date }}</span>
             <span class="i-lucide-cloud-rain" v-if="d.weather.includes('雨')" /><span class="i-lucide-cloud-sun" v-else />{{ d.weather }}
@@ -122,7 +148,7 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
       <div v-else-if="tab === 'album'" class="px-4 mt-1">
         <p class="text-[12px] text-ink-3 m-0 mb-2.5">聊天、约会、主动"自拍"里生成的 CG，都保存提示词和种子，可以复现</p>
         <div class="grid grid-cols-2 gap-2.5">
-          <button v-for="a in album" :key="a.id" class="tile press" @click="viewing = a">
+          <button v-for="a in myAlbum" :key="a.id" class="tile press" @click="viewing = a">
             <CgArt :character="character" :scene="a.scene" :expression="a.id === 'a3' ? 'laugh' : 'smile'" :outfit="a.scene === 'park' ? 'sport' : a.scene === 'bedroom' ? 'pajama' : a.scene === 'aquarium' || a.scene === 'amusement' ? 'date' : 'daily'" class="rounded-[14px]" />
             <div class="text-[13px] font-600 mt-1.5 truncate">{{ a.caption }}</div>
             <div class="text-[11.5px] text-ink-3 num">{{ monthDay(a.when) }}</div>
@@ -135,7 +161,7 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
         <div class="px-4">
           <div class="search">
             <span class="i-lucide-search text-ink-3" />
-            <input v-model="keyword" placeholder="搜她记得的事（本机向量检索）" aria-label="搜索记忆" />
+            <input v-model="keyword" :placeholder="`搜${character.pronoun}记得的事（本机向量检索）`" aria-label="搜索记忆" />
           </div>
         </div>
         <div class="flex gap-2 overflow-x-auto hide-scrollbar px-4 py-2.5">
@@ -150,7 +176,7 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
                 <span class="type">{{ MEMORY_TYPE_META[m.type].label }}</span>
                 <span class="num">重要度 {{ m.importance }}</span>
                 <span v-if="m.recallCount" class="num">想起过 {{ m.recallCount }} 次</span>
-                <span v-if="m.dueAt" class="due num"><span class="i-lucide-alarm-clock" />{{ monthDay(m.dueAt) }} 到期 · 她会来问</span>
+                <span v-if="m.dueAt" class="due num"><span class="i-lucide-alarm-clock" />{{ monthDay(m.dueAt) }} 到期 · {{ character.pronoun }}会来问</span>
               </div>
             </div>
             <div class="flex flex-col gap-1">
@@ -176,7 +202,7 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
         <div class="text-[12px] text-ink-3 num">种子：{{ viewing.seed }} · NovelAI V4.5 · 832×1216</div>
         <div class="flex gap-2 mt-3">
           <van-button size="small" round block @click="showToast('M5 接入 NovelAI')">用同样参数重画</van-button>
-          <van-button size="small" round block type="primary" @click="showToast('已设为聊天背景')">设为聊天背景</van-button>
+          <van-button size="small" round block type="primary" @click="showToast('M5：出了真图就能一键设为聊天背景')">设为聊天背景</van-button>
         </div>
       </div>
     </van-popup>
@@ -184,6 +210,25 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
 </template>
 
 <style scoped>
+.person-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px 0 5px;
+  border-radius: 99px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: 14px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.person-tab.on {
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1.5px var(--tone);
+}
 .rel {
   display: flex;
   gap: 12px;

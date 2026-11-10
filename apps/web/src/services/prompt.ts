@@ -88,6 +88,12 @@ function matchLore(character: Character, recentText: string) {
   return hits;
 }
 
+/** 演示用的滚动摘要（每个角色一份；正式版由总结智能体写） */
+const SUMMARIES: Record<string, string> = {
+  suwan: '上周两人一起看了电影；他最近在赶论文、经常熬夜，她很担心；约好周六去水族馆。',
+  jiangyu: '他最近每天早上跟江屿在操场晨跑；昨天下雨跑了 3.1 公里，比第一天快了一分钟；约好每天六点见，迟到一分钟加一圈。',
+};
+
 export function assemblePreview(chat: Chat, character: Character, history: Message[]): PromptBlockPreview[] {
   const preset: Preset = presets.find((p) => p.id === (chat.presetId ?? character.presetId)) ?? (presets[0] as Preset);
   const recent = history.slice(-12);
@@ -118,7 +124,7 @@ export function assemblePreview(chat: Chat, character: Character, history: Messa
     personaDescription: { content: `${persona?.name}：${persona?.description ?? ''}`, source: '我的人设' },
     dialogueExamples: { content: macros(character.card.mesExample, character), source: '角色卡 mes_example' },
     summary: {
-      content: '上周两人一起看了电影；他最近在赶论文、经常熬夜，她很担心；约好周六去水族馆。',
+      content: SUMMARIES[character.id] ?? '',
       source: '滚动摘要（总结智能体）',
     },
     memory: {

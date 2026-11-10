@@ -517,7 +517,7 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 ### 12.1 领域类型
 在 `packages/shared/src/types/*`，客户端和 Worker 共用。这个包不依赖 DOM 和 Node，可以原样放进 Worker。
 
-- **角色与配置**：Character（含 ST 字段、外观 tags、语音、主动配置、关系状态、此刻所在地点 `locationId`）、Persona、Lorebook / LoreEntry、Preset / PromptBlock、SpriteSet / PokeHotspot。
+- **角色与配置**：Character（含 ST 字段、外观 tags、语音、主动配置、关系状态、此刻所在地点 `locationId`、界面里的称呼 `pronoun`：她 / 他 / TA，导入的卡没有这一项，要自己选）、Persona、Lorebook / LoreEntry、Preset / PromptBlock、SpriteSet / PokeHotspot。
 - **对话**：
   - Chat：一个角色一条；`togetherAt` / `currentScene` 记你们此刻在哪、在做什么；`background` 是这个聊天单独的背景（ChatBackground：图片 key、遮罩、模糊）；
   - Message：parts 有文字 / 语音 / 图片 / 歌曲 / 拍一拍 / 通话记录 / 运动 / 饭照 / 学习 / 约会 / 礼物 / 场景分段；还有 swipes。
@@ -657,7 +657,7 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
 | `#/call/:charId(?incoming=1)` | 通话 / 来电 | `pages/CallPage.vue` |
 | `#/map?focus=` | 地图：家 / 学校 / 城里的地点和她们的位置、此刻建议、能一起做的事、今天的你 | `pages/MapPage.vue`、`components/map/WorldMap.vue` |
 | `#/scene/:sceneId?at=` | 七个场景；`at` 是地图上的地点 | `pages/ScenePage.vue` + `scenes/*` |
-| `#/memories?tab=` | 回忆：时间线 / 日记 / 相册 / 记忆本 | `pages/MemoriesPage.vue` |
+| `#/memories?char=&tab=` | 回忆按人分：上面一排头像切换看谁的，下面是关系状态 + 时间线 / 日记 / 相册 / 记忆本 | `pages/MemoriesPage.vue` |
 | `#/me` 及 `#/me/*`、`#/import` | 我的、角色卡、人设、世界书、预设、API 与智能体、语音、主动消息、环境与作息、同步、外观、导入 | `pages/MePage.vue`、`pages/me/*` |
 
 - **底部 4 个 Tab**：消息（未读角标）/ 地图 / 回忆（新日记小红点）/ 我的。二级页面不显示 Tab。
