@@ -10,6 +10,9 @@ import './styles/vant.css';
 import 'virtual:uno.css';
 import App from './App.vue';
 import { router } from './router';
+import { useCharacterStore } from './stores/characters';
+import { useChatStore } from './stores/chat';
+import { useLibraryStore } from './stores/library';
 
 if (import.meta.env.MODE === 'preview') {
   // Claude Artifact 预览：外层已处理安全区
@@ -23,4 +26,9 @@ try {
   // 忽略
 }
 
-createApp(App).use(createPinia()).use(router).mount('#app');
+const app = createApp(App).use(createPinia()).use(router);
+
+// 先读本机数据库（导入的角色、世界书、预设、聊天），再挂载：刷新后直接打开导入角色的聊天也找得到
+// 个别 WebView 里 IndexedDB 可能一直不回应：最多等 1.5 秒，读到的数据之后再补进来
+const hydrated = Promise.all([useLibraryStore().hydrate(), useCharacterStore().hydrate(), useChatStore().hydrate()]).catch(() => undefined);
+Promise.race([hydrated, new Promise((r) => setTimeout(r, 1500))]).finally(() => app.mount('#app'));

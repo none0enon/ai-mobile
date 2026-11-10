@@ -1,12 +1,25 @@
-import { getLocation, getScene, isRealPlace, parseControlTags, type Message, type MessagePart, type MessageRole, type TogetherMode } from '@app/shared';
+import {
+  getLocation,
+  getScene,
+  isRealPlace,
+  parseControlTags,
+  substituteMacros,
+  type Character,
+  type Chat,
+  type Message,
+  type MessagePart,
+  type MessageRole,
+  type TogetherMode,
+} from '@app/shared';
 import { defineStore } from 'pinia';
 import { computed, reactive, ref } from 'vue';
 import { useAppStore } from './app';
 import { useCharacterStore } from './characters';
 import { useRealWorldStore } from './realworld';
+import { autoSave, getAll } from '@/db/idb';
 import { buildChats, buildMessages } from '@/mock/chats';
 import { services } from '@/services';
-import { buildPromptMessages } from '@/services/prompt';
+import { assembleForChat, personaOf, toLLMMessages, type ChatPrompt } from '@/services/prompt';
 import { uid } from '@/utils/id';
 
 /** 正在生成的回复。只放内存，不进同步数据（math-reader 回滚提交的教训） */
@@ -18,8 +31,81 @@ interface StreamState {
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<Record<string, Message[]>>(buildMessages());
-  const chats = ref(buildChats(messages.value));
+  const chats = ref<Chat[]>(buildChats(messages.value));
   const streams = reactive<Record<string, StreamState | undefined>>({});
+  /** 每条聊天上一次实际发出去的提示词（"查看提示词"里看）。只放内存 */
+  const lastPrompt = reactive<Record<string, { prompt: ChatPrompt; at: number } | undefined>>({});
+
+  // 演示聊天每次打开重新生成；和导入角色的聊天存在本机
+  const DEMO_CHATS = new Set(chats.value.map((c) => c.id));
+  const chatSaver = autoSave(
+    'chats',
+    () => chats.value.filter((c) => !DEMO_CHATS.has(c.id)).map((c) => ({ key: c.id, value: c })),
+    chats,
+  );
+  const messageSaver = autoSave(
+    'messages',
+    () => chats.value.filter((c) => !DEMO_CHATS.has(c.id)).map((c) => ({ key: c.id, value: messages.value[c.id] ?? [] })),
+    messages,
+  );
+
+  async function hydrate() {
+    const [cs, ms] = await Promise.all([getAll<Chat>('chats'), getAll<Message[]>('messages')]);
+    for (const c of cs.sort((a, b) => a.createdAt - b.createdAt)) if (!chats.value.some((x) => x.id === c.id)) chats.value.push(c);
+    for (const list of ms) {
+      const chatId = list[0]?.chatId;
+      if (chatId && !DEMO_CHATS.has(chatId)) messages.value[chatId] = list;
+    }
+    chatSaver.start();
+    messageSaver.start();
+  }
+
+  /**
+   * 给新角色开一条聊天：第一条是角色卡的开场白（宏替换后），备选开场白可以左右切换（同 ST）。
+   * 已经有聊天就直接返回那条（消息按人分）。
+   */
+  function startChat(character: Character, presetId: string | null = null): Chat {
+    const existing = chatOfCharacter(character.id);
+    if (existing) return existing;
+    const now = Date.now();
+    const chat: Chat = {
+      id: uid('chat'),
+      createdAt: now,
+      updatedAt: now,
+      characterId: character.id,
+      personaId: null,
+      title: character.name,
+      presetId: presetId ?? character.presetId,
+      mode: 'im',
+      currentScene: null,
+      togetherAt: null,
+      togetherMode: null,
+      summaryUntilMessageId: null,
+      pinned: false,
+      lastMessageAt: now,
+      background: null,
+      loreState: { sticky: {}, cooldown: {} },
+      vars: {},
+    };
+    chats.value.push(chat);
+    messages.value[chat.id] = [];
+    const user = personaOf(chat).name;
+    const greet = (t: string) => substituteMacros(t, { char: character.name, user }).replace(/\r/g, '');
+    const greetings = [character.card.firstMes, ...character.card.alternateGreetings].filter((t) => t.trim()).map(greet);
+    if (greetings.length) {
+      push(chat.id, 'assistant', [{ type: 'text', text: greetings[0] as string }], {
+        read: false,
+        swipes: greetings.map((text, i) => ({ text, createdAt: now + i })),
+        swipeIndex: 0,
+      });
+    }
+    return chatById(chat.id) as Chat;
+  }
+
+  function removeChat(chatId: string) {
+    chats.value = chats.value.filter((c) => c.id !== chatId);
+    delete messages.value[chatId];
+  }
 
   const sortedChats = computed(() =>
     [...chats.value].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.lastMessageAt - a.lastMessageAt),
@@ -101,9 +187,15 @@ export const useChatStore = defineStore('chat', () => {
     const scene = getScene(chat.currentScene ?? 'free');
     let raw = '';
 
+    // 拼提示词（真实发送：推进世界书粘性 / 冷却，保存 {{setvar}} 改过的变量）
+    const prompt = assembleForChat(chat, character, history, { type: target ? 'swipe' : 'normal' });
+    chat.loreState = prompt.loreState;
+    chat.vars = prompt.vars;
+    lastPrompt[chatId] = { prompt, at: Date.now() };
+
     try {
       await services.llm.chat(
-        { agent: 'main', messages: buildPromptMessages(chat, character, history), signal: abort.signal },
+        { agent: 'main', messages: toLLMMessages(prompt), body: prompt.request, characterId: character.id, signal: abort.signal },
         {
           onState: (s) => {
             const st = streams[chatId];
@@ -360,6 +452,10 @@ export const useChatStore = defineStore('chat', () => {
     chats,
     messages,
     streams,
+    lastPrompt,
+    hydrate,
+    startChat,
+    removeChat,
     sortedChats,
     totalUnread,
     chatById,

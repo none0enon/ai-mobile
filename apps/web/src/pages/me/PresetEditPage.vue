@@ -3,10 +3,11 @@ import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import Segmented from '@/components/common/Segmented.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
-import { presets } from '@/mock/library';
+import { useLibraryStore } from '@/stores/library';
 
 const route = useRoute();
-const preset = computed(() => presets.find((p) => p.id === route.params.id) ?? presets[0]!);
+const lib = useLibraryStore();
+const preset = computed(() => lib.presetById(route.params.id as string) ?? lib.presets[0]!);
 const tab = ref<'order' | 'sampler' | 'regex'>('order');
 const ROLE: Record<string, string> = { system: '系统', user: '用户', assistant: '助手' };
 </script>

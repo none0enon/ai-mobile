@@ -7,6 +7,7 @@ import {
   SCENES,
   timeOfDay,
   worldOf,
+  hasOwnWorld,
   type Character,
   type LocationActivity,
   type MapLocation,
@@ -39,10 +40,13 @@ const real = useRealWorldStore();
 const today = mockToday();
 const now = new Date();
 
+/** 有自己小世界的角色（导入的角色生成小世界之前没有） */
+const worldOwners = computed(() => chars.list.filter((c) => hasOwnWorld(c.id)));
 const worldKey = computed(() => {
   const q = route.query.world as string | undefined;
-  if (q === 'me' || (q && chars.byId(q))) return q;
-  return app.activeCharacterId;
+  if (q === 'me' || (q && hasOwnWorld(q))) return q;
+  if (hasOwnWorld(app.activeCharacterId)) return app.activeCharacterId;
+  return worldOwners.value[0]?.id ?? 'me';
 });
 const owner = computed(() => (worldKey.value === 'me' ? null : (chars.byId(worldKey.value) ?? chars.list[0]!)));
 const world = computed(() => (owner.value ? worldOf(owner.value.id) : real.world));
@@ -208,7 +212,7 @@ watch(
     <!-- 看谁的世界 -->
     <div class="flex gap-2 overflow-x-auto hide-scrollbar px-4 pt-1.5 pb-1 shrink-0" role="tablist" aria-label="看谁的世界">
       <button
-        v-for="c in chars.list"
+        v-for="c in worldOwners"
         :key="c.id"
         role="tab"
         :aria-selected="worldKey === c.id"

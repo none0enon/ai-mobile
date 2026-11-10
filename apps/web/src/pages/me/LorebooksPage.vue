@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import PageHeader from '@/layouts/PageHeader.vue';
-import { lorebooks } from '@/mock/library';
+import { useLibraryStore } from '@/stores/library';
 import { useCharacterStore } from '@/stores/characters';
 
 const chars = useCharacterStore();
+const lib = useLibraryStore();
 function boundTo(id: string) {
   return chars.list.filter((c) => c.lorebookIds.includes(id)).map((c) => c.name);
 }
@@ -17,7 +18,7 @@ function boundTo(id: string) {
       </template>
     </PageHeader>
     <div class="page-scroll px-4 py-3 grid gap-3 content-start">
-      <RouterLink v-for="b in lorebooks" :key="b.id" :to="`/me/lorebooks/${b.id}`" class="book press">
+      <RouterLink v-for="b in lib.lorebooks" :key="b.id" :to="`/me/lorebooks/${b.id}`" class="book press">
         <span class="book-icon"><span class="i-lucide-library-big" /></span>
         <div class="flex-1 min-w-0">
           <div class="text-[16px] font-600">{{ b.name }}</div>

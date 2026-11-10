@@ -11,11 +11,17 @@ export type StreamState = 'sent' | 'connected' | 'thinking' | 'streaming' | 'fal
 export interface LLMChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  /** 示例对话的 example_user / example_assistant，或预设要求写进 name 字段的名字 */
+  name?: string;
 }
 
 export interface LLMRequest {
   agent: AgentRole;
   messages: LLMChatMessage[];
+  /** 完整的请求体（模型、采样参数），真实客户端直接发它 */
+  body?: Record<string, unknown>;
+  /** 在和谁聊（假模型用它决定用演示台词还是回显提示词） */
+  characterId?: string;
   signal?: AbortSignal;
 }
 

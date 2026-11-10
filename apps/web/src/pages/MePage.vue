@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router';
 import { connections, agentRoutes } from '@/mock/api';
 import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
 import { personas } from '@/mock/characters';
-import { lorebooks, presets } from '@/mock/library';
+import { useLibraryStore } from '@/stores/library';
 import { memories, album } from '@/mock/memories';
 import { todayTouchpoints } from '@/mock/settings';
 import { weather } from '@/mock/activity';
@@ -17,6 +17,7 @@ const router = useRouter();
 const app = useAppStore();
 const chars = useCharacterStore();
 const chat = useChatStore();
+const lib = useLibraryStore();
 const me = personas.find((p) => p.isDefault) ?? personas[0]!;
 const upcoming = todayTouchpoints().filter((t) => t.status === 'planned').length;
 const sync = services.sync.status();
@@ -29,8 +30,8 @@ const groups = computed(() => [
     rows: [
       { icon: 'i-lucide-contact-round', label: '角色卡', value: `${chars.list.length} 个`, to: '/me/characters' },
       { icon: 'i-lucide-id-card', label: '我的人设', value: me.name, to: '/me/personas' },
-      { icon: 'i-lucide-library-big', label: '世界书', value: `${lorebooks.length} 本`, to: '/me/lorebooks' },
-      { icon: 'i-lucide-sliders-horizontal', label: '预设', value: `${presets.length} 套`, to: '/me/presets' },
+      { icon: 'i-lucide-library-big', label: '世界书', value: `${lib.lorebooks.length} 本`, to: '/me/lorebooks' },
+      { icon: 'i-lucide-sliders-horizontal', label: '预设', value: `${lib.presets.length} 套`, to: '/me/presets' },
       { icon: 'i-lucide-file-down', label: '导入 ST 文件', value: '', desc: '角色卡、世界书、预设、聊天记录', to: '/import' },
     ],
   },
