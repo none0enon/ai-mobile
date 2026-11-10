@@ -269,3 +269,92 @@ svg {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ---------- 设置页通用 ---------- */
+.group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 16px 8px 28px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.group-title .action {
+  margin-left: auto;
+  color: var(--accent-ink);
+  font-size: 13px;
+}
+.note {
+  margin: 8px 16px 0 28px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+.row-icon {
+  margin-right: 12px;
+  font-size: 19px;
+  color: var(--accent-ink);
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.tag.accent {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.tag.good {
+  color: var(--good);
+}
+.tag.bad {
+  color: var(--bad);
+}
+.tag.warn {
+  color: var(--warn);
+}
+.sheet {
+  padding: 16px 16px calc(var(--safe-bottom) + 18px);
+}
+.sheet-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+.textarea {
+  width: 100%;
+  min-height: 96px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  outline: none;
+  resize: vertical;
+  line-height: 1.6;
+}
+.input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  outline: none;
+}
+.field-label {
+  display: block;
+  margin: 12px 0 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+/* 单列 grid 默认按内容撑宽，带省略号的长文本会把行撑出屏幕；限制为容器宽度 */
+.grid:not([class*='grid-cols']) {
+  grid-template-columns: minmax(0, 1fr);
+}
