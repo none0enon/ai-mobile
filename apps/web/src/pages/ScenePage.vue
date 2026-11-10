@@ -18,7 +18,8 @@ const sceneId = computed(() => route.params.sceneId as SceneId);
 const component = computed(() => SCENE_COMPONENTS[sceneId.value]);
 
 /**
- * 在哪儿：?at= 指定的地点 → 已经和她在一起的地方（那里能做这件事的话）→ 这件事最常去的地方。
+ * 在哪儿：?at= 指定的地点（她小世界里的，或你真实世界里的）→ 已经和她在一起的地方（那里能做这件事的话）
+ * → 她的世界里做这件事的默认地点。
  * 约会没指定地点时先让你挑，由 DateScene 自己决定。
  */
 function resolveLocation(): MapLocation | null {
@@ -27,7 +28,7 @@ function resolveLocation(): MapLocation | null {
   if (sceneId.value === 'date') return null;
   const current = getLocation(chat.chatOfCharacter(app.activeCharacterId)?.togetherAt);
   if (current?.activities.some((a) => a.sceneId === sceneId.value)) return current;
-  return defaultLocationFor(sceneId.value);
+  return defaultLocationFor(sceneId.value, app.activeCharacterId);
 }
 
 const location = ref<MapLocation | null>(null);

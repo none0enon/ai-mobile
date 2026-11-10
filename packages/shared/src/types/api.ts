@@ -6,9 +6,10 @@ export type ConnectionKind =
   | 'anthropic'
   | 'gemini'
   | 'novelai'
-  | 'workers-ai'; // Cloudflare Workers AI（只能经 Worker 用）
+  | 'workers-ai' // Cloudflare Workers AI（只能经 Worker 用）
+  | 'google-maps'; // 你的真实世界：地理编码、附近地点、地图
 
-export type Capability = 'chat' | 'vision' | 'embedding' | 'tts' | 'stt' | 'image';
+export type Capability = 'chat' | 'vision' | 'embedding' | 'tts' | 'stt' | 'image' | 'maps';
 
 /**
  * Key 存在哪里（按连接设置，不按智能体）：

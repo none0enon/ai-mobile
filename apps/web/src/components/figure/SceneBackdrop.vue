@@ -45,6 +45,8 @@ const BASE: Record<string, { day: [string, string]; night: [string, string] }> =
   'night-market': { day: ['#4a2338', '#1a0c16'], night: ['#2c1631', '#0d0612'] },
   gallery: { day: ['#f0ebe5', '#ddd3c8'], night: ['#201c19', '#0f0d0b'] },
   room: { day: ['#f5e9f3', '#e5d8ef'], night: ['#2a1d3a', '#120b1c'] },
+  pool: { day: ['#e3f4fb', '#b4dcee'], night: ['#0f2433', '#050f18'] },
+  gym: { day: ['#ece9f1', '#d3cfdc'], night: ['#1f1c26', '#0c0b10'] },
 };
 
 const outdoor = computed(() => ['park', 'seaside'].includes(props.kind));
@@ -237,6 +239,39 @@ const books = Array.from({ length: 3 }, (_, row) =>
           <rect :x="(f[0] ?? 0) + 10" :y="(f[1] ?? 0) + 10" :width="(f[2] ?? 0) - 20" :height="(f[3] ?? 0) - 20" :fill="`hsl(${f[4]} 40% ${night ? 30 : 70}%)`" />
         </g>
         <rect x="0" y="600" width="400" height="200" :fill="night ? '#171310' : '#cdbfae'" />
+      </g>
+
+      <!-- 游泳馆：顶灯、泳道、水波 -->
+      <g v-else-if="kind === 'pool'">
+        <g fill="#ffffff" :opacity="night ? 0.35 : 0.6">
+          <rect v-for="i in 4" :key="`l${i}`" :x="i * 92 - 62" y="70" width="56" height="8" rx="4" />
+        </g>
+        <rect x="0" y="380" width="400" height="420" :fill="night ? '#0e4561' : '#4db2dc'" />
+        <path v-for="i in 5" :key="`lane${i}`" :d="`M0 ${410 + i * 70} H400`" stroke="#ffffff" stroke-opacity="0.35" stroke-width="4" stroke-dasharray="18 14" />
+        <path
+          v-for="i in 4"
+          :key="`w${i}`"
+          :d="`M${-30 + i * 8} ${396 + i * 92} q30 -8 60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0`"
+          stroke="#ffffff"
+          stroke-opacity="0.18"
+          stroke-width="3"
+          fill="none"
+        />
+      </g>
+
+      <!-- 力量房：镜墙、杠铃架、地胶 -->
+      <g v-else-if="kind === 'gym'">
+        <rect x="30" y="170" width="340" height="330" rx="6" :fill="night ? '#2b3240' : '#f4f7fb'" opacity="0.55" />
+        <rect x="0" y="600" width="400" height="200" :fill="night ? '#29252f' : '#b8b1c4'" />
+        <g :fill="night ? '#4a4458' : '#6f6880'">
+          <rect x="44" y="500" width="12" height="100" rx="3" />
+          <rect x="344" y="500" width="12" height="100" rx="3" />
+          <rect x="40" y="522" width="320" height="10" rx="5" />
+        </g>
+        <g :fill="night ? '#17151d' : '#3b3644'">
+          <rect x="74" y="500" width="22" height="54" rx="4" />
+          <rect x="304" y="500" width="22" height="54" rx="4" />
+        </g>
       </g>
 
       <!-- 默认房间：柔和的圆 -->

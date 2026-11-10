@@ -16,8 +16,15 @@ import { sleep } from '@/utils/id';
 const conns = ref<ProviderConnection[]>(connections.map((c) => ({ ...c })));
 const routes = ref<AgentRoute[]>(agentRoutes.map((r) => ({ ...r })));
 
-const KIND_LABEL: Record<string, string> = { openai: 'OpenAI 兼容', anthropic: 'Anthropic', gemini: 'Gemini', novelai: 'NovelAI', 'workers-ai': 'Workers AI' };
-const CAP_LABEL: Record<Capability, string> = { chat: '对话', vision: '识图', embedding: '向量', tts: '语音合成', stt: '语音识别', image: '生图' };
+const KIND_LABEL: Record<string, string> = {
+  openai: 'OpenAI 兼容',
+  anthropic: 'Anthropic',
+  gemini: 'Gemini',
+  novelai: 'NovelAI',
+  'workers-ai': 'Workers AI',
+  'google-maps': 'Google 地图',
+};
+const CAP_LABEL: Record<Capability, string> = { chat: '对话', vision: '识图', embedding: '向量', tts: '语音合成', stt: '语音识别', image: '生图', maps: '地图' };
 const KEY_LABEL: Record<KeyStorage, string> = { device: '只在本机', hub: '交给我的 Worker', none: '无需 Key' };
 const RUNS_LABEL = { device: '本机', hub: 'Worker', auto: '自动' } as const;
 

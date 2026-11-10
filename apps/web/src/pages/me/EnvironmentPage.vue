@@ -5,6 +5,7 @@ import Segmented from '@/components/common/Segmented.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { mockToday, todayLine, weather } from '@/mock/activity';
 import { envSettings } from '@/mock/settings';
+import { useRealWorldStore } from '@/stores/realworld';
 
 /** 环境与作息：时间 / 节气 / 天气 / 今日活动，拼成【当前环境】注入每一轮对话 */
 const env = ref({ ...envSettings, meals: { ...envSettings.meals } });
@@ -18,6 +19,10 @@ const block = computed(() =>
   }),
 );
 const MEAL = { breakfast: '早饭', lunch: '午饭', dinner: '晚饭' } as const;
+
+/** 你的真实世界：家的地址只存在这台设备（离开输入框时保存） */
+const real = useRealWorldStore();
+const homeDraft = ref(real.address);
 </script>
 
 <template>
@@ -34,12 +39,19 @@ const MEAL = { breakfast: '早饭', lunch: '午饭', dinner: '晚饭' } as const
         </div>
       </div>
 
-      <div class="group-title">位置与天气</div>
+      <div class="group-title">你的真实世界</div>
       <van-cell-group inset>
-        <van-field v-model="env.city" label="城市" placeholder="例如：上海" input-align="right" />
-        <van-cell title="用定位" label="只在打开 App 时取一次" center>
+        <van-field v-model="homeDraft" label="家的地址" placeholder="门牌号 + 街道，例如 1 Main St" input-align="right" @blur="real.setAddress(homeDraft)" />
+        <van-cell title="地图" :label="real.mapsReady ? 'Google 地图已接入' : '还没接入 Google 地图：去 API 与智能体 → 连接 里填 Key'" is-link to="/me/api" />
+        <van-cell title="用定位" label="知道你在不在家、离家多远；出门、到家时她会来问" center>
           <template #right-icon><van-switch v-model="env.useLocation" size="22px" /></template>
         </van-cell>
+      </van-cell-group>
+      <p class="note">家的地址只存在这台设备，用来在地图上标出你家、找附近的地方，不会发给对话模型；她只知道你在不在家、出门了多远。</p>
+
+      <div class="group-title">天气</div>
+      <van-cell-group inset>
+        <van-field v-model="env.city" label="城市" placeholder="默认跟着家的位置" input-align="right" />
         <van-cell title="天气来源">
           <template #label>
             <Segmented

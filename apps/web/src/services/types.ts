@@ -1,4 +1,4 @@
-import type { AgentRole, WeatherSnapshot } from '@app/shared';
+import type { AgentRole, MapLocation, WeatherSnapshot } from '@app/shared';
 
 /**
  * 服务接口。界面只依赖这些接口；本轮全部是假实现（services/mock），
@@ -64,6 +64,29 @@ export interface MusicClient {
 
 export interface WeatherClient {
   now(city: string): Promise<WeatherSnapshot & { icon: string }>;
+}
+
+export interface LatLng {
+  lat: number;
+  lng: number;
+}
+
+/** 附近地点的种类（对应 Google Places 的类型），决定能一起做什么 */
+export type RealPlaceKind = 'cafe' | 'restaurant' | 'park' | 'gym' | 'library';
+
+/**
+ * 真实世界的地图（M3 接 Google Maps Platform：Geocoding、Places API (New) 附近搜索、Maps JavaScript API 画图）。
+ * Key 放在"连接"里，只存本机，按应用 / 网址做限制。家的地址不发给对话模型。
+ */
+export interface MapsClient {
+  /** 有没有可用的 Google Maps Key（没有时界面显示示意图） */
+  readonly ready: boolean;
+  /** 地址 → 坐标（只在设置家的时候调用一次，结果缓存） */
+  geocode(address: string): Promise<LatLng | null>;
+  /** 我此刻在哪（网页定位；安卓壳里可以用后台定位做"出门 / 到家"） */
+  whereAmI(): Promise<LatLng | null>;
+  /** 附近可以带她一起去的地方 */
+  nearby(center: LatLng | null, kinds: RealPlaceKind[]): Promise<MapLocation[]>;
 }
 
 export interface SyncStatus {

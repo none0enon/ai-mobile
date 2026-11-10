@@ -87,6 +87,19 @@ export const connections: ProviderConnection[] = [
     models: ['@cf/baai/bge-m3'],
     viaWorker: true,
   },
+  {
+    id: 'conn-gmaps',
+    createdAt: t,
+    updatedAt: t,
+    name: 'Google 地图（未填 Key）',
+    kind: 'google-maps',
+    baseUrl: 'https://maps.googleapis.com',
+    keyStorage: 'device',
+    hasKey: false,
+    capabilities: ['maps'],
+    models: ['Maps JavaScript API', 'Places API (New)', 'Geocoding API'],
+    viaWorker: false,
+  },
 ];
 
 export const agentRoutes: AgentRoute[] = [

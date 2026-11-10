@@ -129,7 +129,7 @@ export const characters: Character[] = [
       milestones: [{ label: '第一次一起晨跑', at: at(-6, '06:00') }],
     },
     status: '刚游完泳',
-    locationId: 'gym',
+    locationId: 'jy-pool',
   },
 ];
 

@@ -66,23 +66,3 @@ export const workouts = [
   { id: 'w3', sport: '游泳', distanceKm: 1.0, durationSec: 1500, pace: '2\'30"/100m', when: at(-4, '17:10'), source: '快捷指令' },
 ];
 
-export interface DatePlace {
-  id: string;
-  name: string;
-  icon: string;
-  backdrop: string;
-  tint: string;
-  blurb: string;
-  indoor: boolean;
-}
-
-export const datePlaces: DatePlace[] = [
-  { id: 'cafe', name: '咖啡店', icon: 'i-lucide-coffee', backdrop: 'cafe', tint: '#d9a77a', blurb: '靠窗的位置，下雨也不怕', indoor: true },
-  { id: 'aquarium', name: '水族馆', icon: 'i-lucide-fish', backdrop: 'aquarium', tint: '#6fb6e8', blurb: '蓝色隧道里牵手', indoor: true },
-  { id: 'amusement', name: '游乐园', icon: 'i-lucide-ferris-wheel', backdrop: 'amusement', tint: '#f39cc0', blurb: '摩天轮最高点', indoor: false },
-  { id: 'cinema', name: '电影院', icon: 'i-lucide-clapperboard', backdrop: 'cinema', tint: '#e07a7a', blurb: '一桶爆米花两个人', indoor: true },
-  { id: 'seaside', name: '海边', icon: 'i-lucide-waves', backdrop: 'seaside', tint: '#7fc9d9', blurb: '看日落，捡贝壳', indoor: false },
-  { id: 'night-market', name: '夜市', icon: 'i-lucide-lamp', backdrop: 'night-market', tint: '#f2a65e', blurb: '一路吃过去', indoor: false },
-  { id: 'gallery', name: '美术馆', icon: 'i-lucide-frame', backdrop: 'gallery', tint: '#c9b3e6', blurb: '安静地看展', indoor: true },
-  { id: 'park', name: '公园', icon: 'i-lucide-trees', backdrop: 'park', tint: '#8fd1a0', blurb: '散步、喂鸽子', indoor: false },
-];

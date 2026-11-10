@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { getLocation } from '@app/shared';
+import { getLocation, isRealPlace, type Character } from '@app/shared';
 import { computed } from 'vue';
 import ChatListItem from '@/components/chat/ChatListItem.vue';
 import Avatar from '@/components/common/Avatar.vue';
-import WorldMap from '@/components/map/WorldMap.vue';
 import { weather } from '@/mock/activity';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
@@ -15,6 +14,12 @@ const chars = useCharacterStore();
 /** 消息页只放"像真人"的东西：她们在哪、聊天。主动消息的排期在"我的 → 主动消息"里看，这里不提，免得出戏 */
 const shown = computed(() => chars.list.slice(0, 2));
 const more = computed(() => chars.list.length - shown.value.length);
+/** 她在自己小世界里的哪儿；被你带出门时写"在你那边" */
+function whereOf(c: Character) {
+  const loc = getLocation(c.locationId);
+  if (!loc) return '';
+  return isRealPlace(loc) ? '在你那边' : loc.name;
+}
 const today = `${weekday(Date.now())} · ${weather.city} ${weather.text} ${weather.tempC}°C`;
 </script>
 
@@ -35,14 +40,14 @@ const today = `${weekday(Date.now())} · ${weather.city} ${weather.text} ${weath
     </header>
 
     <div class="page-scroll">
-      <!-- 她们在哪：一张小小的地图 + 每人一行，点开进完整地图 -->
+      <!-- 她们在哪：每人一行（各自小世界里的位置），点开进地图 -->
       <RouterLink to="/map" class="where-card press" aria-label="打开地图，看她们在哪">
-        <div class="thumb"><WorldMap :characters="chars.list" compact /></div>
+        <span class="thumb"><span class="i-lucide-map" /></span>
         <div class="flex-1 min-w-0 grid gap-1.5">
           <div v-for="c in shown" :key="c.id" class="flex items-center gap-1.5 min-w-0 text-[13px] leading-tight">
             <Avatar :character="c" :size="20" />
             <span class="truncate"
-              ><b class="font-600">{{ c.name }}</b><span class="text-ink-3"> · {{ getLocation(c.locationId)?.name ?? '家' }} · {{ c.status }}</span></span
+              ><b class="font-600">{{ c.name }}</b><span class="text-ink-3"> · {{ whereOf(c) }} · {{ c.status }}</span></span
             >
           </div>
         </div>
@@ -79,7 +84,15 @@ const today = `${weekday(Date.now())} · ${weather.city} ${weather.text} ${weath
   text-decoration: none;
 }
 .thumb {
-  width: 64px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 22px;
   flex-shrink: 0;
 }
 </style>

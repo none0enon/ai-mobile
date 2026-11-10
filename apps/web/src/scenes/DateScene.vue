@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { LOCATIONS } from '@app/shared';
+import { worldOf, type MapLocation } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, inject, ref } from 'vue';
 import CgArt from '@/components/figure/CgArt.vue';
 import DialogBox from '@/components/stage/DialogBox.vue';
 import { SCENE_LOCATION } from '@/components/scene/location';
 import SceneShell from '@/components/scene/SceneShell.vue';
-import { datePlaces, weather, type DatePlace } from '@/mock/activity';
+import { weather } from '@/mock/activity';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 
 /**
- * 约会：从地图上点了地点就直接开始；没指定地点（比如从聊天进来）先选地点，她会按天气推荐。
+ * 约会：从地图上点了地点就直接开始；没指定地点（比如从聊天进来）先从她小世界里能约会的地方选，她会按天气推荐。
  * 然后像视觉小说一样推进：旁白 + 台词 + 选项，关键时刻请求一张 CG（正式版：生图提示词智能体 + NovelAI），
  * 最后生成"约会回忆"。整段约会在聊天里是"来到水族馆 … 离开水族馆"。
  */
@@ -22,11 +22,27 @@ const chat = useChatStore();
 const character = computed(() => chars.byId(app.activeCharacterId) ?? chars.list[0]!);
 const location = inject(SCENE_LOCATION, ref(null));
 
+/** 她的世界里能约会的地方 */
+const datePlaces = computed(() => worldOf(character.value.id).locations.filter((l) => l.activities.some((a) => a.sceneId === 'date')));
+/** 地点卡片的颜色按背景来 */
+const TONE: Record<string, string> = {
+  cafe: '#d9a77a',
+  aquarium: '#6fb6e8',
+  amusement: '#f39cc0',
+  cinema: '#e07a7a',
+  seaside: '#7fc9d9',
+  'night-market': '#f2a65e',
+  gallery: '#c9b3e6',
+  park: '#8fd1a0',
+};
+const toneOf = (l: MapLocation) => TONE[l.backdrop] ?? '#f5b8a6';
+
 const raining = weather.text.includes('雨');
-const recommended = datePlaces.find((p) => p.id === (raining ? 'aquarium' : 'amusement'))!;
-const fromMap = datePlaces.find((p) => p.id === location.value?.activities.find((a) => a.sceneId === 'date')?.datePlace);
+/** 下雨推荐室内，天晴推荐室外 */
+const recommended = computed(() => datePlaces.value.find((l) => l.indoor === raining) ?? datePlaces.value[0]!);
+const fromMap = location.value?.activities.some((a) => a.sceneId === 'date') ? location.value : null;
 const phase = ref<'pick' | 'date' | 'end'>(fromMap ? 'date' : 'pick');
-const place = ref<DatePlace>(fromMap ?? recommended);
+const place = ref<MapLocation>(fromMap ?? recommended.value);
 
 interface Node {
   narration: string;
@@ -62,9 +78,8 @@ const nodes = computed<Node[]>(() => [
 ]);
 const node = computed(() => nodes.value[step.value] ?? nodes.value[0]!);
 
-function start(p: DatePlace) {
-  const loc = LOCATIONS.find((l) => l.activities.some((a) => a.sceneId === 'date' && a.datePlace === p.id));
-  if (loc) chat.enterScene(character.value.id, loc.id, 'date');
+function start(p: MapLocation) {
+  chat.enterScene(character.value.id, p.id, 'date');
   place.value = p;
   phase.value = 'date';
   step.value = 0;
@@ -104,10 +119,10 @@ function saveMemory() {
   >
     <div class="text-[15px] font-600 mb-2.5">今天去哪儿约会？</div>
     <div class="grid grid-cols-4 gap-2">
-      <button v-for="p in datePlaces" :key="p.id" class="place press" :class="{ on: place.id === p.id }" :style="{ '--tone': p.tint }" @click="place = p">
+      <button v-for="p in datePlaces" :key="p.id" class="place press" :class="{ on: place.id === p.id }" :style="{ '--tone': toneOf(p) }" @click="place = p">
         <span class="place-icon"><span :class="p.icon" /></span>
         <span class="text-[12.5px]">{{ p.name }}</span>
-        <span v-if="p.id === recommended.id" class="rec">她想去</span>
+        <span v-if="p.id === recommended.id" class="rec">{{ character.pronoun }}想去</span>
       </button>
     </div>
     <p class="text-[12.5px] text-ink-3 mt-2.5">{{ place.blurb }} · {{ place.indoor ? '室内' : '室外' }}{{ raining && !place.indoor ? '（在下雨哦）' : '' }}</p>

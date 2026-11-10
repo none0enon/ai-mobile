@@ -2,6 +2,7 @@ import { MockLLM } from './mock/llm';
 import {
   createNativeBridge,
   MockEmbedding,
+  MockMaps,
   MockMusic,
   MockPush,
   MockSTT,
@@ -12,6 +13,7 @@ import {
 import type {
   EmbeddingClient,
   LLMClient,
+  MapsClient,
   MusicClient,
   NativeBridge,
   PushClient,
@@ -28,6 +30,7 @@ export interface Services {
   embedding: EmbeddingClient;
   music: MusicClient;
   weather: WeatherClient;
+  maps: MapsClient;
   sync: SyncClient;
   push: PushClient;
   native: NativeBridge;
@@ -41,6 +44,7 @@ export const services: Services = {
   embedding: new MockEmbedding(),
   music: new MockMusic(),
   weather: new MockWeather(),
+  maps: new MockMaps(),
   sync: new MockSync(),
   push: new MockPush(),
   native: createNativeBridge(),

@@ -86,7 +86,10 @@ export interface Character extends SyncMeta {
   relationship: Relationship;
   /** 状态行，例如"在图书馆自习" */
   status: string;
-  /** 她此刻在小地图上的哪个地点（LOCATIONS 的 id），由模拟作息更新；你和她一起去某处时也会跟着变 */
+  /**
+   * 她此刻在哪：通常是她自己小世界里的地点（World.locations 的 id），由模拟作息更新；
+   * 你带她去真实世界的地方时，暂时是那个真实地点，离开后回到她的世界
+   */
   locationId: string | null;
 }
 

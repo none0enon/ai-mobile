@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { getLocation, LOCATIONS, type MapLocation, type MessagePart } from '@app/shared';
+import { getLocation, isRealPlace, worldOf, type MapLocation, type MessagePart } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -100,7 +100,7 @@ function onAction(id: string) {
       void router.push('/scene/meal');
       break;
     case 'scenes':
-      void router.push(`/map?focus=${stageLoc.value.id}`);
+      void router.push(mapLink.value);
       break;
     case 'call':
       void router.push(`/call/${c.id}`);
@@ -185,7 +185,11 @@ const stageText = computed(() => lastAi.value?.text || character.value?.card.fir
 const timeChip = `${hhmm(Date.now())} · ${weather.text} ${weather.tempC}°`;
 
 /** 剧场背景：你们一起在的地方，否则是她此刻在的地方（家里按正在做的事选房间，平时是卧室） */
-const stageLoc = computed<MapLocation>(() => getLocation(chat.value?.togetherAt ?? character.value?.locationId) ?? (LOCATIONS[0] as MapLocation));
+const stageLoc = computed<MapLocation>(
+  () => getLocation(chat.value?.togetherAt ?? character.value?.locationId) ?? (worldOf(character.value?.id).locations[0] as MapLocation),
+);
+/** 在地图上看：她世界里的地点去她的世界，你真实世界里的地点去"我的世界" */
+const mapLink = computed(() => `/map?world=${isRealPlace(stageLoc.value) ? 'me' : character.value?.id}&focus=${stageLoc.value.id}`);
 const stageBackdrop = computed(() =>
   chat.value?.togetherAt && chat.value.currentScene ? backdropAt(stageLoc.value, chat.value.currentScene) : stageLoc.value.area === 'home' ? 'bedroom' : stageLoc.value.backdrop,
 );
@@ -206,7 +210,7 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
                 <span class="font-600 text-[16px] truncate min-w-[2.2em]">{{ chat.title }}</span>
                 <span class="aff"><span class="i-lucide-heart" />{{ character.relationship.affection }}</span>
               </RouterLink>
-              <RouterLink :to="`/map?focus=${stageLoc.id}`" class="where" aria-label="在地图上看她在哪">
+              <RouterLink :to="mapLink" class="where" aria-label="在地图上看她在哪">
                 <span class="i-lucide-map-pin text-accent-ink shrink-0" />
                 <span class="truncate">{{ chat.togetherAt ? `你们在${stageLoc.name}` : stageLoc.name }} · {{ stream ? '对方正在输入…' : character.status }} · {{ weather.text }} {{ weather.tempC }}°C</span>
               </RouterLink>
@@ -248,7 +252,7 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
     <StageView v-else :character="character" :expression="expression" :backdrop="stageBackdrop" :rain="stageRain" pokeable @poke="onPoke">
       <div class="stage-top">
         <button class="chip-btn" aria-label="返回" @click="goBack('/chats')"><span class="i-lucide-chevron-left text-[20px]" /></button>
-        <RouterLink :to="`/map?focus=${stageLoc.id}`" class="chip-btn loc-chip !px-3 num"
+        <RouterLink :to="mapLink" class="chip-btn loc-chip !px-3 num"
           ><span class="i-lucide-map-pin shrink-0" /><span class="truncate">{{ stageLoc.name }} · {{ timeChip }}</span></RouterLink
         >
         <span class="chip-btn aff-chip shrink-0 !px-3"><span class="i-lucide-heart text-accent" />{{ character.relationship.affection }}</span>

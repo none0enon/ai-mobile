@@ -2,6 +2,7 @@ import {
   formatEnvironmentBlock,
   getLocation,
   getScene,
+  isRealPlace,
   type Character,
   type Chat,
   type Message,
@@ -100,8 +101,15 @@ export function assemblePreview(chat: Chat, character: Character, history: Messa
   const recentText = recent.map((m) => messageToText(m, character)).join('\n');
   const lore = matchLore(character, recentText);
   const scene = getScene(chat.currentScene ?? 'free');
+  // 她在自己的小世界里；你在真实世界（只说在不在家、和她在哪，不带家的地址）
   const loc = getLocation(chat.togetherAt ?? character.locationId);
-  const place = !loc ? null : chat.togetherAt ? `你们一起在${loc.name}` : `${character.name}在${loc.name}（${character.status}）`;
+  const place = !loc
+    ? null
+    : chat.togetherAt
+      ? isRealPlace(loc)
+        ? `你带${character.name}出门了，你们一起在${loc.name}`
+        : `你在${character.name}的小世界里陪${character.pronoun}，你们一起在${loc.name}`
+      : `${character.name}在${character.pronoun}的小世界里的${loc.name}（${character.status}）；你在家`;
   const today = mockToday();
   const persona = personas.find((p) => p.id === chat.personaId) ?? personas[0];
   const mems = memories

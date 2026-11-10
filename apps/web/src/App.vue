@@ -5,6 +5,7 @@ import AccentScope from '@/layouts/AccentScope.vue';
 import InAppBanner from '@/layouts/InAppBanner.vue';
 import { useAppStore } from '@/stores/app';
 import { useAppearanceStore } from '@/stores/appearance';
+import { useRealWorldStore } from '@/stores/realworld';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 
@@ -14,6 +15,8 @@ const chars = useCharacterStore();
 const chat = useChatStore();
 // 外观（配色、背景、头像）要在启动时就生效
 const looks = useAppearanceStore();
+// 你的真实世界（家、附近的地方）也要先登记好，聊天和场景里才认得这些地点
+useRealWorldStore();
 
 /**
  * 整个界面的点缀色：默认跟随"当前页面相关的角色"（聊天页跟随聊天对象，其余跟随当前陪伴的角色）；

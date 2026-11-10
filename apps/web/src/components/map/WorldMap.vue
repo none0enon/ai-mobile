@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import { getLocation, LOCATIONS, SCENES, type Character, type MapLocation } from '@app/shared';
+import { getLocation, SCENES, type Character, type MapLocation, type World } from '@app/shared';
 import { computed } from 'vue';
 import Avatar from '@/components/common/Avatar.vue';
 
 /**
- * 小地图：家、学校、城里的地点画在一张图上，角色头像标在她此刻所在的地方。
+ * 一个角色的小世界：底图按 world.base 画（配色跟随主题），地点是 world.locations，
+ * 她的头像标在她此刻所在的地方。你和她正在这个世界里一起做事时，旁边标一个"你"。
  * 点地点 / 点头像由外面决定做什么（打开底部面板、一起去……）。
- * compact：消息页顶部的小缩略图，只画底图和她们的小头像，不可点（整张卡片是一个链接）。
+ * compact：小缩略图，只画底图和小头像，不可点。
  * 地点坐标是 0-100 的百分比，和 400×300 的底图对齐。
  */
 const props = withDefaults(
-  defineProps<{ characters: Character[]; youAt?: string | null; compact?: boolean; focus?: string | null }>(),
-  { youAt: 'home', compact: false, focus: null },
+  defineProps<{ world: World; characters: Character[]; youAt?: string | null; compact?: boolean; focus?: string | null }>(),
+  { youAt: null, compact: false, focus: null },
 );
 const emit = defineEmits<{
   (e: 'select-location', loc: MapLocation): void;
@@ -20,14 +21,16 @@ const emit = defineEmits<{
 
 const TINT: Record<string, string> = Object.fromEntries(SCENES.map((s) => [s.id, s.tint]));
 function tone(l: MapLocation) {
-  return l.area === 'home' ? '#f5b8a6' : (TINT[l.activities[0]?.sceneId ?? ''] ?? '#b9adce');
+  return l.area === 'home' || l.id === props.world.homeId ? '#f5b8a6' : (TINT[l.activities[0]?.sceneId ?? ''] ?? '#b9adce');
 }
 
-/** 每个地点上有谁 */
+const inWorld = (id: string | null | undefined) => !!id && props.world.locations.some((l) => l.id === id);
+
+/** 每个地点上有谁（只算在这个世界里的） */
 const occupants = computed(() => {
   const map = new Map<string, Character[]>();
   for (const c of props.characters) {
-    if (c.locationId) map.set(c.locationId, [...(map.get(c.locationId) ?? []), c]);
+    if (c.locationId && inWorld(c.locationId)) map.set(c.locationId, [...(map.get(c.locationId) ?? []), c]);
   }
   return map;
 });
@@ -57,61 +60,28 @@ function whoStyle(locId: string, i: number) {
     transform: 'translate(-50%, -50%)',
   };
 }
-const you = computed(() => getLocation(props.youAt));
+const you = computed(() => props.world.locations.find((l) => l.id === props.youAt));
 </script>
 
 <template>
-  <div class="world-map" :class="{ compact }" role="group" aria-label="小地图">
+  <div class="world-map" :class="{ compact }" role="group" :aria-label="world.name">
     <svg viewBox="0 0 400 300" class="absolute inset-0 w-full h-full" aria-hidden="true">
       <rect width="400" height="300" class="land" />
-      <!-- 片区 -->
-      <rect x="6" y="6" width="130" height="112" rx="18" class="home" />
-      <rect x="168" y="6" width="226" height="150" rx="18" class="campus" />
-      <path d="M0 196 C40 206 70 214 96 236 C118 256 126 280 132 300 L0 300 Z" class="park" />
-      <path d="M292 300 C318 272 352 258 400 248 L400 300 Z" class="water" />
-      <path d="M0 224 C44 232 80 250 100 272 C110 284 114 294 116 300" class="river" />
-      <!-- 路 -->
-      <path class="road" d="M0 164 H400 M150 0 V300 M150 234 H300 M270 164 V300 M64 118 V164 M222 156 V164 M330 156 V164" />
-      <path class="road-line" d="M0 164 H400 M150 0 V300" />
-      <!-- 建筑：家 -->
-      <g class="bldg">
-        <rect x="22" y="34" width="22" height="16" rx="3" />
-        <rect x="96" y="30" width="22" height="16" rx="3" />
-        <rect x="96" y="84" width="22" height="16" rx="3" />
-      </g>
-      <g class="roof">
-        <path d="M19 35 L33 24 L47 35 Z M93 31 L107 20 L121 31 Z M93 85 L107 74 L121 85 Z" />
-      </g>
-      <!-- 建筑：学校 -->
-      <rect x="204" y="26" width="58" height="36" rx="6" class="bldg" />
-      <rect x="304" y="26" width="54" height="36" rx="6" class="bldg" />
-      <ellipse cx="256" cy="114" rx="38" ry="21" class="track" />
-      <rect x="324" y="108" width="48" height="26" rx="5" class="pool" />
-      <!-- 建筑：城里 -->
-      <rect x="94" y="124" width="48" height="32" rx="6" class="bldg" />
-      <rect x="14" y="170" width="96" height="36" rx="8" class="bldg" />
-      <rect x="166" y="174" width="88" height="42" rx="8" class="bldg" />
-      <rect x="316" y="180" width="68" height="38" rx="10" class="bldg" />
-      <g class="bldg">
-        <rect x="104" y="242" width="16" height="12" rx="2" />
-        <rect x="124" y="242" width="16" height="12" rx="2" />
-        <rect x="104" y="258" width="16" height="12" rx="2" />
-        <rect x="124" y="258" width="16" height="12" rx="2" />
-      </g>
-      <circle cx="264" cy="231" r="24" class="wheel" />
-      <path d="M264 207 V255 M240 231 H288 M247 214 L281 248 M281 214 L247 248" class="wheel-spoke" />
-      <!-- 片区名 -->
+      <template v-for="(sh, i) in world.base" :key="i">
+        <rect v-if="sh.kind === 'rect'" :x="sh.x" :y="sh.y" :width="sh.w" :height="sh.h" :rx="sh.r" :class="sh.cls" />
+        <path v-else-if="sh.kind === 'path'" :d="sh.d" :class="sh.cls" />
+        <ellipse v-else-if="sh.kind === 'ellipse'" :cx="sh.cx" :cy="sh.cy" :rx="sh.rx" :ry="sh.ry" :class="sh.cls" />
+        <circle v-else :cx="sh.cx" :cy="sh.cy" :r="sh.r" :class="sh.cls" />
+      </template>
       <g v-if="!compact" class="area-text">
-        <text x="16" y="112">家</text>
-        <text x="178" y="148">学校</text>
-        <text x="300" y="296">城里</text>
+        <text v-for="t in world.labels" :key="t.text" :x="t.x" :y="t.y">{{ t.text }}</text>
       </g>
     </svg>
 
     <!-- 地点 -->
     <template v-if="!compact">
       <button
-        v-for="l in LOCATIONS"
+        v-for="l in world.locations"
         :key="l.id"
         class="pin"
         :class="pinClass(l)"
@@ -125,10 +95,10 @@ const you = computed(() => getLocation(props.youAt));
       </button>
     </template>
 
-    <!-- 你 -->
+    <!-- 你（和她一起在这个世界里时） -->
     <span v-if="you && !compact" class="you" :style="{ left: `${you.x}%`, top: `${you.y}%` }">你</span>
 
-    <!-- 她们在哪 -->
+    <!-- 她在哪 -->
     <template v-for="[locId, list] in occupants" :key="locId">
       <component
         :is="compact ? 'span' : 'button'"
@@ -190,11 +160,10 @@ const you = computed(() => getLocation(props.youAt));
   stroke-dasharray: 4 6;
   opacity: 0.8;
 }
-.bldg,
-.bldg rect {
+.bldg {
   fill: var(--map-block);
 }
-.roof path {
+.roof {
   fill: var(--map-road);
 }
 .track {

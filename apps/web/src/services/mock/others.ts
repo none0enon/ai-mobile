@@ -1,8 +1,12 @@
+import type { MapLocation } from '@app/shared';
 import type {
   EmbeddingClient,
+  LatLng,
+  MapsClient,
   MusicClient,
   NativeBridge,
   PushClient,
+  RealPlaceKind,
   STTClient,
   SongInfo,
   SyncClient,
@@ -12,6 +16,7 @@ import type {
 } from '../types';
 import { weather } from '@/mock/activity';
 import { lyricLrc, lyricTranslation, songs } from '@/mock/music';
+import { NEARBY_PLACES } from '@/mock/realworld';
 import { sleep } from '@/utils/id';
 
 /** 假 TTS：不出声，只按字数估一个时长，期间不停报"音量"驱动声波和口型 */
@@ -164,4 +169,25 @@ export function createNativeBridge(): NativeBridge {
       }
     },
   };
+}
+
+/** 地图：没有 Google Maps Key 时的假实现，返回演示用的附近地点 */
+export class MockMaps implements MapsClient {
+  readonly ready = false;
+  async geocode(): Promise<LatLng | null> {
+    return null;
+  }
+  async whereAmI(): Promise<LatLng | null> {
+    return null;
+  }
+  async nearby(_center: LatLng | null, kinds: RealPlaceKind[]): Promise<MapLocation[]> {
+    const KIND_OF: Record<string, RealPlaceKind> = {
+      'real:cafe': 'cafe',
+      'real:ramen': 'restaurant',
+      'real:park': 'park',
+      'real:gym': 'gym',
+      'real:library': 'library',
+    };
+    return NEARBY_PLACES.filter((p) => kinds.includes(KIND_OF[p.id] ?? 'cafe'));
+  }
 }
