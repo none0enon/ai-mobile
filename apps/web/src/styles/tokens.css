@@ -1,0 +1,119 @@
+/*
+ * 布局：手机竖屏单栏；桌面浏览器里居中一条 480px 的"手机列"，两侧是更深的底色。
+ * 主题：深色"夜"优先，另有浅色"昼"。只改变量，不改类名。
+ *   - 跟随系统：<html> 不带 data-theme，用 prefers-color-scheme
+ *   - 手动选择：<html data-theme="dark|light">
+ * 角色点缀色（--accent 一族）由 AccentScope 用 JS 算好后内联注入，这里只给默认值（桃粉）。
+ */
+:root {
+  color-scheme: dark;
+  --bg: #0c0815;
+  --bg-2: #130d1f;
+  --surface: #191127;
+  --panel: #241b35;
+  --panel-2: #2e2444;
+  --border: #31274a;
+  --ink: #f4edff;
+  --ink-2: #b9adce;
+  --ink-3: #82779a;
+  --frame: #06040b;
+  --glass: rgba(22, 15, 35, 0.74);
+  --glass-strong: rgba(17, 11, 28, 0.92);
+  --glass-line: rgba(255, 255, 255, 0.09);
+  --scrim: rgba(6, 4, 12, 0.6);
+  --shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.35);
+  --good: #7fd6a4;
+  --warn: #f2c66d;
+  --bad: #f2848c;
+  --info: #8db8ff;
+  --bubble-ai: #221a34;
+
+  --accent: #f5b8a6;
+  --accent-ink: #f7c5b6;
+  --accent-soft: rgba(245, 184, 166, 0.16);
+  --accent-line: rgba(245, 184, 166, 0.42);
+  --accent-glow: rgba(245, 184, 166, 0.35);
+  --on-accent: #2b1219;
+  --bubble-me: #f5b8a6;
+  --on-bubble-me: #2b1219;
+
+  --radius-sm: 10px;
+  --radius: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
+  --font-sans: -apple-system, 'PingFang SC', 'HarmonyOS Sans SC', 'MiSans', 'Noto Sans SC', 'Microsoft YaHei',
+    'WenQuanYi Zen Hei', system-ui, sans-serif;
+  --font-serif: 'Songti SC', 'Noto Serif SC', 'Source Han Serif SC', 'STSong', 'SimSun', serif;
+  --font-num: ui-rounded, 'SF Pro Rounded', 'HarmonyOS Sans', -apple-system, system-ui, sans-serif;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --tabbar-h: 60px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --bg: #f6f2f7;
+    --bg-2: #efe8f3;
+    --surface: #ffffff;
+    --panel: #f2ecf6;
+    --panel-2: #e8dfef;
+    --border: #e3d9ea;
+    --ink: #251b2e;
+    --ink-2: #625775;
+    --ink-3: #978ca6;
+    --frame: #e6dded;
+    --glass: rgba(255, 255, 255, 0.8);
+    --glass-strong: rgba(255, 255, 255, 0.95);
+    --glass-line: rgba(37, 27, 46, 0.09);
+    --scrim: rgba(25, 15, 35, 0.38);
+    --shadow: 0 12px 30px rgba(70, 45, 90, 0.14);
+    --shadow-sm: 0 4px 12px rgba(70, 45, 90, 0.1);
+    --good: #2b9663;
+    --warn: #a87a12;
+    --bad: #cf4553;
+    --info: #3a6fcf;
+    --bubble-ai: #ffffff;
+    --accent-ink: #a8573f;
+    --accent-soft: rgba(245, 184, 166, 0.22);
+    --accent-line: rgba(245, 184, 166, 0.55);
+    --bubble-me: #f8c8ba;
+  }
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f6f2f7;
+  --bg-2: #efe8f3;
+  --surface: #ffffff;
+  --panel: #f2ecf6;
+  --panel-2: #e8dfef;
+  --border: #e3d9ea;
+  --ink: #251b2e;
+  --ink-2: #625775;
+  --ink-3: #978ca6;
+  --frame: #e6dded;
+  --glass: rgba(255, 255, 255, 0.8);
+  --glass-strong: rgba(255, 255, 255, 0.95);
+  --glass-line: rgba(37, 27, 46, 0.09);
+  --scrim: rgba(25, 15, 35, 0.38);
+  --shadow: 0 12px 30px rgba(70, 45, 90, 0.14);
+  --shadow-sm: 0 4px 12px rgba(70, 45, 90, 0.1);
+  --good: #2b9663;
+  --warn: #a87a12;
+  --bad: #cf4553;
+  --info: #3a6fcf;
+  --bubble-ai: #ffffff;
+  --accent-ink: #a8573f;
+  --accent-soft: rgba(245, 184, 166, 0.22);
+  --accent-line: rgba(245, 184, 166, 0.55);
+  --bubble-me: #f8c8ba;
+}
+
+/* 在 Claude Artifact 预览里，外层已经按安全区留了边，组件里不再重复加 */
+:root.is-artifact {
+  --safe-top: 0px;
+  --safe-bottom: 0px;
+}

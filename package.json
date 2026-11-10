@@ -1,0 +1,17 @@
+{
+  "name": "ai-mobile",
+  "private": true,
+  "version": "0.0.1",
+  "description": "AI 陪伴对话 App：角色卡/世界书/预设 + 主动消息 + 多场景陪伴 + 长期记忆",
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "dev": "pnpm --filter @app/web dev",
+    "build": "pnpm --filter @app/web build",
+    "build:preview": "pnpm --filter @app/web build:preview",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
+}

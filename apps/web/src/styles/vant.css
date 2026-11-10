@@ -1,0 +1,126 @@
+/*
+ * Vant 的变量映射到我们的主题变量。用 :root:root 提高优先级，
+ * 这样不管 Vant 组件样式在打包后排在前还是后，都以这里为准。
+ * 与点缀色相关的 Vant 变量由 AccentScope 内联覆盖（见 utils/color.ts）。
+ */
+:root:root {
+  --van-primary-color: var(--accent);
+  --van-success-color: var(--good);
+  --van-danger-color: var(--bad);
+  --van-warning-color: var(--warn);
+  --van-text-color: var(--ink);
+  --van-text-color-2: var(--ink-2);
+  --van-text-color-3: var(--ink-3);
+  --van-active-color: var(--panel);
+  --van-active-opacity: 0.7;
+  --van-background: var(--bg);
+  --van-background-2: var(--surface);
+  --van-background-3: var(--panel);
+  --van-border-color: var(--border);
+  --van-base-font: var(--font-sans);
+  --van-font-size-md: 15px;
+  --van-font-size-lg: 16px;
+
+  --van-cell-background: var(--surface);
+  --van-cell-active-color: var(--panel);
+  --van-cell-text-color: var(--ink);
+  --van-cell-label-color: var(--ink-3);
+  --van-cell-value-color: var(--ink-2);
+  --van-cell-border-color: var(--border);
+  --van-cell-group-background: var(--surface);
+  --van-cell-group-title-color: var(--ink-3);
+  --van-cell-group-inset-radius: var(--radius);
+  --van-cell-right-icon-color: var(--ink-3);
+
+  --van-field-label-color: var(--ink-2);
+  --van-field-input-text-color: var(--ink);
+  --van-field-placeholder-text-color: var(--ink-3);
+  --van-field-word-limit-color: var(--ink-3);
+
+  --van-popup-background: var(--bg-2);
+  --van-popup-round-radius: 22px;
+  --van-overlay-background: var(--scrim);
+  --van-action-sheet-item-background: var(--bg-2);
+  --van-action-sheet-item-text-color: var(--ink);
+  --van-action-sheet-subname-color: var(--ink-3);
+  --van-action-sheet-description-color: var(--ink-3);
+  --van-action-sheet-cancel-padding-color: var(--bg);
+  --van-action-sheet-cancel-text-color: var(--ink-2);
+
+  --van-switch-background: var(--panel-2);
+  --van-switch-node-background: #ffffff;
+  --van-switch-on-background: var(--accent);
+
+  --van-tabs-nav-background: transparent;
+  --van-tab-text-color: var(--ink-3);
+  --van-tab-active-text-color: var(--ink);
+  --van-tabs-bottom-bar-color: var(--accent);
+
+  --van-button-default-background: var(--panel);
+  --van-button-default-color: var(--ink);
+  --van-button-default-border-color: var(--border);
+  --van-button-primary-color: var(--on-accent);
+  --van-button-primary-background: var(--accent);
+  --van-button-primary-border-color: var(--accent);
+  --van-button-radius: 12px;
+
+  --van-slider-active-background: var(--accent);
+  --van-slider-inactive-background: var(--panel-2);
+  --van-slider-button-background: #ffffff;
+
+  --van-toast-background: var(--glass-strong);
+  --van-toast-text-color: var(--ink);
+  --van-dialog-background: var(--bg-2);
+  --van-dialog-header-font-weight: 600;
+  --van-dialog-message-font-size: 14px;
+
+  --van-radio-checked-icon-color: var(--accent);
+  --van-checkbox-checked-icon-color: var(--accent);
+  --van-radio-label-color: var(--ink);
+  --van-checkbox-label-color: var(--ink);
+
+  --van-stepper-background: var(--panel);
+  --van-stepper-button-icon-color: var(--ink);
+  --van-stepper-input-text-color: var(--ink);
+  --van-stepper-button-disabled-color: var(--panel);
+  --van-stepper-button-disabled-icon-color: var(--ink-3);
+
+  --van-progress-color: var(--accent);
+  --van-progress-background: var(--panel-2);
+  --van-progress-pivot-text-color: var(--on-accent);
+
+  --van-tag-primary-color: var(--accent);
+  --van-tag-default-color: var(--panel-2);
+  --van-tag-text-color: var(--on-accent);
+
+  --van-search-background: transparent;
+  --van-search-content-background: var(--panel);
+  --van-search-input-height: 36px;
+
+  --van-uploader-upload-background: var(--panel);
+  --van-uploader-icon-color: var(--ink-3);
+  --van-uploader-text-color: var(--ink-3);
+
+  --van-picker-background: var(--bg-2);
+  --van-picker-option-text-color: var(--ink);
+  --van-picker-mask-color: linear-gradient(180deg, var(--bg-2), transparent),
+    linear-gradient(0deg, var(--bg-2), transparent);
+
+  --van-circle-text-color: var(--ink);
+  --van-loading-spinner-color: var(--ink-3);
+  --van-badge-background: var(--bad);
+  --van-badge-color: #ffffff;
+}
+
+/* 分组卡片在深色里加一道细边，层次更清楚 */
+.van-cell-group--inset {
+  border: 1px solid var(--border);
+}
+
+.van-popup {
+  color: var(--ink);
+}
+
+.van-action-sheet__item {
+  color: var(--ink);
+}

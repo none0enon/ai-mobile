@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // 没有 DOM、没有 Node：保证这里的代码将来能原样跑在 Cloudflare Worker 里
+    "lib": ["ES2022"],
+    "types": []
+  },
+  "include": ["src"]
+}
