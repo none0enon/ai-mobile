@@ -50,7 +50,7 @@ const preview = computed(() => {
       <div class="flex items-center gap-2 mt-1">
         <span v-if="typing" class="text-[13.5px] text-accent-ink">对方正在输入…</span>
         <span v-else class="flex-1 min-w-0 text-[13.5px] text-ink-2 truncate">
-          <span v-if="last?.proactive && !last.read" class="text-accent-ink">[主动] </span>{{ preview }}
+          {{ preview }}
         </span>
         <span v-if="unread" class="unread num">{{ unread }}</span>
       </div>

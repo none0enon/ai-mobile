@@ -188,10 +188,10 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
       <PageHeader fallback="/chats">
         <template #title>
           <div class="flex items-center gap-2.5 min-w-0">
-            <RouterLink :to="`/me/characters/${character.id}`" aria-label="角色设定"><Avatar :character="character" :size="36" live status="online" /></RouterLink>
+            <RouterLink :to="`/me/characters/${character.id}`" class="shrink-0" aria-label="角色设定"><Avatar :character="character" :size="36" live status="online" /></RouterLink>
             <div class="min-w-0">
               <RouterLink :to="`/me/characters/${character.id}`" class="flex items-center gap-1.5 text-inherit no-underline">
-                <span class="font-600 text-[16px] truncate">{{ chat.title }}</span>
+                <span class="font-600 text-[16px] truncate min-w-[2.2em]">{{ chat.title }}</span>
                 <span class="aff"><span class="i-lucide-heart" />{{ character.relationship.affection }}</span>
               </RouterLink>
               <RouterLink :to="`/map?focus=${stageLoc.id}`" class="where" aria-label="在地图上看她在哪">
@@ -236,8 +236,10 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
     <StageView v-else :character="character" :expression="expression" :backdrop="stageBackdrop" :rain="stageRain" pokeable @poke="onPoke">
       <div class="stage-top">
         <button class="chip-btn" aria-label="返回" @click="goBack('/chats')"><span class="i-lucide-chevron-left text-[20px]" /></button>
-        <RouterLink :to="`/map?focus=${stageLoc.id}`" class="chip-btn !px-3 num"><span class="i-lucide-map-pin" />{{ stageLoc.name }} · {{ timeChip }}</RouterLink>
-        <span class="chip-btn !px-3"><span class="i-lucide-heart text-accent" />{{ character.relationship.affection }}</span>
+        <RouterLink :to="`/map?focus=${stageLoc.id}`" class="chip-btn loc-chip !px-3 num"
+          ><span class="i-lucide-map-pin shrink-0" /><span class="truncate">{{ stageLoc.name }} · {{ timeChip }}</span></RouterLink
+        >
+        <span class="chip-btn aff-chip shrink-0 !px-3"><span class="i-lucide-heart text-accent" />{{ character.relationship.affection }}</span>
         <span class="flex-1" />
         <button class="chip-btn" aria-label="切换到聊天模式" @click="setMode('im')"><span class="i-lucide-message-circle text-[19px]" /></button>
         <RouterLink :to="`/call/${character.id}`" class="chip-btn" aria-label="语音通话"><span class="i-lucide-phone text-[18px]" /></RouterLink>
@@ -315,10 +317,14 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
   color: var(--ink-3);
   text-decoration: none;
 }
+/* 窄屏 + 大字体时先让好感度让位（缩到看不见），再截名字 */
 .aff {
   display: inline-flex;
+  flex-shrink: 100;
   align-items: center;
   gap: 2px;
+  min-width: 0;
+  overflow: hidden;
   height: 18px;
   padding: 0 6px;
   border-radius: 99px;
@@ -352,7 +358,17 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
   -webkit-backdrop-filter: blur(14px);
   color: var(--ink);
   font-size: 13px;
+  white-space: nowrap;
   text-decoration: none;
+}
+.loc-chip {
+  min-width: 0;
+}
+/* 窄屏时剧场顶栏把位置让给"她在哪"，好感度在聊天模式的顶栏里还能看到 */
+@media (max-width: 360px) {
+  .aff-chip {
+    display: none;
+  }
 }
 .hint {
   position: absolute;

@@ -650,7 +650,7 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
 
 | 路由 | 页面 | 文件 |
 |---|---|---|
-| `#/chats` | 消息列表：小地图缩略图（她们在哪）、今天的主动计划、会话列表（一个角色一条） | `pages/ChatsPage.vue` |
+| `#/chats` | 消息列表：一条很小的"她们在哪"（缩略地图 + 每人一行）、会话列表（一个角色一条） | `pages/ChatsPage.vue` |
 | `#/chat/:id?mode=im\|stage` | 聊天：IM 气泡 / 剧场立绘（可戳） | `pages/ChatPage.vue` |
 | `#/chat/:id/inspect` | 查看提示词 | `pages/PromptInspectorPage.vue` |
 | `#/call/:charId(?incoming=1)` | 通话 / 来电 | `pages/CallPage.vue` |
@@ -660,6 +660,14 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
 | `#/me` 及 `#/me/*`、`#/import` | 我的、角色卡、人设、世界书、预设、API 与智能体、语音、主动消息、环境与作息、同步、外观、导入 | `pages/MePage.vue`、`pages/me/*` |
 
 - **底部 4 个 Tab**：消息（未读角标）/ 地图 / 回忆（新日记小红点）/ 我的。二级页面不显示 Tab。
+- **不出戏**：
+  - 消息页只放"像真人"的东西：她们在哪、聊天；
+  - 主动消息的排期（今天还会找你几次、下一次几点）只在"我的 → 主动消息"里看；
+  - 聊天列表里她先发来的消息也不打"[主动]"标签。
+- **窄屏和系统大字体**（例如安卓 320px 宽、字体放大 1.3 倍）：
+  - 文字只截断不换行；
+  - 剧场顶栏把位置让给"她在哪"；对话框工具条只留图标；
+  - 地图上的地点名不被边缘裁掉。
 - **主题**：
   - 深色"夜"优先，浅色"昼"可选（`styles/tokens.css`）；
   - 主题开关只切换 `<html data-theme>`，"跟随系统"时不带它；

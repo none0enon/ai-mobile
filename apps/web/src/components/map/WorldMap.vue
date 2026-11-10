@@ -6,7 +6,7 @@ import Avatar from '@/components/common/Avatar.vue';
 /**
  * 小地图：家、学校、城里的地点画在一张图上，角色头像标在她此刻所在的地方。
  * 点地点 / 点头像由外面决定做什么（打开底部面板、一起去……）。
- * compact：消息页顶部的缩略图，只画有人的地点，不可点（整张卡片是一个链接）。
+ * compact：消息页顶部的小缩略图，只画底图和她们的小头像，不可点（整张卡片是一个链接）。
  * 地点坐标是 0-100 的百分比，和 400×300 的底图对齐。
  */
 const props = withDefaults(
@@ -31,14 +31,25 @@ const occupants = computed(() => {
   }
   return map;
 });
-const shown = computed(() => (props.compact ? LOCATIONS.filter((l) => occupants.value.has(l.id) || l.id === props.youAt) : LOCATIONS));
-const avatarSize = computed(() => (props.compact ? 22 : 34));
+const avatarSize = computed(() => (props.compact ? 16 : 34));
+
+/**
+ * 地点 = 圆点 + 下面的名字。窄屏、系统大字体时也不让名字被地图边缘裁掉：
+ * 靠左 / 靠右的地点名字往里对齐，靠上 / 靠下的地点整体往里收一点。
+ */
+function pinStyle(l: MapLocation) {
+  const tx = l.x < 16 ? '-15px' : l.x > 84 ? 'calc(-100% + 15px)' : '-50%';
+  return { left: `${l.x}%`, top: `clamp(25px, ${l.y}%, calc(100% - 27px))`, '--tone': tone(l), transform: `translate(${tx}, -50%)` };
+}
+function pinClass(l: MapLocation) {
+  return { focus: props.focus === l.id, occupied: occupants.value.has(l.id), 'edge-l': l.x < 16, 'edge-r': l.x > 84 };
+}
 
 /** 头像挂在地点的右上方；靠近地图边缘时往里收，不被裁掉 */
 function whoStyle(locId: string, i: number) {
   const l = getLocation(locId);
-  const dx = (props.compact ? 10 : 16) + i * (props.compact ? 14 : 22);
-  const dy = props.compact ? 10 : 22;
+  const dx = props.compact ? 4 + i * 10 : 16 + i * 22;
+  const dy = props.compact ? 4 : 22;
   const half = avatarSize.value / 2 + 2;
   return {
     left: `clamp(${half}px, calc(${l?.x ?? 0}% + ${dx}px), calc(100% - ${half}px))`,
@@ -98,23 +109,24 @@ const you = computed(() => getLocation(props.youAt));
     </svg>
 
     <!-- 地点 -->
-    <component
-      :is="compact ? 'span' : 'button'"
-      v-for="l in shown"
-      :key="l.id"
-      class="pin"
-      :class="{ focus: focus === l.id, occupied: occupants.has(l.id) }"
-      :style="{ left: `${l.x}%`, top: `${l.y}%`, '--tone': tone(l) }"
-      :aria-label="compact ? undefined : `${l.name}：${l.activities.map((a) => a.label).join('、')}`"
-      :data-loc="l.id"
-      @click="!compact && emit('select-location', l)"
-    >
-      <span class="pin-dot"><span v-if="!compact" :class="l.icon" /></span>
-      <span v-if="!compact" class="pin-label">{{ l.name }}</span>
-    </component>
+    <template v-if="!compact">
+      <button
+        v-for="l in LOCATIONS"
+        :key="l.id"
+        class="pin"
+        :class="pinClass(l)"
+        :style="pinStyle(l)"
+        :aria-label="`${l.name}：${l.activities.map((a) => a.label).join('、')}`"
+        :data-loc="l.id"
+        @click="emit('select-location', l)"
+      >
+        <span class="pin-dot"><span :class="l.icon" /></span>
+        <span class="pin-label">{{ l.name }}</span>
+      </button>
+    </template>
 
     <!-- 你 -->
-    <span v-if="you" class="you" :style="{ left: `${you.x}%`, top: `${you.y}%` }">你</span>
+    <span v-if="you && !compact" class="you" :style="{ left: `${you.x}%`, top: `${you.y}%` }">你</span>
 
     <!-- 她们在哪 -->
     <template v-for="[locId, list] in occupants" :key="locId">
@@ -214,6 +226,12 @@ const you = computed(() => getLocation(props.youAt));
   transform: translate(-50%, -50%);
   -webkit-tap-highlight-color: transparent;
 }
+.pin.edge-l {
+  align-items: flex-start;
+}
+.pin.edge-r {
+  align-items: flex-end;
+}
 .pin-dot {
   display: inline-flex;
   align-items: center;
@@ -271,19 +289,11 @@ const you = computed(() => getLocation(props.youAt));
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .compact {
-  border-radius: 14px;
+  border-radius: 10px;
 }
-.compact .pin-dot {
-  width: 9px;
-  height: 9px;
-  border-width: 0;
-  background: var(--tone);
-  box-shadow: none;
-}
-.compact .you {
-  width: 14px;
-  height: 14px;
-  font-size: 8px;
-  transform: translate(calc(-50% - 10px), calc(-50% - 9px));
+.compact .who {
+  box-shadow:
+    0 0 0 1.5px var(--surface),
+    0 2px 5px rgba(0, 0, 0, 0.3);
 }
 </style>

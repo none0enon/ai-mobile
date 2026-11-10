@@ -174,7 +174,6 @@ onMounted(() => {
             <div class="text-[13.5px] font-600 truncate">{{ c.name }}</div>
             <div class="text-[11.5px] text-ink-3 truncate">{{ locOf(c).name }} · {{ c.status }}</div>
           </div>
-          <span class="i-lucide-chevron-right text-ink-3 shrink-0" />
         </button>
       </div>
 
@@ -335,9 +334,10 @@ onMounted(() => {
 .act-icon > span {
   position: relative;
 }
+/* 窄屏 + 系统大字体时字号跟着屏宽缩一点，四个字的名字也放得下 */
 .act-name {
   margin-top: 2px;
-  font-size: 13.5px;
+  font-size: min(13.5px, 3.4vw);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -345,7 +345,7 @@ onMounted(() => {
   max-width: 100%;
   overflow: hidden;
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: min(11px, 3vw);
   white-space: nowrap;
   text-overflow: ellipsis;
 }

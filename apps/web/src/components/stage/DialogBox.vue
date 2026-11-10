@@ -76,9 +76,9 @@ function segments(text: string) {
         <button class="reply-send" aria-label="发送" @click="submit"><span class="i-lucide-send-horizontal" /></button>
       </div>
       <div v-else-if="showTools" class="tools">
-        <button class="tool" @click="emit('log')"><span class="i-lucide-scroll-text" />记录</button>
-        <button class="tool" :class="{ on: autoOn }" @click="emit('toggle-auto')"><span class="i-lucide-fast-forward" />自动</button>
-        <button class="tool" :class="{ on: voiceOn }" @click="emit('toggle-voice')"><span class="i-lucide-volume-2" />语音</button>
+        <button class="tool" aria-label="记录" @click="emit('log')"><span class="i-lucide-scroll-text" /><span class="tool-label">记录</span></button>
+        <button class="tool" :class="{ on: autoOn }" aria-label="自动" @click="emit('toggle-auto')"><span class="i-lucide-fast-forward" /><span class="tool-label">自动</span></button>
+        <button class="tool" :class="{ on: voiceOn }" aria-label="语音" @click="emit('toggle-voice')"><span class="i-lucide-volume-2" /><span class="tool-label">语音</span></button>
         <button class="tool primary" @click="openReply">回复<span class="i-lucide-chevron-right" /></button>
       </div>
     </div>
@@ -135,6 +135,7 @@ function segments(text: string) {
 }
 .tool {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 4px;
   height: 32px;
@@ -142,6 +143,12 @@ function segments(text: string) {
   border-radius: 99px;
   font-size: 13px;
   color: var(--ink-2);
+  white-space: nowrap;
+}
+@media (max-width: 360px) {
+  .tool-label {
+    display: none;
+  }
 }
 .tool.on {
   color: var(--accent-ink);
