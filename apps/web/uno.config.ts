@@ -11,6 +11,8 @@ export default defineConfig({
       include: [/\.(vue|ts|html)($|\?)/],
     },
   },
+  // 不用 [属性:值] 这种"任意属性"写法；屏蔽它，免得把歌词时间戳 [00:12.20]、控制标签 [expr:smile] 当成样式
+  blocklist: [/^\[.*\]$/],
   presets: [
     presetWind3(),
     presetIcons({

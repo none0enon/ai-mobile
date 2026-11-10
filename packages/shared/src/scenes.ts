@@ -160,7 +160,7 @@ export const FREE_SCENE: SceneDef = {
   pose: 'stand',
   tint: '#f5b8a6',
   promptFragment: '【场景：日常聊天】像真人恋人一样自然地聊天，回复长短随对话节奏变化。',
-  allowedTags: ['expr', 'cg', 'music', 'call', 'poke'],
+  allowedTags: ['expr', 'cg', 'music', 'call', 'poke', 'choice'],
   proactiveTriggers: [],
   dataSources: [],
 };
