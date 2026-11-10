@@ -1,4 +1,4 @@
-import { getScene, parseControlTags, type Message, type MessagePart, type MessageRole } from '@app/shared';
+import { getLocation, getScene, parseControlTags, type Message, type MessagePart, type MessageRole } from '@app/shared';
 import { defineStore } from 'pinia';
 import { computed, reactive, ref } from 'vue';
 import { useAppStore } from './app';
@@ -28,8 +28,9 @@ export const useChatStore = defineStore('chat', () => {
     return chats.value.find((c) => c.id === id);
   }
 
+  /** 消息按人分：一个角色只有一条聊天 */
   function chatOfCharacter(characterId: string) {
-    return chats.value.find((c) => c.characterId === characterId && c.mode === 'im') ?? chats.value.find((c) => c.characterId === characterId);
+    return chats.value.find((c) => c.characterId === characterId);
   }
 
   function list(chatId: string): Message[] {
@@ -41,6 +42,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   const totalUnread = computed(() => chats.value.reduce((n, c) => n + unread(c.id), 0));
+
+  /** 你在哪：正和谁在一起就在那儿，否则在家 */
+  const youAt = computed(() => chats.value.find((c) => c.togetherAt)?.togetherAt ?? 'home');
 
   function markRead(chatId: string) {
     for (const m of list(chatId)) if (!m.read) m.read = true;
@@ -208,6 +212,60 @@ export const useChatStore = defineStore('chat', () => {
     if (withReply) await generate(chatId);
   }
 
+  /** 一起出门前她在哪、在做什么：去了又什么都没发生时还原。只放内存 */
+  const beforeVisit = new Map<string, { locationId: string | null; status: string }>();
+
+  /**
+   * 和她一起去某个地点、开始某个场景：在聊天里插一条"来到图书馆 · 陪伴学习"的分隔，
+   * 记下你们此刻在一起的地点；她的位置也跟着过去。
+   */
+  function enterScene(characterId: string, locationId: string, sceneId: string) {
+    const chat = chatOfCharacter(characterId);
+    const character = useCharacterStore().byId(characterId);
+    if (!chat || !character) return;
+    if (chat.togetherAt === locationId && chat.currentScene === sceneId) return;
+    if (chat.togetherAt) leaveScene(characterId);
+    const loc = getLocation(locationId);
+    const activity = loc?.activities.find((a) => a.sceneId === sceneId)?.label ?? getScene(sceneId).name;
+    const last = list(chat.id).at(-1);
+    const lastPart = last?.parts[0];
+    // 刚离开同一个地方又回来（离开时没留下总结）：把"离开"撤掉，当作没离开过
+    if (last && lastPart?.type === 'scene' && lastPart.event === 'leave' && lastPart.locationId === locationId && !lastPart.summary && last.parts.length === 1) {
+      messages.value[chat.id]?.pop();
+    } else {
+      push(chat.id, 'narrator', [{ type: 'scene', event: 'enter', sceneId, locationId, title: `和${character.name}来到${loc?.name ?? ''} · ${activity}` }]);
+    }
+    if (!beforeVisit.has(characterId)) beforeVisit.set(characterId, { locationId: character.locationId, status: character.status });
+    chat.togetherAt = locationId;
+    chat.currentScene = sceneId;
+    character.locationId = locationId;
+    // 家里的活动带房间名（卧室 · 哄睡），状态只要后半截
+    character.status = activity.split(' · ').at(-1) ?? activity;
+  }
+
+  /** 离开当前地点。如果进来之后什么都没发生，就把"来到…"也撤掉，她也回到原来的地方，不留痕迹 */
+  function leaveScene(characterId: string, summary?: string) {
+    const chat = chatOfCharacter(characterId);
+    if (!chat?.togetherAt) return;
+    const character = useCharacterStore().byId(characterId);
+    const before = beforeVisit.get(characterId);
+    beforeVisit.delete(characterId);
+    const loc = getLocation(chat.togetherAt);
+    const last = list(chat.id).at(-1);
+    const lastPart = last?.parts[0];
+    if (last && lastPart?.type === 'scene' && lastPart.event === 'enter' && last.parts.length === 1 && !summary) {
+      messages.value[chat.id]?.pop();
+      if (character && before) Object.assign(character, before);
+    } else {
+      push(chat.id, 'narrator', [
+        { type: 'scene', event: 'leave', sceneId: chat.currentScene ?? 'free', locationId: chat.togetherAt, title: `离开${loc?.name ?? ''}`, summary },
+      ]);
+      if (character) character.status = '刚和你分开';
+    }
+    chat.togetherAt = null;
+    chat.currentScene = null;
+  }
+
   /** 场景结束时把记录卡片发进聊天（运动、饭照、学习、约会回忆……） */
   function postCard(chatId: string, role: MessageRole, part: MessagePart, text?: string) {
     const parts: MessagePart[] = text ? [{ type: 'text', text }, part] : [part];
@@ -220,6 +278,7 @@ export const useChatStore = defineStore('chat', () => {
     streams,
     sortedChats,
     totalUnread,
+    youAt,
     chatById,
     chatOfCharacter,
     list,
@@ -233,5 +292,7 @@ export const useChatStore = defineStore('chat', () => {
     regenerate,
     poke,
     postCard,
+    enterScene,
+    leaveScene,
   };
 });

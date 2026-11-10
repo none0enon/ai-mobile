@@ -124,6 +124,16 @@ function playVoice() {
     <div v-else class="text-[12.5px] text-ink-3 mt-2">{{ part.status === 'accepted' ? '已答应 · 到时候她会提醒你' : part.status === 'memory' ? '已存进回忆' : '' }}</div>
   </div>
 
+  <!-- 场景分段：和她一起去了某个地点 / 离开 -->
+  <div v-else-if="part.type === 'scene'" class="scene-mark" :class="part.event">
+    <span class="line" />
+    <span class="label">
+      <span :class="part.event === 'enter' ? 'i-lucide-map-pin' : 'i-lucide-footprints'" />
+      {{ part.title }}<template v-if="part.summary"> · {{ part.summary }}</template>
+    </span>
+    <span class="line" />
+  </div>
+
   <div v-else-if="part.type === 'gift'" class="pcard row-card">
     <span class="icon-wrap"><span class="i-lucide-gift" /></span>
     <div class="text-[14.5px]">送出礼物：{{ part.name }}</div>
@@ -231,6 +241,35 @@ function playVoice() {
   padding: 0;
   overflow: hidden;
   width: 200px;
+}
+.scene-mark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 340px;
+  margin: 8px 0 2px;
+  color: var(--accent-ink);
+  font-size: 12px;
+}
+.scene-mark.leave {
+  color: var(--ink-3);
+}
+.scene-mark .line {
+  flex: 1;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.35;
+}
+.scene-mark .label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 78%;
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: var(--panel);
+  text-align: center;
 }
 .meal-photo {
   height: 110px;

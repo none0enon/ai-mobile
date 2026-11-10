@@ -42,12 +42,14 @@ function segments(text: string) {
       <PartCard :part="p" :character="character" :mine="mine" />
     </div>
 
-    <!-- 旁白 / 场景记录：居中 -->
+    <!-- 旁白 / 场景分段 / 场景记录：居中，按顺序显示 -->
     <template v-if="narrator">
-      <p v-for="(p, i) in textParts" :key="i" class="narration">{{ p.type === 'text' ? p.text : '' }}</p>
-      <div v-for="(p, i) in cardParts" :key="`c${i}`" class="center-line">
-        <PartCard :part="p" :character="character" :mine="false" />
-      </div>
+      <template v-for="(p, i) in message.parts" :key="i">
+        <p v-if="p.type === 'text'" class="narration">{{ p.text }}</p>
+        <div v-else-if="p.type !== 'poke'" class="center-line">
+          <PartCard :part="p" :character="character" :mine="false" />
+        </div>
+      </template>
     </template>
 
     <div v-else-if="textParts.length || cardParts.length || streaming" class="row">

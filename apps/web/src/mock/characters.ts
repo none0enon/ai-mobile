@@ -71,7 +71,8 @@ export const characters: Character[] = [
         { label: '第一次语音通话', at: at(-20, '23:05') },
       ],
     },
-    status: '在图书馆自习',
+    status: '自习中',
+    locationId: 'library',
   },
   {
     id: 'jiangyu',
@@ -126,6 +127,7 @@ export const characters: Character[] = [
       milestones: [{ label: '第一次一起晨跑', at: at(-6, '06:00') }],
     },
     status: '刚游完泳',
+    locationId: 'gym',
   },
 ];
 

@@ -63,6 +63,8 @@ export interface EnvironmentInput {
   todayLine?: string;
   sinceLastChatMin?: number | null;
   sceneName?: string | null;
+  /** 她在哪 / 你们一起在哪，例如"你们一起在图书馆" */
+  place?: string | null;
 }
 
 function pad(n: number) {
@@ -96,6 +98,7 @@ export function formatEnvironmentBlock(input: EnvironmentInput): string {
   }
   if (input.todayLine) parts.push(input.todayLine);
   if (input.sinceLastChatMin != null) parts.push(`距上次聊天 ${formatDuration(input.sinceLastChatMin)}`);
+  if (input.place) parts.push(input.place);
   if (input.sceneName) parts.push(`当前场景：${input.sceneName}`);
   return `【当前环境】${parts.join(' · ')}`;
 }

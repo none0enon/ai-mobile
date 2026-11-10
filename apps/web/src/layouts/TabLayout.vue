@@ -6,7 +6,7 @@ const chat = useChatStore();
 
 const tabs = computed(() => [
   { to: '/chats', label: '消息', icon: 'i-lucide-message-circle', badge: chat.totalUnread },
-  { to: '/together', label: '一起', icon: 'i-lucide-heart-handshake', badge: 0 },
+  { to: '/map', label: '地图', icon: 'i-lucide-map', badge: 0 },
   { to: '/memories', label: '回忆', icon: 'i-lucide-book-heart', badge: 0, dot: true },
   { to: '/me', label: '我的', icon: 'i-lucide-user-round', badge: 0 },
 ]);

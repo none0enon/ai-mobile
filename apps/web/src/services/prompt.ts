@@ -1,5 +1,6 @@
 import {
   formatEnvironmentBlock,
+  getLocation,
   getScene,
   type Character,
   type Chat,
@@ -54,6 +55,8 @@ function partToText(p: MessagePart, character: Character): string {
       return `[约会邀请：${p.when} ${p.place}]`;
     case 'gift':
       return `[礼物：${p.name}]`;
+    case 'scene':
+      return `（${p.title}${p.summary ? `：${p.summary}` : ''}）`;
   }
 }
 
@@ -91,6 +94,8 @@ export function assemblePreview(chat: Chat, character: Character, history: Messa
   const recentText = recent.map((m) => messageToText(m, character)).join('\n');
   const lore = matchLore(character, recentText);
   const scene = getScene(chat.currentScene ?? 'free');
+  const loc = getLocation(chat.togetherAt ?? character.locationId);
+  const place = !loc ? null : chat.togetherAt ? `你们一起在${loc.name}` : `${character.name}在${loc.name}（${character.status}）`;
   const today = mockToday();
   const persona = personas.find((p) => p.id === chat.personaId) ?? personas[0];
   const mems = memories
@@ -124,8 +129,8 @@ export function assemblePreview(chat: Chat, character: Character, history: Messa
       source: `记忆检索 Top ${mems.length}（置顶必带）+ 关系状态`,
     },
     environment: {
-      content: formatEnvironmentBlock({ now: new Date(), weather, todayLine: todayLine(today), sinceLastChatMin: 3, sceneName: scene.id === 'free' ? null : scene.name }),
-      source: '时间 / 节气 / 天气 / 今日活动',
+      content: formatEnvironmentBlock({ now: new Date(), weather, todayLine: todayLine(today), sinceLastChatMin: 3, place, sceneName: scene.id === 'free' ? null : scene.name }),
+      source: '时间 / 节气 / 天气 / 今日活动 / 她在哪',
     },
     sceneRules: {
       content: `${macros(scene.promptFragment, character)}\n可用标签：${scene.allowedTags.map((t) => `[${t}]`).join(' ')}；可用表情：neutral smile laugh blush shy pout surprised sad angry sleepy sleep`,

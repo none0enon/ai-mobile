@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { LOCATIONS } from '@app/shared';
 import { showToast } from 'vant';
-import { computed, ref } from 'vue';
+import { computed, inject, ref } from 'vue';
 import CgArt from '@/components/figure/CgArt.vue';
 import DialogBox from '@/components/stage/DialogBox.vue';
+import { SCENE_LOCATION } from '@/components/scene/location';
 import SceneShell from '@/components/scene/SceneShell.vue';
 import { datePlaces, weather, type DatePlace } from '@/mock/activity';
 import { useAppStore } from '@/stores/app';
@@ -10,18 +12,21 @@ import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 
 /**
- * 约会：先选地点（她会按天气推荐），然后像视觉小说一样推进：旁白 + 台词 + 选项，
- * 关键时刻请求一张 CG（正式版：生图提示词智能体 + NovelAI），最后生成"约会回忆"。
+ * 约会：从地图上点了地点就直接开始；没指定地点（比如从聊天进来）先选地点，她会按天气推荐。
+ * 然后像视觉小说一样推进：旁白 + 台词 + 选项，关键时刻请求一张 CG（正式版：生图提示词智能体 + NovelAI），
+ * 最后生成"约会回忆"。整段约会在聊天里是"来到水族馆 … 离开水族馆"。
  */
 const app = useAppStore();
 const chars = useCharacterStore();
 const chat = useChatStore();
 const character = computed(() => chars.byId(app.activeCharacterId) ?? chars.list[0]!);
+const location = inject(SCENE_LOCATION, ref(null));
 
-const phase = ref<'pick' | 'date' | 'end'>('pick');
 const raining = weather.text.includes('雨');
 const recommended = datePlaces.find((p) => p.id === (raining ? 'aquarium' : 'amusement'))!;
-const place = ref<DatePlace>(recommended);
+const fromMap = datePlaces.find((p) => p.id === location.value?.activities.find((a) => a.sceneId === 'date')?.datePlace);
+const phase = ref<'pick' | 'date' | 'end'>(fromMap ? 'date' : 'pick');
+const place = ref<DatePlace>(fromMap ?? recommended);
 
 interface Node {
   narration: string;
@@ -58,6 +63,8 @@ const nodes = computed<Node[]>(() => [
 const node = computed(() => nodes.value[step.value] ?? nodes.value[0]!);
 
 function start(p: DatePlace) {
+  const loc = LOCATIONS.find((l) => l.activities.some((a) => a.sceneId === 'date' && a.datePlace === p.id));
+  if (loc) chat.enterScene(character.value.id, loc.id, 'date');
   place.value = p;
   phase.value = 'date';
   step.value = 0;
@@ -78,6 +85,7 @@ function choose(c: string) {
 function saveMemory() {
   const chatId = chat.chatOfCharacter(character.value.id)?.id;
   if (chatId) chat.postCard(chatId, 'assistant', { type: 'date', place: place.value.name, when: '今天', status: 'memory' }, '今天的约会，我存进回忆里啦。');
+  chat.leaveScene(character.value.id, '约会回忆存好了');
   showToast('已存进回忆');
 }
 </script>

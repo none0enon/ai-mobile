@@ -78,6 +78,7 @@ function share() {
     durationSec: elapsed.value,
     pace: pace.value,
   });
+  chat.leaveScene(app.activeCharacterId, `一起${SPORT_LABEL[sport.value] ?? '跑步'} ${distanceKm.value.toFixed(2)} km`);
   void chat.generate(chatId);
   void router.push(`/chat/${chatId}`);
 }
@@ -97,7 +98,7 @@ const maxSteps = Math.max(...week.steps);
 </script>
 
 <template>
-  <SceneShell scene-id="exercise" backdrop="park" :line="line" :expression="phase === 'running' ? 'laugh' : 'smile'" :layout="{ left: 74, bottom: 47, height: 36 }">
+  <SceneShell scene-id="exercise" :line="line" :expression="phase === 'running' ? 'laugh' : 'smile'" :layout="{ left: 74, bottom: 47, height: 36 }">
     <template #actions>
       <button class="pill-btn" @click="sourcesOpen = true"><span class="i-lucide-database" />数据来源</button>
     </template>

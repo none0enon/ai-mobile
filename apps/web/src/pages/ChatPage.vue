@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { MessagePart } from '@app/shared';
+import { getLocation, LOCATIONS, type MapLocation, type MessagePart } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -8,6 +8,7 @@ import MessageItem from '@/components/chat/MessageItem.vue';
 import Avatar from '@/components/common/Avatar.vue';
 import CgArt from '@/components/figure/CgArt.vue';
 import DialogBox from '@/components/stage/DialogBox.vue';
+import { backdropAt } from '@/components/scene/location';
 import StageView from '@/components/stage/StageView.vue';
 import { usePoke } from '@/composables/usePoke';
 import PageHeader from '@/layouts/PageHeader.vue';
@@ -96,7 +97,7 @@ function onAction(id: string) {
       void router.push('/scene/meal');
       break;
     case 'scenes':
-      void router.push('/together');
+      void router.push(`/map?focus=${stageLoc.value.id}`);
       break;
     case 'call':
       void router.push(`/call/${c.id}`);
@@ -171,6 +172,13 @@ const autoOn = ref(false);
 const voiceOn = ref(true);
 const stageText = computed(() => lastAi.value?.text || character.value?.card.firstMes || '');
 const timeChip = `${hhmm(Date.now())} · ${weather.text} ${weather.tempC}°`;
+
+/** 剧场背景：你们一起在的地方，否则是她此刻在的地方（家里按正在做的事选房间，平时是卧室） */
+const stageLoc = computed<MapLocation>(() => getLocation(chat.value?.togetherAt ?? character.value?.locationId) ?? (LOCATIONS[0] as MapLocation));
+const stageBackdrop = computed(() =>
+  chat.value?.togetherAt && chat.value.currentScene ? backdropAt(stageLoc.value, chat.value.currentScene) : stageLoc.value.area === 'home' ? 'bedroom' : stageLoc.value.backdrop,
+);
+const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.value.indoor || ['bedroom', 'library', 'cafe'].includes(stageBackdrop.value)));
 </script>
 
 <template>
@@ -179,18 +187,19 @@ const timeChip = `${hhmm(Date.now())} · ${weather.text} ${weather.tempC}°`;
     <template v-if="mode === 'im'">
       <PageHeader fallback="/chats">
         <template #title>
-          <RouterLink :to="`/me/characters/${character.id}`" class="flex items-center gap-2.5 min-w-0 text-inherit no-underline">
-            <Avatar :character="character" :size="36" live status="online" />
+          <div class="flex items-center gap-2.5 min-w-0">
+            <RouterLink :to="`/me/characters/${character.id}`" aria-label="角色设定"><Avatar :character="character" :size="36" live status="online" /></RouterLink>
             <div class="min-w-0">
-              <div class="flex items-center gap-1.5">
+              <RouterLink :to="`/me/characters/${character.id}`" class="flex items-center gap-1.5 text-inherit no-underline">
                 <span class="font-600 text-[16px] truncate">{{ chat.title }}</span>
                 <span class="aff"><span class="i-lucide-heart" />{{ character.relationship.affection }}</span>
-              </div>
-              <div class="text-[11.5px] text-ink-3 truncate">
-                {{ stream ? '对方正在输入…' : character.status }} · {{ weather.text }} {{ weather.tempC }}°C
-              </div>
+              </RouterLink>
+              <RouterLink :to="`/map?focus=${stageLoc.id}`" class="where" aria-label="在地图上看她在哪">
+                <span class="i-lucide-map-pin text-accent-ink shrink-0" />
+                <span class="truncate">{{ chat.togetherAt ? `你们在${stageLoc.name}` : stageLoc.name }} · {{ stream ? '对方正在输入…' : character.status }} · {{ weather.text }} {{ weather.tempC }}°C</span>
+              </RouterLink>
             </div>
-          </RouterLink>
+          </div>
         </template>
         <template #right>
           <RouterLink :to="`/call/${character.id}`" class="icon-btn" aria-label="语音通话"><span class="i-lucide-phone text-[19px]" /></RouterLink>
@@ -224,10 +233,10 @@ const timeChip = `${hhmm(Date.now())} · ${weather.text} ${weather.tempC}°`;
     </template>
 
     <!-- 剧场模式 -->
-    <StageView v-else :character="character" :expression="expression" backdrop="bedroom" rain pokeable @poke="onPoke">
+    <StageView v-else :character="character" :expression="expression" :backdrop="stageBackdrop" :rain="stageRain" pokeable @poke="onPoke">
       <div class="stage-top">
         <button class="chip-btn" aria-label="返回" @click="goBack('/chats')"><span class="i-lucide-chevron-left text-[20px]" /></button>
-        <span class="chip-btn !px-3 num"><span class="i-lucide-cloud-rain" />{{ timeChip }}</span>
+        <RouterLink :to="`/map?focus=${stageLoc.id}`" class="chip-btn !px-3 num"><span class="i-lucide-map-pin" />{{ stageLoc.name }} · {{ timeChip }}</RouterLink>
         <span class="chip-btn !px-3"><span class="i-lucide-heart text-accent" />{{ character.relationship.affection }}</span>
         <span class="flex-1" />
         <button class="chip-btn" aria-label="切换到聊天模式" @click="setMode('im')"><span class="i-lucide-message-circle text-[19px]" /></button>
@@ -296,6 +305,15 @@ const timeChip = `${hhmm(Date.now())} · ${weather.text} ${weather.tempC}°`;
   font-size: 11.5px;
   color: var(--ink-3);
   background: var(--panel);
+}
+.where {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  text-decoration: none;
 }
 .aff {
   display: inline-flex;

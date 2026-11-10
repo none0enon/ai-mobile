@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { getScene, type PokeHotspot, type TimeOfDay } from '@app/shared';
-import { computed } from 'vue';
+import { computed, inject, ref } from 'vue';
 import Avatar from '@/components/common/Avatar.vue';
 import StageView from '@/components/stage/StageView.vue';
+import { backdropAt, SCENE_LOCATION, titleAt } from './location';
 import { goBack } from '@/router';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
+import { useChatStore } from '@/stores/chat';
 
 /**
  * 所有场景共用的外壳：背景 + 立绘 + 顶栏 + 她的一句话 + 底部场景面板（插槽）。
- * 场景只需要写面板，并告诉外壳用什么背景、服装、姿势、表情。
+ * 场景只需要写面板，并告诉外壳用什么服装、姿势、表情；背景和标题默认跟着地图上的地点走。
+ * 点她的那句话 → 去你们的聊天接着聊（还算在一起，聊天页显示"你们在…"）。
  */
 const props = withDefaults(
   defineProps<{
@@ -35,8 +38,11 @@ const emit = defineEmits<{ (e: 'poke', h: PokeHotspot, kind: 'tap' | 'long'): vo
 
 const app = useAppStore();
 const chars = useCharacterStore();
+const chat = useChatStore();
 const scene = computed(() => getScene(props.sceneId));
+const location = inject(SCENE_LOCATION, ref(null));
 const character = computed(() => chars.byId(app.activeCharacterId) ?? chars.list[0]!);
+const chatLink = computed(() => `/chat/${chat.chatOfCharacter(character.value.id)?.id}?mode=stage`);
 const expr = computed(() => props.expression ?? chars.expression[character.value.id] ?? 'smile');
 const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50 });
 </script>
@@ -48,7 +54,7 @@ const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50
       :expression="expr"
       :outfit="outfit ?? scene.outfit"
       :pose="pose ?? scene.pose"
-      :backdrop="backdrop ?? scene.backdrop"
+      :backdrop="backdrop ?? backdropAt(location, sceneId)"
       :tod="tod"
       :rain="rain"
       :dim="dim"
@@ -59,18 +65,18 @@ const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50
     >
       <div class="tint" />
       <header class="scene-top">
-        <button class="pill" aria-label="返回" @click="goBack('/together')"><span class="i-lucide-chevron-left text-[20px]" /></button>
-        <span class="pill title"><span :class="scene.icon" />{{ title ?? scene.name }}</span>
+        <button class="pill" aria-label="返回" @click="goBack('/map')"><span class="i-lucide-chevron-left text-[20px]" /></button>
+        <span class="pill title"><span :class="scene.icon" /><span class="truncate">{{ title ?? titleAt(location, sceneId) }}</span></span>
         <span class="flex-1" />
         <slot name="actions" />
       </header>
-      <div v-if="line || typing" class="companion">
+      <RouterLink v-if="line || typing" :to="chatLink" class="companion" :aria-label="`去和${character.name}聊天`">
         <Avatar :character="character" :size="30" live />
         <div class="say">
           <span v-if="typing && !line" class="inline-flex gap-1 text-accent-ink"><span class="typing-dot" /><span class="typing-dot" /><span class="typing-dot" /></span>
           <template v-else>{{ line }}</template>
         </div>
-      </div>
+      </RouterLink>
       <slot name="overlay" />
       <section class="panel">
         <slot />
@@ -118,9 +124,11 @@ const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50
   font-size: 14px;
 }
 .pill.title {
+  min-width: 0;
   font-weight: 600;
 }
-.pill.title span {
+.pill.title > span:first-child {
+  flex-shrink: 0;
   color: var(--tint);
 }
 .companion {
@@ -129,6 +137,8 @@ const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50
   top: calc(var(--safe-top) + 60px);
   left: 12px;
   right: 12px;
+  color: inherit;
+  text-decoration: none;
   display: flex;
   align-items: flex-start;
   gap: 8px;

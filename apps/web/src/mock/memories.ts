@@ -34,7 +34,7 @@ export const memories: Memory[] = [
   mem('mem2', 'fact', '在读研一，计算机专业，最近在赶一篇论文', 8, at(-29, '21:00'), { pinned: true, recallCount: 12 }),
   mem('mem3', 'followup', '周三下午两点有一场实习面试，结束后要问他结果', 8, at(-2, '22:30'), { dueAt: at(2, '16:30') }),
   mem('mem4', 'promise', '约好周六下午一起去水族馆', 7, at(-1, '20:05')),
-  mem('mem5', 'event', '一起看了《海边的旧书店》，他说最喜欢两人在屋檐下躲雨那一幕', 6, at(-8, '22:40')),
+  mem('mem5', 'event', '在电影院一起看了《海边的旧书店》，他说最喜欢两人在屋檐下躲雨那一幕', 6, at(-3, '22:10')),
   mem('mem6', 'emotion', '最近因为论文进度有点焦虑，晚上容易失眠', 7, at(-3, '01:10'), { recallCount: 3 }),
   mem('mem7', 'preference', '下雨天喜欢听慢歌，最近单曲循环《雨停之前》', 5, at(-1, '17:06')),
   mem('mem8', 'relationship', '第一次叫我"晚晚"，那天我脸红了一整晚', 9, at(-12, '22:10'), { pinned: true }),
@@ -111,13 +111,14 @@ export interface TimelineItem {
 
 export const timeline: TimelineItem[] = [
   { id: 't1', when: at(-1, '20:05'), icon: 'i-lucide-ticket', title: '约好周六去水族馆', desc: '她准备了三个理由，一个都没用上', tint: '#6fb6e8' },
+  { id: 't2b', when: at(-3, '19:30'), icon: 'i-lucide-clapperboard', title: '在电影院约会', desc: '《海边的旧书店》，她偷偷哭了', tint: '#e07a7a' },
   { id: 't2', when: at(-1, '17:06'), icon: 'i-lucide-music-2', title: '一起听了《雨停之前》', desc: '她说"下次下雨，我们就听这首吧"', tint: '#f39cc0' },
   { id: 't3', when: at(-1, '08:41'), icon: 'i-lucide-footprints', title: '第一次跑完五公里', desc: '配速 6\'01"，她夸你闪闪发光', tint: '#7fd1b1' },
   { id: 't4', when: at(-2, '23:58'), icon: 'i-lucide-moon-star', title: '哄睡通话 12 分钟', desc: '唱了半首歌，你在第 9 分钟睡着了', tint: '#9b8cf0' },
   { id: 't5', when: at(-12, '22:10'), icon: 'i-lucide-sparkles', title: '第一次叫她"晚晚"', desc: '关系里程碑', tint: '#f5b8a6' },
   { id: 't6', when: at(-20, '23:05'), icon: 'i-lucide-phone', title: '第一次语音通话', desc: '聊到凌晨一点', tint: '#8fb3f0' },
   { id: 't7', when: at(-30, '20:00'), icon: 'i-lucide-umbrella', title: '相识', desc: '"雨这么大，走啦。"', tint: '#b9adce' },
-];
+].sort((a, b) => b.when - a.when);
 
 export interface AlbumItem {
   id: string;
@@ -131,9 +132,9 @@ export interface AlbumItem {
 
 export const album: AlbumItem[] = [
   { id: 'a1', caption: '雨天的图书馆', when: at(-1, '19:20'), hue: 220, scene: 'library', seed: 1314520, prompt: '1girl, long hair, dark brown hair, hair clip, library, rainy window, warm desk lamp, looking at viewer, soft smile' },
-  { id: 'a2', caption: '水族馆的蓝色隧道', when: at(-3, '14:20'), hue: 200, scene: 'aquarium', seed: 520131, prompt: '1girl, aquarium tunnel, blue light, holding hands, fish, back view, looking back, smile' },
+  { id: 'a2', caption: '电影散场后的雨夜', when: at(-3, '22:00'), hue: 350, scene: 'cinema', seed: 520131, prompt: '1girl, cinema lobby, rainy night, holding umbrella, teary eyes, soft smile, warm light' },
   { id: 'a3', caption: '立冬的饺子', when: at(-2, '19:00'), hue: 30, scene: 'dining', seed: 77120, prompt: '1girl, apron, making dumplings, kitchen, flour on cheek, laughing, warm light' },
   { id: 'a4', caption: '晨跑', when: at(-6, '06:30'), hue: 150, scene: 'park', seed: 60001, prompt: '1girl, sportswear, ponytail, running track, morning sun, cheering, dynamic angle' },
   { id: 'a5', caption: '阳台的晚安', when: at(-9, '23:30'), hue: 260, scene: 'bedroom', seed: 23300, prompt: '1girl, pajamas, balcony, night sky, stars, holding phone, sleepy smile' },
   { id: 'a6', caption: '摩天轮最高点', when: at(-15, '19:40'), hue: 320, scene: 'amusement', seed: 99001, prompt: '1girl, ferris wheel gondola, city lights, sunset, blush, looking at viewer' },
-];
+].sort((a, b) => b.when - a.when);

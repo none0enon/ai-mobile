@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { getLocation } from '@app/shared';
 import { computed } from 'vue';
 import ChatListItem from '@/components/chat/ChatListItem.vue';
 import Avatar from '@/components/common/Avatar.vue';
+import WorldMap from '@/components/map/WorldMap.vue';
 import { weather } from '@/mock/activity';
 import { todayTouchpoints } from '@/mock/settings';
 import { useCharacterStore } from '@/stores/characters';
@@ -41,26 +43,22 @@ const today = `${weekday(Date.now())} · ${weather.city} ${weather.text} ${weath
     </header>
 
     <div class="page-scroll">
-      <!-- 角色此刻在做什么（模拟作息生成的状态） -->
-      <div class="flex gap-3 overflow-x-auto hide-scrollbar gutter pt-3 pb-2">
-        <RouterLink
-          v-for="c in chars.list"
-          :key="c.id"
-          :to="`/chat/${chat.chatOfCharacter(c.id)?.id}`"
-          class="presence press"
-          :style="{ '--tone': c.accent }"
-        >
-          <Avatar :character="c" :size="46" status="online" live />
-          <div class="min-w-0">
-            <div class="text-[14px] font-600 truncate">{{ c.name }}</div>
-            <div class="text-[12px] text-ink-3 truncate">{{ c.status }}</div>
+      <!-- 小地图：她们此刻在哪（模拟作息），点开进完整地图 -->
+      <RouterLink to="/map" class="where-card press" aria-label="打开地图，看她们在哪">
+        <div class="thumb"><WorldMap :characters="chars.list" :you-at="chat.youAt" compact /></div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center text-[12.5px] text-ink-3">
+            她们在哪<span class="ml-auto inline-flex items-center">地图<span class="i-lucide-chevron-right" /></span>
           </div>
-        </RouterLink>
-        <RouterLink to="/import" class="presence add press">
-          <span class="add-icon"><span class="i-lucide-plus text-[20px]" /></span>
-          <div class="text-[13px] text-ink-2">导入角色</div>
-        </RouterLink>
-      </div>
+          <div v-for="c in chars.list.slice(0, 3)" :key="c.id" class="flex items-center gap-2 mt-2 min-w-0">
+            <Avatar :character="c" :size="26" live />
+            <div class="min-w-0 leading-tight">
+              <div class="text-[13.5px] truncate"><b class="font-600">{{ c.name }}</b> · {{ getLocation(c.locationId)?.name ?? '家' }}</div>
+              <div class="text-[12px] text-ink-3 truncate">{{ c.status }}</div>
+            </div>
+          </div>
+        </div>
+      </RouterLink>
 
       <!-- 今天的主动计划 -->
       <RouterLink v-if="upcoming.length" to="/me/proactive" class="plan press">
@@ -93,32 +91,21 @@ const today = `${weekday(Date.now())} · ${weather.city} ${weather.text} ${weath
 </template>
 
 <style scoped>
-.presence {
+.where-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-width: 168px;
-  padding: 10px 12px;
-  border-radius: 18px;
+  gap: 12px;
+  margin: 12px 16px 6px;
+  padding: 10px 12px 10px 10px;
+  border-radius: 20px;
   background: var(--surface);
   border: 1px solid var(--border);
   color: inherit;
   text-decoration: none;
+}
+.thumb {
+  width: 132px;
   flex-shrink: 0;
-}
-.presence.add {
-  min-width: auto;
-  border-style: dashed;
-}
-.add-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
-  background: var(--panel);
-  color: var(--ink-2);
 }
 .plan {
   display: flex;

@@ -59,6 +59,18 @@ function buildSuwan(): Message[] {
   const p = PROACTIVE_NOW[tod];
   const first = p.lines[0] ?? '';
   return [
+    // 三天前：在电影院约会。约会是这条聊天里的一段，不再单独开一条会话
+    m(c, 'narrator', at(-3, '19:30'), [
+      { type: 'scene', event: 'enter', sceneId: 'date', locationId: 'cinema', title: '和苏晚来到电影院 · 约会' },
+      { type: 'text', text: '（周五晚上的电影院。灯暗下来的时候，她悄悄把爆米花推到你这边。）' },
+    ]),
+    m(c, 'assistant', at(-3, '21:40'), '……这部也太好哭了吧。', { expression: 'sad' }),
+    m(c, 'user', at(-3, '21:41'), '给你纸巾'),
+    m(c, 'assistant', at(-3, '21:42'), '才、才没哭。（却把脸埋进了你的肩膀）', { expression: 'blush' }),
+    m(c, 'narrator', at(-3, '22:05'), [
+      { type: 'scene', event: 'leave', sceneId: 'date', locationId: 'cinema', title: '离开电影院', summary: '一起看了《海边的旧书店》· 存进了回忆' },
+    ]),
+
     m(c, 'assistant', at(-2, '23:41'), '还不睡？明天早八哦。', { expression: 'pout' }),
     m(c, 'user', at(-2, '23:42'), '马上马上……再看一集'),
     m(c, 'assistant', at(-2, '23:44'), [
@@ -76,7 +88,13 @@ function buildSuwan(): Message[] {
     m(c, 'assistant', at(-1, '12:33'), '又吃拉面……下次我带你去吃后门那家砂锅粥，不许拒绝。', { expression: 'pout' }),
     m(c, 'user', at(-1, '15:10'), [{ type: 'poke', actor: 'user', target: '头' }]),
     m(c, 'assistant', at(-1, '15:10'), '干嘛啦……头发要被你揉乱了。', { expression: 'blush' }),
-    m(c, 'narrator', at(-1, '17:05'), [{ type: 'study', logId: 'st1', pomodoros: 2, minutes: 50 }]),
+    m(c, 'narrator', at(-1, '16:10'), [
+      { type: 'scene', event: 'enter', sceneId: 'study', locationId: 'library', title: '和苏晚来到图书馆 · 陪伴学习' },
+    ]),
+    m(c, 'narrator', at(-1, '17:05'), [
+      { type: 'scene', event: 'leave', sceneId: 'study', locationId: 'library', title: '离开图书馆', summary: '学了 50 分钟' },
+      { type: 'study', logId: 'st1', pomodoros: 2, minutes: 50 },
+    ]),
     m(c, 'assistant', at(-1, '17:06'), [
       { type: 'text', text: '今天也很专注嘛，奖励你听首歌：' },
       { type: 'music', songId: 's1', title: '雨停之前', artist: '林知夏' },
@@ -130,31 +148,20 @@ function buildJiangyu(): Message[] {
   ];
 }
 
-function buildDateBranch(): Message[] {
-  const c = 'chat-suwan-date';
-  return [
-    m(c, 'narrator', at(-3, '14:00'), '（周六下午，水族馆的蓝色隧道。头顶游过一群银色的小鱼。）'),
-    m(c, 'assistant', at(-3, '14:01'), '你看那条！好像在跟着我们走诶。', { expression: 'laugh' }),
-    m(c, 'user', at(-3, '14:02'), '它是在跟着你'),
-    m(c, 'assistant', at(-3, '14:03'), '……油嘴滑舌。（却悄悄握紧了你的手）', { expression: 'blush' }),
-  ];
-}
-
 export function buildMessages(): Record<string, Message[]> {
   seq = 0;
   return {
     'chat-suwan': buildSuwan(),
     'chat-jiangyu': buildJiangyu(),
-    'chat-suwan-date': buildDateBranch(),
   };
 }
 
+/** 消息按人分：每个角色只有一条聊天 */
 export function buildChats(messages: Record<string, Message[]>): Chat[] {
   const last = (id: string) => messages[id]?.at(-1)?.createdAt ?? 0;
-  const base = { personaId: 'me', presetId: 'preset-daily', currentScene: null, summaryUntilMessageId: null };
+  const base = { personaId: 'me', presetId: 'preset-daily', currentScene: null, togetherAt: null, summaryUntilMessageId: null, pinned: false, mode: 'im' as const };
   return [
-    { id: 'chat-suwan', characterId: 'suwan', title: '苏晚', mode: 'im', pinned: true, createdAt: at(-30, '20:00'), updatedAt: last('chat-suwan'), lastMessageAt: last('chat-suwan'), ...base },
-    { id: 'chat-jiangyu', characterId: 'jiangyu', title: '江屿', mode: 'im', pinned: false, createdAt: at(-9, '18:00'), updatedAt: last('chat-jiangyu'), lastMessageAt: last('chat-jiangyu'), ...base },
-    { id: 'chat-suwan-date', characterId: 'suwan', title: '苏晚 · 水族馆约会', mode: 'stage', pinned: false, createdAt: at(-3, '14:00'), updatedAt: last('chat-suwan-date'), lastMessageAt: last('chat-suwan-date'), ...base, presetId: 'preset-stage' },
+    { ...base, id: 'chat-suwan', characterId: 'suwan', title: '苏晚', pinned: true, createdAt: at(-30, '20:00'), updatedAt: last('chat-suwan'), lastMessageAt: last('chat-suwan') },
+    { ...base, id: 'chat-jiangyu', characterId: 'jiangyu', title: '江屿', createdAt: at(-9, '18:00'), updatedAt: last('chat-jiangyu'), lastMessageAt: last('chat-jiangyu') },
   ];
 }

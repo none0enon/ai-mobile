@@ -7,8 +7,8 @@ import ImportPage from '@/pages/ImportPage.vue';
 import MemoriesPage from '@/pages/MemoriesPage.vue';
 import MePage from '@/pages/MePage.vue';
 import PromptInspectorPage from '@/pages/PromptInspectorPage.vue';
+import MapPage from '@/pages/MapPage.vue';
 import ScenePage from '@/pages/ScenePage.vue';
-import TogetherPage from '@/pages/TogetherPage.vue';
 import ApiPage from '@/pages/me/ApiPage.vue';
 import AppearancePage from '@/pages/me/AppearancePage.vue';
 import CharacterEditPage from '@/pages/me/CharacterEditPage.vue';
@@ -30,11 +30,12 @@ export const routes: RouteRecordRaw[] = [
     redirect: '/chats',
     children: [
       { path: 'chats', component: ChatsPage, meta: { title: '消息' } },
-      { path: 'together', component: TogetherPage, meta: { title: '一起' } },
+      { path: 'map', component: MapPage, meta: { title: '地图' } },
       { path: 'memories', component: MemoriesPage, meta: { title: '回忆' } },
       { path: 'me', component: MePage, meta: { title: '我的' } },
     ],
   },
+  { path: '/together', redirect: '/map' },
   { path: '/chat/:id', component: ChatPage, meta: { title: '聊天' } },
   { path: '/chat/:id/inspect', component: PromptInspectorPage, meta: { title: '查看提示词' } },
   { path: '/call/:charId', component: CallPage, meta: { title: '语音通话' } },
@@ -103,6 +104,7 @@ export function goBack(fallback: string) {
 export function listRoutePaths(): string[] {
   return router
     .getRoutes()
+    .filter((r) => !r.redirect)
     .map((r) => r.path)
     .filter((p) => p !== '/' && !p.includes('pathMatch'));
 }

@@ -82,8 +82,10 @@ export interface Character extends SyncMeta {
   voice: CharacterVoice;
   proactive: CharacterProactive;
   relationship: Relationship;
-  /** 状态行，例如"自习中" */
+  /** 状态行，例如"在图书馆自习" */
   status: string;
+  /** 她此刻在小地图上的哪个地点（LOCATIONS 的 id），由模拟作息更新；你和她一起去某处时也会跟着变 */
+  locationId: string | null;
 }
 
 /** 用户人设（ST 的 Persona） */

@@ -1,21 +1,52 @@
 <script setup lang="ts">
-import type { SceneId } from '@app/shared';
-import { computed, onMounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { defaultLocationFor, getLocation, type MapLocation, type SceneId } from '@app/shared';
+import { computed, provide, ref, watch } from 'vue';
+import { onBeforeRouteLeave, useRoute } from 'vue-router';
+import { SCENE_LOCATION } from '@/components/scene/location';
 import { SCENE_COMPONENTS } from '@/scenes';
 import { useAppStore } from '@/stores/app';
 import { useChatStore } from '@/stores/chat';
 
+/**
+ * 场景都发生在地图上的某个地点，算作你们那条聊天里的一段：
+ * 进来时在聊天里记"来到…"，离开时记"离开…"（什么都没发生就不留痕迹）。
+ */
 const route = useRoute();
 const app = useAppStore();
 const chat = useChatStore();
 const sceneId = computed(() => route.params.sceneId as SceneId);
 const component = computed(() => SCENE_COMPONENTS[sceneId.value]);
 
-onMounted(() => {
-  // 进入场景时记到当前会话上：提示词组装会带上这个场景的规则和可用标签
-  const c = chat.chatOfCharacter(app.activeCharacterId);
-  if (c) c.currentScene = sceneId.value;
+/**
+ * 在哪儿：?at= 指定的地点 → 已经和她在一起的地方（那里能做这件事的话）→ 这件事最常去的地方。
+ * 约会没指定地点时先让你挑，由 DateScene 自己决定。
+ */
+function resolveLocation(): MapLocation | null {
+  const at = getLocation(route.query.at as string | undefined);
+  if (at) return at;
+  if (sceneId.value === 'date') return null;
+  const current = getLocation(chat.chatOfCharacter(app.activeCharacterId)?.togetherAt);
+  if (current?.activities.some((a) => a.sceneId === sceneId.value)) return current;
+  return defaultLocationFor(sceneId.value);
+}
+
+const location = ref<MapLocation | null>(null);
+provide(SCENE_LOCATION, location);
+
+watch(
+  () => [sceneId.value, route.query.at],
+  () => {
+    location.value = resolveLocation();
+    if (location.value) chat.enterScene(app.activeCharacterId, location.value.id, sceneId.value);
+  },
+  { immediate: true },
+);
+
+// 去和她的聊天、给她打电话还算在一起；去别处就算离开了
+onBeforeRouteLeave((to) => {
+  const chatId = chat.chatOfCharacter(app.activeCharacterId)?.id;
+  if (to.path === `/chat/${chatId}` || to.path === `/call/${app.activeCharacterId}`) return;
+  chat.leaveScene(app.activeCharacterId);
 });
 </script>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Character, Chat, Message } from '@app/shared';
+import { getLocation, type Character, type Chat, type Message } from '@app/shared';
 import { computed } from 'vue';
 import Avatar from '@/components/common/Avatar.vue';
 import { listTime } from '@/utils/time';
@@ -19,12 +19,20 @@ const PART_LABEL: Record<string, string> = {
   gift: '[礼物]',
 };
 
+/** 她此刻在哪；你们正在一起时写"你们在…" */
+const where = computed(() => {
+  const loc = getLocation(props.chat.togetherAt ?? props.character.locationId);
+  if (!loc) return '';
+  return props.chat.togetherAt ? `你们在${loc.name}` : loc.name;
+});
+
 const preview = computed(() => {
   const m = props.last;
   if (!m) return props.character.card.firstMes;
   if (m.text) return m.text;
   const p = m.parts[0];
   if (p?.type === 'poke') return p.actor === 'char' ? `${props.character.name}拍了拍你` : `你拍了拍${props.character.name}的${p.target}`;
+  if (p?.type === 'scene') return `[${p.event === 'enter' ? '来到' : '离开'}] ${p.title.replace(/^和.+?来到|^离开/, '')}`;
   return p ? (PART_LABEL[p.type] ?? '') : '';
 });
 </script>
@@ -35,8 +43,8 @@ const preview = computed(() => {
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2">
         <span class="font-600 text-[16px] truncate">{{ chat.title }}</span>
-        <span v-if="chat.mode === 'stage'" class="chip !h-5 !px-1.5 !text-[10.5px]">剧场</span>
-        <span v-if="chat.pinned" class="i-lucide-pin text-[13px] text-ink-3" aria-label="置顶" />
+        <span v-if="where" class="where"><span class="i-lucide-map-pin" /><span class="truncate">{{ where }}</span></span>
+        <span v-if="chat.pinned" class="i-lucide-pin text-[13px] text-ink-3 shrink-0" aria-label="置顶" />
         <span class="ml-auto text-[12px] text-ink-3 num shrink-0">{{ last ? listTime(last.createdAt) : '' }}</span>
       </div>
       <div class="flex items-center gap-2 mt-1">
@@ -61,6 +69,18 @@ const preview = computed(() => {
 }
 .row:active {
   background: var(--panel);
+}
+.where {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 40%;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.where > span:first-child {
+  flex-shrink: 0;
 }
 .unread {
   min-width: 20px;

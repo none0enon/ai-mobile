@@ -28,6 +28,13 @@
   --bad: #f2848c;
   --info: #8db8ff;
   --bubble-ai: #221a34;
+  --map-land: #171026;
+  --map-block: #241b37;
+  --map-road: #31274b;
+  --map-water: #1c3552;
+  --map-park: #1c3a33;
+  --map-home: #2b1d34;
+  --map-campus: #1b2342;
 
   --accent: #f5b8a6;
   --accent-ink: #f7c5b6;
@@ -76,6 +83,13 @@
     --bad: #cf4553;
     --info: #3a6fcf;
     --bubble-ai: #ffffff;
+    --map-land: #f3edf6;
+    --map-block: #e6deee;
+    --map-road: #ffffff;
+    --map-water: #cde2f5;
+    --map-park: #d5eee2;
+    --map-home: #f8e4e3;
+    --map-campus: #e0e8f8;
     --accent-ink: #a8573f;
     --accent-soft: rgba(245, 184, 166, 0.22);
     --accent-line: rgba(245, 184, 166, 0.55);
@@ -106,6 +120,13 @@
   --bad: #cf4553;
   --info: #3a6fcf;
   --bubble-ai: #ffffff;
+  --map-land: #f3edf6;
+  --map-block: #e6deee;
+  --map-road: #ffffff;
+  --map-water: #cde2f5;
+  --map-park: #d5eee2;
+  --map-home: #f8e4e3;
+  --map-campus: #e0e8f8;
   --accent-ink: #a8573f;
   --accent-soft: rgba(245, 184, 166, 0.22);
   --accent-line: rgba(245, 184, 166, 0.55);

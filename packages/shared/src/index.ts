@@ -12,5 +12,6 @@ export * from './types/settings.ts';
 export * from './tags.ts';
 export * from './expressions.ts';
 export * from './scenes.ts';
+export * from './locations.ts';
 export * from './environment.ts';
 export * from './lrc.ts';

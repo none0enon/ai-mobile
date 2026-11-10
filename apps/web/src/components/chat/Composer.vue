@@ -33,7 +33,7 @@ const ACTIONS = [
   { id: 'meal', label: '饭照', icon: 'i-lucide-utensils' },
   { id: 'cg', label: '生成配图', icon: 'i-lucide-wand-sparkles' },
   { id: 'call', label: '语音通话', icon: 'i-lucide-phone' },
-  { id: 'scenes', label: '更多场景', icon: 'i-lucide-sparkles' },
+  { id: 'scenes', label: '去哪儿', icon: 'i-lucide-map' },
 ];
 
 function autosize() {

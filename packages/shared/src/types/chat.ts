@@ -33,7 +33,9 @@ export type MessagePart =
       when: string;
       status: 'invite' | 'accepted' | 'declined' | 'memory';
     }
-  | { type: 'gift'; giftId: string; name: string };
+  | { type: 'gift'; giftId: string; name: string }
+  /** 场景分段：和她一起去了某个地点 / 离开。聊天里显示成一条居中的分隔提示 */
+  | { type: 'scene'; event: 'enter' | 'leave'; sceneId: string; locationId: string; title: string; summary?: string };
 
 export type MessagePartType = MessagePart['type'];
 
@@ -71,13 +73,21 @@ export interface Message extends SyncMeta {
   };
 }
 
+/**
+ * 一个角色只有一条聊天（消息按人分）。IM 和剧场只是同一条聊天的两种看法；
+ * 约会、学习等场景是这条聊天里的一段，用 scene 分隔提示标出进出。
+ * 导入的 SillyTavern 聊天记录作为这个角色的"存档"，不在消息列表里单独出现。
+ */
 export interface Chat extends SyncMeta {
   characterId: string;
   personaId: string | null;
   title: string;
   presetId: string | null;
+  /** 上次用的看法：聊天气泡 / 剧场立绘 */
   mode: 'im' | 'stage';
   currentScene: string | null;
+  /** 你们此刻一起在哪个地点（从地图进场景时设置，离开时清空）；为空表示各在各处、只是发消息 */
+  togetherAt: string | null;
   /** 滚动摘要已经覆盖到哪条消息 */
   summaryUntilMessageId: string | null;
   pinned: boolean;
