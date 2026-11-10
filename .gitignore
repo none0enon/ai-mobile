@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-preview/
+artifact/
+*.log
+.DS_Store
+.env
+.env.*
+.dev.vars
+.wrangler/
+coverage/
+screenshots/
