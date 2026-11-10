@@ -73,6 +73,8 @@ export const useRealWorldStore = defineStore('realworld', () => {
     labels: [],
     locations: places.value,
     base: STREETS,
+    schedule: [],
+    life: { studyTask: '', meals: { breakfast: '', lunch: '', dinner: '' } },
   }));
 
   function setAddress(v: string) {

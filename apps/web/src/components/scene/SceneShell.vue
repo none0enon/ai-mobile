@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { getScene, type PokeHotspot, type TimeOfDay } from '@app/shared';
+import { getLocation, getScene, type PokeHotspot, type TimeOfDay } from '@app/shared';
+import { showToast } from 'vant';
 import { computed, inject, ref } from 'vue';
 import Avatar from '@/components/common/Avatar.vue';
 import StageView from '@/components/stage/StageView.vue';
@@ -8,6 +9,7 @@ import { goBack } from '@/router';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { useRealWorldStore } from '@/stores/realworld';
 
 /**
  * 所有场景共用的外壳：背景 + 立绘 + 顶栏 + 她的一句话 + 底部场景面板（插槽）。
@@ -43,6 +45,26 @@ const scene = computed(() => getScene(props.sceneId));
 const location = inject(SCENE_LOCATION, ref(null));
 const character = computed(() => chars.byId(app.activeCharacterId) ?? chars.list[0]!);
 const chatLink = computed(() => `/chat/${chat.chatOfCharacter(character.value.id)?.id}?mode=stage`);
+
+/** 怎么在一起：连线（你在你那儿）/ 去她那（坐她旁边）/ 带她来（她在你那边） */
+const real = useRealWorldStore();
+const together = computed(() => chat.chatOfCharacter(character.value.id)?.togetherMode ?? null);
+const yourPlace = computed(() => getLocation(real.hereId)?.name ?? '家');
+const modeText = computed(() => {
+  if (together.value === 'remote') return `连线 · 你在${yourPlace.value}`;
+  if (together.value === 'visit') return `坐在${character.value.pronoun}旁边`;
+  if (together.value === 'bring') return `${character.value.pronoun}在你这边`;
+  return '';
+});
+function toggleMode() {
+  if (together.value === 'remote') {
+    chat.setTogetherMode(character.value.id, 'visit');
+    showToast(`去${character.value.pronoun}那儿，坐到${character.value.pronoun}旁边`);
+  } else if (together.value === 'visit') {
+    chat.setTogetherMode(character.value.id, 'remote');
+    showToast(`回到连线：你在${yourPlace.value}，${character.value.pronoun}在${location.value?.name ?? '那边'}`);
+  }
+}
 const expr = computed(() => props.expression ?? chars.expression[character.value.id] ?? 'smile');
 const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50 });
 </script>
@@ -68,6 +90,10 @@ const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50
         <button class="pill" aria-label="返回" @click="goBack('/map')"><span class="i-lucide-chevron-left text-[20px]" /></button>
         <span class="pill title"><span :class="scene.icon" /><span class="truncate">{{ title ?? titleAt(location, sceneId) }}</span></span>
         <span class="flex-1" />
+        <button v-if="modeText" class="pill mode" :class="together ?? ''" :disabled="together === 'bring'" :aria-label="`怎么在一起：${modeText}`" @click="toggleMode">
+          <span :class="together === 'remote' ? 'i-lucide-link' : together === 'visit' ? 'i-lucide-armchair' : 'i-lucide-navigation'" class="shrink-0" />
+          <span class="truncate">{{ modeText }}</span>
+        </button>
         <slot name="actions" />
       </header>
       <RouterLink v-if="line || typing" :to="chatLink" class="companion" :aria-label="`去和${character.name}聊天`">
@@ -126,6 +152,16 @@ const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50
 .pill.title {
   min-width: 0;
   font-weight: 600;
+}
+.pill.mode {
+  min-width: 0;
+  max-width: 46%;
+  flex-shrink: 1;
+  font-size: 12.5px;
+  color: var(--accent-ink);
+}
+.pill.mode:disabled {
+  opacity: 1;
 }
 .pill.title > span:first-child {
   flex-shrink: 0;

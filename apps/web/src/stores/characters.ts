@@ -1,7 +1,13 @@
-import type { Character } from '@app/shared';
+import { slotAt, worldOf, type Character } from '@app/shared';
 import { defineStore } from 'pinia';
 import { reactive, ref } from 'vue';
 import { characters } from '@/mock/characters';
+
+/** 她们此刻在各自世界的哪儿：按作息表（和你同一个时间）。M3 起由 Worker 的 Cron 推进并同步 */
+for (const c of characters) {
+  const slot = slotAt(worldOf(c.id), new Date());
+  if (slot) Object.assign(c, { locationId: slot.locationId, status: slot.status });
+}
 
 export const useCharacterStore = defineStore('characters', () => {
   const list = ref<Character[]>(characters);

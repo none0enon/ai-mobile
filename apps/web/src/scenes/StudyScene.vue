@@ -1,13 +1,20 @@
 <script setup lang="ts">
+import { worldOf } from '@app/shared';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import HerSide from '@/components/scene/HerSide.vue';
 import SceneShell from '@/components/scene/SceneShell.vue';
 import TimerRing from '@/components/scene/TimerRing.vue';
 import { mockToday } from '@/mock/activity';
 import { services } from '@/services';
+import { useAppStore } from '@/stores/app';
+import { useCharacterStore } from '@/stores/characters';
+import { useChatStore } from '@/stores/chat';
+import { useRealWorldStore } from '@/stores/realworld';
 
 /**
- * 陪伴学习：番茄钟 + 任务清单。专注时她安静地陪着（不说话），休息时才聊；
- * 专注中离开 App 再回来，她会轻轻提醒一句。
+ * 陪伴学习（默认"连线自习"）：你在你那儿学，她在她世界的图书馆学，共用一个番茄钟。
+ * 她也有自己的任务和进度，每个番茄结束各报一下——互相监督，不只是她看着你。
+ * 专注时她安静地陪着（不说话），休息时才聊；专注中离开 App 再回来，她会轻轻提醒一句。
  */
 const FOCUS = 25 * 60;
 const BREAK = 5 * 60;
@@ -28,6 +35,18 @@ const newTask = ref('');
 const line = ref('今天要学什么？我陪你。');
 
 const total = computed(() => (phase.value === 'focus' ? FOCUS : BREAK));
+
+// —— 她那边：她自己在学什么、学了多少 ——
+const app = useAppStore();
+const chars = useCharacterStore();
+const chat = useChatStore();
+const real = useRealWorldStore();
+const her = computed(() => chars.byId(app.activeCharacterId) ?? chars.list[0]!);
+const herTask = computed(() => worldOf(her.value.id).life.studyTask);
+const herDone = ref(today.pomodoros);
+const herSays = computed(() => `${herDone.value} 个番茄 · 和你一样`);
+const mode = computed(() => chat.chatOfCharacter(her.value.id)?.togetherMode ?? 'remote');
+const yourPlace = computed(() => (mode.value === 'bring' ? '' : (real.places.find((p) => p.id === real.hereId)?.name ?? '家')));
 let timer: ReturnType<typeof setInterval> | undefined;
 
 function tick() {
@@ -35,9 +54,10 @@ function tick() {
   if (remain.value > 0) return;
   if (phase.value === 'focus') {
     done.value += 1;
+    herDone.value += 1;
     phase.value = 'break';
     remain.value = BREAK;
-    line.value = '一个番茄完成！休息五分钟，跟我聊聊天？';
+    line.value = '一个番茄完成！我这边又写了一页。你呢？休息五分钟，跟我聊聊天？';
     services.native.vibrate([20, 60, 20]);
   } else {
     phase.value = 'focus';
@@ -110,23 +130,25 @@ const NOISES = [
       <div v-if="quiet" class="quiet"><span class="i-lucide-moon" />她在安静地陪你看书 · 专注时不打扰</div>
     </template>
 
-    <TimerRing :remain-sec="remain" :total-sec="total" :size="176" :label="phase === 'focus' ? `专注中 · 第 ${done + 1} 个番茄` : '休息时间'" :tone="phase === 'focus' ? '#8fb3f0' : 'var(--good)'" />
+    <HerSide label="在学：" :content="herTask" :extra="herSays" />
 
-    <div class="flex gap-2 mt-3">
+    <TimerRing class="mt-3" :remain-sec="remain" :total-sec="total" :size="168" :label="phase === 'focus' ? `一起专注 · 第 ${done + 1} 个番茄` : '一起休息'" :tone="phase === 'focus' ? '#8fb3f0' : 'var(--good)'" />
+
+    <div class="flex gap-2 mt-3 btns">
       <van-button round block @click="giveUp">放弃</van-button>
       <van-button type="primary" round block @click="toggle">{{ running ? '暂停' : '开始' }}</van-button>
       <van-button round block @click="addFive">+5 分钟</van-button>
     </div>
 
-    <div class="flex items-center gap-2 mt-3.5">
-      <span class="text-[12.5px] text-ink-3">白噪音</span>
+    <div class="flex items-center gap-2 mt-3.5 overflow-x-auto hide-scrollbar">
+      <span class="text-[12.5px] text-ink-3 whitespace-nowrap shrink-0">白噪音</span>
       <button v-for="n in NOISES" :key="n.id" class="noise" :class="{ on: noise === n.id }" @click="noise = noise === n.id ? null : n.id">
         <span :class="n.icon" />{{ n.label }}
       </button>
     </div>
 
     <div class="mt-3.5">
-      <div class="text-[12.5px] text-ink-3 mb-1.5">这次要完成</div>
+      <div class="text-[12.5px] text-ink-3 mb-1.5">你这边{{ yourPlace ? ` · ${yourPlace}` : '' }} · 这次要完成</div>
       <label v-for="(t, i) in tasks" :key="i" class="task">
         <van-checkbox v-model="t.done" icon-size="18px" />
         <span :class="{ 'line-through text-ink-3': t.done }">{{ t.text }}</span>
@@ -161,7 +183,13 @@ const NOISES = [
   font-size: 12.5px;
   white-space: nowrap;
 }
+.btns :deep(.van-button) {
+  padding: 0 8px;
+  white-space: nowrap;
+}
 .noise {
+  flex-shrink: 0;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 4px;

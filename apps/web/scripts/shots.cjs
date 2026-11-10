@@ -74,6 +74,9 @@ const SHOTS = [
   ['scene-date', '/scene/date'],
   ['scene-date-aquarium', '/scene/date?at=aquarium'],
   ['scene-study-cafe', '/scene/study?at=cafe'],
+  ['scene-study-visit', '/scene/study?at=library&how=visit'],
+  ['scene-meal-real', '/scene/meal?at=real:ramen'],
+  ['map-me-footprints', '/map?world=me', async (p) => p.$eval('.page-scroll', (el) => el.scrollTo(0, el.scrollHeight))],
   ['scene-poke', '/scene/poke'],
   ['call', '/call/suwan'],
   ['call-incoming', '/call/suwan?incoming=1'],
@@ -120,6 +123,7 @@ const SHOTS = [
     },
   ],
   ['import', '/import'],
+  ['import-card', '/import', async (p) => p.click('.pick-btn >> nth=0')],
 ];
 
 (async () => {

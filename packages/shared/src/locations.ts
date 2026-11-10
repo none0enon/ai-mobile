@@ -40,6 +40,21 @@ export type MapShape =
   | { kind: 'ellipse'; cls: MapShapeClass; cx: number; cy: number; rx: number; ry: number }
   | { kind: 'circle'; cls: MapShapeClass; cx: number; cy: number; r: number };
 
+/** 她一天的作息（和你用同一个时间）：几点在哪、在做什么。M3 由主动消息的 Cron 按它推进她的位置 */
+export interface ScheduleSlot {
+  /** HH:MM */
+  from: string;
+  to: string;
+  locationId: string;
+  status: string;
+}
+
+/** 她自己的生活：连线自习时她在学什么、饭搭子时她吃什么 */
+export interface WorldLife {
+  studyTask: string;
+  meals: Record<'breakfast' | 'lunch' | 'dinner', string>;
+}
+
 export interface World {
   id: string;
   characterId: string;
@@ -51,6 +66,8 @@ export interface World {
   locations: MapLocation[];
   base: MapShape[];
   labels: { text: string; x: number; y: number }[];
+  schedule: ScheduleSlot[];
+  life: WorldLife;
 }
 
 const rect = (cls: MapShapeClass, x: number, y: number, w: number, h: number, r = 0): MapShape => ({ kind: 'rect', cls, x, y, w, h, r });
@@ -64,6 +81,22 @@ const SUWAN_WORLD: World = {
   blurb: '她住的小公寓、读书的学校、周末常去的城里',
   homeId: 'home',
   areaLabels: { home: '住处', campus: '学校', city: '城里' },
+  schedule: [
+    { from: '00:00', to: '07:30', locationId: 'home', status: '睡觉中' },
+    { from: '07:30', to: '08:30', locationId: 'home', status: '吃早饭' },
+    { from: '08:30', to: '11:30', locationId: 'library', status: '自习中' },
+    { from: '11:30', to: '12:30', locationId: 'canteen', status: '吃午饭' },
+    { from: '12:30', to: '17:30', locationId: 'library', status: '写论文' },
+    { from: '17:30', to: '18:30', locationId: 'canteen', status: '吃晚饭' },
+    { from: '18:30', to: '19:30', locationId: 'riverside', status: '散步' },
+    { from: '19:30', to: '22:00', locationId: 'library', status: '自习中' },
+    { from: '22:00', to: '23:30', locationId: 'home', status: '在家看书' },
+    { from: '23:30', to: '24:00', locationId: 'home', status: '准备睡了' },
+  ],
+  life: {
+    studyTask: '课程论文第三章：宋词里的雨',
+    meals: { breakfast: '自己煮的小馄饨', lunch: '食堂的麻辣烫', dinner: '后门那家砂锅粥' },
+  },
   labels: [
     { text: '住处', x: 16, y: 112 },
     { text: '学校', x: 178, y: 148 },
@@ -278,6 +311,25 @@ const JIANGYU_WORLD: World = {
   blurb: '体育学院的宿舍、训练场，和江边那条他常夜跑的路',
   homeId: 'jy-dorm',
   areaLabels: { home: '宿舍区', campus: '体育学院', city: '江边' },
+  schedule: [
+    { from: '00:00', to: '05:50', locationId: 'jy-dorm', status: '睡觉中' },
+    { from: '05:50', to: '07:00', locationId: 'jy-track', status: '晨跑' },
+    { from: '07:00', to: '08:00', locationId: 'jy-canteen', status: '吃早饭' },
+    { from: '08:00', to: '11:30', locationId: 'jy-study', status: '上课中' },
+    { from: '11:30', to: '12:30', locationId: 'jy-canteen', status: '吃午饭' },
+    { from: '12:30', to: '14:00', locationId: 'jy-dorm', status: '午睡' },
+    { from: '14:00', to: '17:00', locationId: 'jy-pool', status: '训练中' },
+    { from: '17:00', to: '18:00', locationId: 'jy-canteen', status: '吃晚饭' },
+    { from: '18:00', to: '19:30', locationId: 'jy-weights', status: '力量训练' },
+    { from: '19:30', to: '21:00', locationId: 'jy-pool', status: '加练' },
+    { from: '21:00', to: '22:00', locationId: 'jy-pool', status: '刚游完泳' },
+    { from: '22:00', to: '23:00', locationId: 'jy-dorm', status: '拉伸' },
+    { from: '23:00', to: '24:00', locationId: 'jy-dorm', status: '睡觉中' },
+  ],
+  life: {
+    studyTask: '看 200 米自由泳的比赛录像',
+    meals: { breakfast: '食堂的鸡蛋和燕麦', lunch: '运动员食堂的鸡胸肉饭', dinner: '牛肉面加两个蛋' },
+  },
   labels: [
     { text: '宿舍区', x: 14, y: 108 },
     { text: '体育学院', x: 154, y: 22 },
@@ -489,6 +541,16 @@ export function defaultLocationFor(sceneId: SceneId, characterId?: string | null
   const home = w.locations.find((l) => l.id === w.homeId);
   if (home?.activities.some((a) => a.sceneId === sceneId)) return home;
   return w.locations.find((l) => l.activities.some((a) => a.sceneId === sceneId)) ?? home ?? (w.locations[0] as MapLocation);
+}
+
+/** 她此刻按作息在哪、在做什么 */
+export function slotAt(world: World, now: Date): ScheduleSlot | undefined {
+  const t = now.getHours() * 60 + now.getMinutes();
+  const min = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    return (h ?? 0) * 60 + (m ?? 0);
+  };
+  return world.schedule.find((s) => min(s.from) <= t && t < min(s.to)) ?? world.schedule.at(-1);
 }
 
 /** 地点所在片区的名字 */

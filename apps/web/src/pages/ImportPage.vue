@@ -15,6 +15,20 @@ const KINDS = [
 ];
 const result = ref<{ kind: string; lines: string[] } | null>(null);
 
+/**
+ * 导入角色卡时一并生成她的小世界（M1）：
+ * 从角色卡的描述、场景和内嵌世界书里找出她住哪、在哪读书 / 工作、常去哪，套一个最接近的世界模板；
+ * 世界书里提到的其他人（室友、同学、家人）也一起建出来，导入后都能改。
+ */
+const WORLD_DEMO = {
+  template: '校园模板（住处 · 学校 · 城里）',
+  places: ['宿舍', '图书馆', '画室', '食堂', '老街咖啡馆', '天台'],
+  people: [
+    { name: '林晓', role: '室友', from: '世界书「室友」条目' },
+    { name: '周老师', role: '导师', from: '角色卡 scenario' },
+  ],
+};
+
 function picked(kind: string) {
   const demo: Record<string, string[]> = {
     card: ['SillyTavern V3 角色卡（PNG 里的 ccv3 块）', '名字：林夕 · 3 条备选开场白 · 12 个标签', '内嵌世界书 8 条 → 新建"林夕的世界"并绑定', '头像已作为第一张立绘导入'],
@@ -45,6 +59,20 @@ function picked(kind: string) {
         <ul class="mt-2 mb-0 pl-5 text-[13.5px] text-ink-2 leading-relaxed">
           <li v-for="l in result.lines" :key="l">{{ l }}</li>
         </ul>
+        <template v-if="result.kind === 'card'">
+          <div class="flex items-center gap-2 text-[14px] font-600 mt-3.5"><span class="i-lucide-map text-accent-ink" />她的小世界（导入时一起生成，M1）</div>
+          <div class="text-[13px] text-ink-2 mt-1.5">{{ WORLD_DEMO.template }} · {{ WORLD_DEMO.places.join('、') }}</div>
+          <div class="text-[12.5px] text-ink-3 mt-2.5 mb-1">世界里的人</div>
+          <div class="grid gap-1.5">
+            <div v-for="p in WORLD_DEMO.people" :key="p.name" class="person-row">
+              <span class="person-dot">{{ p.name.slice(-1) }}</span>
+              <span class="text-[13.5px] font-600">{{ p.name }}</span>
+              <span class="tag">{{ p.role }}</span>
+              <span class="ml-auto text-[11.5px] text-ink-3 truncate">来自{{ p.from }}</span>
+            </div>
+          </div>
+          <p class="text-[12px] text-ink-3 mt-2 mb-0">导入后可以改地点、增删人；这些人会出现在她的作息和聊天里（"室友今天又借我充电器"）。</p>
+        </template>
         <van-button type="primary" round block class="!mt-3" @click="(result = null), showToast('M1 实现真正导入')">导入</van-button>
       </div>
       <p class="text-[12px] text-ink-3 leading-relaxed m-0">
@@ -92,6 +120,28 @@ function picked(kind: string) {
   height: 1px;
   opacity: 0;
   pointer-events: none;
+}
+.person-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 12px;
+  background: var(--panel);
+}
+.person-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
 }
 .result {
   padding: 14px;

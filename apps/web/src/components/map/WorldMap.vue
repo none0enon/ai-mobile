@@ -11,8 +11,8 @@ import Avatar from '@/components/common/Avatar.vue';
  * 地点坐标是 0-100 的百分比，和 400×300 的底图对齐。
  */
 const props = withDefaults(
-  defineProps<{ world: World; characters: Character[]; youAt?: string | null; compact?: boolean; focus?: string | null }>(),
-  { youAt: null, compact: false, focus: null },
+  defineProps<{ world: World; characters: Character[]; youAt?: string | null; compact?: boolean; focus?: string | null; marked?: string[] }>(),
+  { youAt: null, compact: false, focus: null, marked: () => [] },
 );
 const emit = defineEmits<{
   (e: 'select-location', loc: MapLocation): void;
@@ -45,7 +45,7 @@ function pinStyle(l: MapLocation) {
   return { left: `${l.x}%`, top: `clamp(25px, ${l.y}%, calc(100% - 27px))`, '--tone': tone(l), transform: `translate(${tx}, -50%)` };
 }
 function pinClass(l: MapLocation) {
-  return { focus: props.focus === l.id, occupied: occupants.value.has(l.id), 'edge-l': l.x < 16, 'edge-r': l.x > 84 };
+  return { focus: props.focus === l.id, occupied: occupants.value.has(l.id), marked: props.marked.includes(l.id), 'edge-l': l.x < 16, 'edge-r': l.x > 84 };
 }
 
 /** 头像挂在地点的右上方；靠近地图边缘时往里收，不被裁掉 */
@@ -223,6 +223,21 @@ const you = computed(() => props.world.locations.find((l) => l.id === props.youA
     0 0 0 4px var(--accent-soft),
     var(--shadow-sm);
   animation: breathe 2.4s ease-in-out infinite;
+}
+/* 我们的足迹：一起待过的地方，圆点右上角一颗小心 */
+.pin.marked .pin-dot {
+  position: relative;
+}
+.pin.marked .pin-dot::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--surface);
 }
 .pin-label {
   padding: 0 5px;

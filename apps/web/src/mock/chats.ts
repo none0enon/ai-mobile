@@ -61,14 +61,14 @@ function buildSuwan(): Message[] {
   return [
     // 三天前：在电影院约会。约会是这条聊天里的一段，不再单独开一条会话
     m(c, 'narrator', at(-3, '19:30'), [
-      { type: 'scene', event: 'enter', sceneId: 'date', locationId: 'cinema', title: '和苏晚来到电影院 · 约会' },
+      { type: 'scene', event: 'enter', sceneId: 'date', locationId: 'cinema', title: '和苏晚来到电影院 · 约会', mode: 'visit' },
       { type: 'text', text: '（周五晚上的电影院。灯暗下来的时候，她悄悄把爆米花推到你这边。）' },
     ]),
     m(c, 'assistant', at(-3, '21:40'), '……这部也太好哭了吧。', { expression: 'sad' }),
     m(c, 'user', at(-3, '21:41'), '给你纸巾'),
     m(c, 'assistant', at(-3, '21:42'), '才、才没哭。（却把脸埋进了你的肩膀）', { expression: 'blush' }),
     m(c, 'narrator', at(-3, '22:05'), [
-      { type: 'scene', event: 'leave', sceneId: 'date', locationId: 'cinema', title: '离开电影院', summary: '一起看了《海边的旧书店》· 存进了回忆' },
+      { type: 'scene', event: 'leave', sceneId: 'date', locationId: 'cinema', title: '离开电影院', summary: '一起看了《海边的旧书店》· 存进了回忆', mode: 'visit' },
     ]),
 
     m(c, 'assistant', at(-2, '23:41'), '还不睡？明天早八哦。', { expression: 'pout' }),
@@ -89,10 +89,10 @@ function buildSuwan(): Message[] {
     m(c, 'user', at(-1, '15:10'), [{ type: 'poke', actor: 'user', target: '头' }]),
     m(c, 'assistant', at(-1, '15:10'), '干嘛啦……头发要被你揉乱了。', { expression: 'blush' }),
     m(c, 'narrator', at(-1, '16:10'), [
-      { type: 'scene', event: 'enter', sceneId: 'study', locationId: 'library', title: '和苏晚来到图书馆 · 陪伴学习' },
+      { type: 'scene', event: 'enter', sceneId: 'study', locationId: 'library', title: '和苏晚连线 · 陪伴学习', summary: '你在家，她在图书馆', mode: 'remote', youAt: 'real:home' },
     ]),
     m(c, 'narrator', at(-1, '17:05'), [
-      { type: 'scene', event: 'leave', sceneId: 'study', locationId: 'library', title: '离开图书馆', summary: '学了 50 分钟' },
+      { type: 'scene', event: 'leave', sceneId: 'study', locationId: 'library', title: '结束连线', summary: '学了 50 分钟', mode: 'remote', youAt: 'real:home' },
       { type: 'study', logId: 'st1', pomodoros: 2, minutes: 50 },
     ]),
     m(c, 'assistant', at(-1, '17:06'), [
@@ -141,8 +141,15 @@ function buildJiangyu(): Message[] {
     m(c, 'assistant', at(-2, '18:13'), '明早六点，操场。迟到一分钟，加一圈。', { expression: 'smile' }),
     m(c, 'assistant', at(-1, '06:02'), '到了吗？', { proactive: true }),
     m(c, 'user', at(-1, '06:05'), '在路上了！！'),
+    // 你在真实的公园跑，他在他世界的田径场跑：连线晨跑
+    m(c, 'narrator', at(-1, '06:08'), [
+      { type: 'scene', event: 'enter', sceneId: 'exercise', locationId: 'jy-track', title: '和江屿连线 · 晨跑', summary: '你在社区公园，他在田径场', mode: 'remote', youAt: 'real:park' },
+    ]),
     m(c, 'narrator', at(-1, '06:50'), [
       { type: 'workout', logId: 'w0', sport: '跑步', distanceKm: 3.1, durationSec: 1210, pace: `6'30"` },
+    ]),
+    m(c, 'narrator', at(-1, '06:51'), [
+      { type: 'scene', event: 'leave', sceneId: 'exercise', locationId: 'jy-track', title: '结束连线', summary: '跑了 3.1 km', mode: 'remote', youAt: 'real:park' },
     ]),
     m(c, 'assistant', at(-1, '06:52'), '还行。明天继续。', { expression: 'smile' }),
   ];
@@ -159,7 +166,7 @@ export function buildMessages(): Record<string, Message[]> {
 /** 消息按人分：每个角色只有一条聊天 */
 export function buildChats(messages: Record<string, Message[]>): Chat[] {
   const last = (id: string) => messages[id]?.at(-1)?.createdAt ?? 0;
-  const base = { personaId: 'me', presetId: 'preset-daily', currentScene: null, togetherAt: null, summaryUntilMessageId: null, pinned: false, mode: 'im' as const, background: null };
+  const base = { personaId: 'me', presetId: 'preset-daily', currentScene: null, togetherAt: null, togetherMode: null, summaryUntilMessageId: null, pinned: false, mode: 'im' as const, background: null };
   return [
     { ...base, id: 'chat-suwan', characterId: 'suwan', title: '苏晚', pinned: true, createdAt: at(-30, '20:00'), updatedAt: last('chat-suwan'), lastMessageAt: last('chat-suwan') },
     { ...base, id: 'chat-jiangyu', characterId: 'jiangyu', title: '江屿', createdAt: at(-9, '18:00'), updatedAt: last('chat-jiangyu'), lastMessageAt: last('chat-jiangyu') },

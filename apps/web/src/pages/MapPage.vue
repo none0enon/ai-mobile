@@ -22,7 +22,7 @@ import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 import { useRealWorldStore } from '@/stores/realworld';
-import { hhmm } from '@/utils/time';
+import { hhmm, listTime } from '@/utils/time';
 
 /**
  * 地图：每个角色有自己的小世界，你在真实世界（Google 地图）。
@@ -133,9 +133,12 @@ function openLoc(l: MapLocation) {
   locOpen.value = true;
 }
 const companion = computed(() => chars.byId(companionId.value) ?? chars.list[0]!);
+/** 真实地点：带她来；她的世界：约会、戳戳乐是去她那儿，其余是连线（你在你那儿，她在这里） */
 function activityText(a: LocationActivity, c: Character) {
-  if (a.sceneId === 'date') return sheetIsReal.value ? `带${c.name}来这里约会` : `约${c.name}在这里约会`;
-  return `和${c.name}一起 · ${a.label}`;
+  if (sheetIsReal.value) return a.sceneId === 'date' ? `带${c.name}来这里约会` : `带${c.name}一起 · ${a.label}`;
+  if (a.sceneId === 'date') return `去${c.pronoun}那儿约会`;
+  if (a.sceneId === 'poke') return `去${c.pronoun}那儿 · ${a.label}`;
+  return `和${c.name}连线 · ${a.label}`;
 }
 
 // —— 角色面板 ——
@@ -275,7 +278,15 @@ watch(
         </div>
 
         <div class="mx-4 mt-3 relative">
-          <WorldMap :world="real.world" :characters="withYou" :you-at="youAtReal" :focus="selectedLoc?.id ?? null" @select-location="openLoc" @select-character="openChar" />
+          <WorldMap
+            :world="real.world"
+            :characters="withYou"
+            :you-at="youAtReal"
+            :focus="selectedLoc?.id ?? null"
+            :marked="chat.footprints.map((f) => f.placeId)"
+            @select-location="openLoc"
+            @select-character="openChar"
+          />
           <RouterLink v-if="!real.mapsReady" to="/me/api" class="maps-note"><span class="i-lucide-map shrink-0" />示意图 · 接入 Google 地图后显示真实地图</RouterLink>
         </div>
 
@@ -291,6 +302,21 @@ watch(
           </button>
         </div>
         <p class="note">她们平时在自己的小世界里。你出门时带上谁，谁就"来你这边"陪你；离开后回到自己的世界。</p>
+
+        <div class="group-title">我们的足迹</div>
+        <div v-if="chat.footprints.length" class="px-4 grid gap-2">
+          <button v-for="f in chat.footprints" :key="f.placeId" class="near-row press" :data-footprint="f.placeId" @click="getLocation(f.placeId) && openLoc(getLocation(f.placeId)!)">
+            <span class="near-icon"><span :class="getLocation(f.placeId)?.icon ?? 'i-lucide-map-pin'" /></span>
+            <div class="flex-1 min-w-0 text-left">
+              <div class="text-[15px] font-600 truncate">{{ getLocation(f.placeId)?.name ?? '某个地方' }}</div>
+              <div class="text-[12px] text-ink-3 truncate num">{{ f.titles.at(-1) }} · {{ listTime(f.last) }}</div>
+            </div>
+            <div class="flex -space-x-2 shrink-0">
+              <template v-for="id in f.characterIds" :key="id"><Avatar v-if="chars.byId(id)" :character="chars.byId(id)!" :size="26" /></template>
+            </div>
+          </button>
+        </div>
+        <p v-else class="note">还没有足迹。和她们连线一起做事、或者带她们出门之后，你这边的地点会记在这里。</p>
 
         <div class="group-title">今天的你</div>
         <div class="grid grid-cols-4 gap-2 px-4">

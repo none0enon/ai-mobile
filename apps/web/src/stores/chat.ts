@@ -1,8 +1,9 @@
-import { getLocation, getScene, isRealPlace, parseControlTags, type Message, type MessagePart, type MessageRole } from '@app/shared';
+import { getLocation, getScene, isRealPlace, parseControlTags, type Message, type MessagePart, type MessageRole, type TogetherMode } from '@app/shared';
 import { defineStore } from 'pinia';
 import { computed, reactive, ref } from 'vue';
 import { useAppStore } from './app';
 import { useCharacterStore } from './characters';
+import { useRealWorldStore } from './realworld';
 import { buildChats, buildMessages } from '@/mock/chats';
 import { services } from '@/services';
 import { buildPromptMessages } from '@/services/prompt';
@@ -213,39 +214,78 @@ export const useChatStore = defineStore('chat', () => {
   /** 一起出门前她在哪、在做什么：去了又什么都没发生时还原。只放内存 */
   const beforeVisit = new Map<string, { locationId: string | null; status: string }>();
 
+  /** 没指定怎么在一起时：约会、戳戳乐默认去她那儿，其余默认连线 */
+  const DEFAULT_MODE: Record<string, TogetherMode> = { date: 'visit', poke: 'visit' };
+
+  /** 你此刻在真实世界的哪儿（连线时记下来，成为"我们的足迹"） */
+  function yourPlace() {
+    const real = useRealWorldStore();
+    return getLocation(real.hereId) ?? real.home;
+  }
+
+  function enterTitle(mode: TogetherMode, characterName: string, pronoun: string, locName: string, activity: string) {
+    if (mode === 'remote') return { title: `和${characterName}连线 · ${activity}`, summary: `你在${yourPlace().name}，${pronoun}在${locName}` };
+    if (mode === 'bring') return { title: `带${characterName}去${locName} · ${activity}` };
+    return { title: `和${characterName}来到${locName} · ${activity}` };
+  }
+
   /**
-   * 和她一起去某个地点、开始某个场景：在聊天里插一条"来到图书馆 · 陪伴学习"的分隔，记下你们此刻在一起的地点。
-   * - 她小世界里的地点：你去她的世界找她，她的位置也跟着过去；
-   * - 你真实世界里的地点（街角咖啡店……）：你带她出门，她暂时"来你这边"，离开后回到自己的世界。
+   * 和她一起做某件事：在聊天里插一条开始的分隔，记下她那边在哪、怎么在一起。
+   * - 连线（默认）：你在你那儿，她去她世界里做这件事的地方，各做各的、一起做；
+   * - 去她那：地点在她的世界，你"坐到她旁边"；
+   * - 带她来：地点在你的真实世界，她暂时"来你这边"，离开后回到自己的世界。
    */
-  function enterScene(characterId: string, locationId: string, sceneId: string) {
+  function enterScene(characterId: string, locationId: string, sceneId: string, mode?: TogetherMode) {
     const chat = chatOfCharacter(characterId);
     const character = useCharacterStore().byId(characterId);
     if (!chat || !character) return;
-    if (chat.togetherAt === locationId && chat.currentScene === sceneId) return;
-    if (chat.togetherAt) leaveScene(characterId);
     const loc = getLocation(locationId);
+    const how: TogetherMode = isRealPlace(loc) ? 'bring' : (mode ?? DEFAULT_MODE[sceneId] ?? 'remote');
+    if (chat.togetherAt === locationId && chat.currentScene === sceneId) {
+      if (chat.togetherMode !== how) setTogetherMode(characterId, how);
+      return;
+    }
+    if (chat.togetherAt) leaveScene(characterId);
     const activity = loc?.activities.find((a) => a.sceneId === sceneId)?.label ?? getScene(sceneId).name;
     const last = list(chat.id).at(-1);
     const lastPart = last?.parts[0];
-    // 刚离开同一个地方又回来（离开时没留下总结）：把"离开"撤掉，当作没离开过
+    // 刚结束同一件事又回来（结束时没留下总结）：把"结束"撤掉，当作没断过
     if (last && lastPart?.type === 'scene' && lastPart.event === 'leave' && lastPart.locationId === locationId && !lastPart.summary && last.parts.length === 1) {
       messages.value[chat.id]?.pop();
     } else {
-      const title = isRealPlace(loc) ? `带${character.name}去${loc?.name ?? ''} · ${activity}` : `和${character.name}来到${loc?.name ?? ''} · ${activity}`;
-      push(chat.id, 'narrator', [{ type: 'scene', event: 'enter', sceneId, locationId, title }]);
+      const youAt = how === 'bring' ? locationId : how === 'remote' ? yourPlace().id : undefined;
+      push(chat.id, 'narrator', [
+        { type: 'scene', event: 'enter', sceneId, locationId, mode: how, youAt, ...enterTitle(how, character.name, character.pronoun, loc?.name ?? '', activity) },
+      ]);
     }
     if (!beforeVisit.has(characterId)) beforeVisit.set(characterId, { locationId: character.locationId, status: character.status });
     chat.togetherAt = locationId;
+    chat.togetherMode = how;
     chat.currentScene = sceneId;
     character.locationId = locationId;
     // 家里的活动带房间名（卧室 · 哄睡），状态只要后半截
     character.status = activity.split(' · ').at(-1) ?? activity;
   }
 
+  /** 连线 ⇄ 去她那（同一件事里切换）：刚开始还没聊什么时，顺手改掉开始那条分隔 */
+  function setTogetherMode(characterId: string, mode: TogetherMode) {
+    const chat = chatOfCharacter(characterId);
+    const character = useCharacterStore().byId(characterId);
+    if (!chat?.togetherAt || !character || chat.togetherMode === 'bring' || mode === 'bring') return;
+    chat.togetherMode = mode;
+    const last = list(chat.id).at(-1);
+    const part = last?.parts[0];
+    if (last && part?.type === 'scene' && part.event === 'enter' && last.parts.length === 1) {
+      const loc = getLocation(chat.togetherAt);
+      const activity = loc?.activities.find((a) => a.sceneId === part.sceneId)?.label ?? getScene(part.sceneId).name;
+      const { title, summary } = enterTitle(mode, character.name, character.pronoun, loc?.name ?? '', activity) as { title: string; summary?: string };
+      Object.assign(part, { mode, title, summary, youAt: mode === 'remote' ? yourPlace().id : undefined });
+    }
+  }
+
   /**
-   * 离开当前地点。如果进来之后什么都没发生，就把"来到…"也撤掉，她也回到原来的地方，不留痕迹。
-   * 从你的真实世界离开时，她总是回到自己的世界（回到出门前的地方）。
+   * 结束这件事。如果开始之后什么都没发生，就把开始那条也撤掉，她也回到原来的地方，不留痕迹。
+   * 带她出门的，她总是回到自己的世界（回到出门前的地方）；连线结束后，她接着在自己那边做自己的事。
    */
   function leaveScene(characterId: string, summary?: string) {
     const chat = chatOfCharacter(characterId);
@@ -253,6 +293,7 @@ export const useChatStore = defineStore('chat', () => {
     const character = useCharacterStore().byId(characterId);
     const before = beforeVisit.get(characterId);
     beforeVisit.delete(characterId);
+    const how = chat.togetherMode ?? 'visit';
     const loc = getLocation(chat.togetherAt);
     const last = list(chat.id).at(-1);
     const lastPart = last?.parts[0];
@@ -260,15 +301,54 @@ export const useChatStore = defineStore('chat', () => {
       messages.value[chat.id]?.pop();
       if (character && before) Object.assign(character, before);
     } else {
+      const youAt = lastEnterYouAt(chat.id);
       push(chat.id, 'narrator', [
-        { type: 'scene', event: 'leave', sceneId: chat.currentScene ?? 'free', locationId: chat.togetherAt, title: `离开${loc?.name ?? ''}`, summary },
+        {
+          type: 'scene',
+          event: 'leave',
+          sceneId: chat.currentScene ?? 'free',
+          locationId: chat.togetherAt,
+          title: how === 'remote' ? '结束连线' : `离开${loc?.name ?? ''}`,
+          summary,
+          mode: how,
+          youAt,
+        },
       ]);
-      if (character && isRealPlace(loc)) Object.assign(character, { locationId: before?.locationId ?? character.locationId, status: '刚从你那边回来' });
-      else if (character) character.status = '刚和你分开';
+      if (character && how === 'bring') Object.assign(character, { locationId: before?.locationId ?? character.locationId, status: '刚从你那边回来' });
+      else if (character && how === 'visit') character.status = '刚和你分开';
     }
     chat.togetherAt = null;
+    chat.togetherMode = null;
     chat.currentScene = null;
   }
+
+  function lastEnterYouAt(chatId: string): string | undefined {
+    for (const m of [...list(chatId)].reverse()) {
+      const p = m.parts[0];
+      if (p?.type === 'scene' && p.event === 'enter') return p.youAt;
+    }
+    return undefined;
+  }
+
+  /**
+   * 我们的足迹：你在真实世界里和她们一起待过的地方（连线时你在哪、带她去过哪）。
+   * 按地点汇总，最近的在前。
+   */
+  const footprints = computed(() => {
+    const byPlace = new Map<string, { placeId: string; characterIds: string[]; last: number; titles: string[] }>();
+    for (const c of chats.value) {
+      for (const m of list(c.id)) {
+        const p = m.parts[0];
+        if (p?.type !== 'scene' || p.event !== 'enter' || !p.youAt) continue;
+        const f = byPlace.get(p.youAt) ?? { placeId: p.youAt, characterIds: [], last: 0, titles: [] };
+        if (!f.characterIds.includes(c.characterId)) f.characterIds.push(c.characterId);
+        f.last = Math.max(f.last, m.createdAt);
+        f.titles.push(p.title);
+        byPlace.set(p.youAt, f);
+      }
+    }
+    return [...byPlace.values()].sort((a, b) => b.last - a.last);
+  });
 
   /** 场景结束时把记录卡片发进聊天（运动、饭照、学习、约会回忆……） */
   function postCard(chatId: string, role: MessageRole, part: MessagePart, text?: string) {
@@ -297,5 +377,7 @@ export const useChatStore = defineStore('chat', () => {
     postCard,
     enterScene,
     leaveScene,
+    setTogetherMode,
+    footprints,
   };
 });

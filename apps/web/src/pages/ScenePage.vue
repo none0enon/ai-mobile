@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defaultLocationFor, getLocation, type MapLocation, type SceneId } from '@app/shared';
+import { defaultLocationFor, getLocation, type MapLocation, type SceneId, type TogetherMode } from '@app/shared';
 import { computed, provide, ref, watch } from 'vue';
 import { onBeforeRouteLeave, useRoute } from 'vue-router';
 import { SCENE_LOCATION } from '@/components/scene/location';
@@ -34,11 +34,13 @@ function resolveLocation(): MapLocation | null {
 const location = ref<MapLocation | null>(null);
 provide(SCENE_LOCATION, location);
 
+/** ?how=visit 表示"去她那"（坐到她旁边）；默认连线；真实地点总是"带她来" */
 watch(
-  () => [sceneId.value, route.query.at],
+  () => [sceneId.value, route.query.at, route.query.how],
   () => {
     location.value = resolveLocation();
-    if (location.value) chat.enterScene(app.activeCharacterId, location.value.id, sceneId.value);
+    const how = route.query.how === 'visit' ? 'visit' : undefined;
+    if (location.value) chat.enterScene(app.activeCharacterId, location.value.id, sceneId.value, how as TogetherMode | undefined);
   },
   { immediate: true },
 );

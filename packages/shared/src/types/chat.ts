@@ -35,8 +35,28 @@ export type MessagePart =
       status: 'invite' | 'accepted' | 'declined' | 'memory';
     }
   | { type: 'gift'; giftId: string; name: string }
-  /** 场景分段：和她一起去了某个地点 / 离开。聊天里显示成一条居中的分隔提示 */
-  | { type: 'scene'; event: 'enter' | 'leave'; sceneId: string; locationId: string; title: string; summary?: string };
+  /**
+   * 场景分段：和她一起做某件事的开始 / 结束。聊天里显示成一条居中的分隔提示。
+   * mode 是怎么在一起的；youAt 是你在真实世界的哪儿（连线、带她出门时记下，成为"我们的足迹"）
+   */
+  | {
+      type: 'scene';
+      event: 'enter' | 'leave';
+      sceneId: string;
+      locationId: string;
+      title: string;
+      summary?: string;
+      mode?: TogetherMode;
+      youAt?: string;
+    };
+
+/**
+ * 怎么在一起：
+ * - remote 连线（默认）：你在真实世界你那儿，她在她的世界里，各做各的、开着"视频"一起做；
+ * - visit 去她那：你的注意力进她的世界（人还在你这边），坐在她旁边；
+ * - bring 带她来：你在真实世界的某个地方，她"来你这边"陪你。
+ */
+export type TogetherMode = 'remote' | 'visit' | 'bring';
 
 export type MessagePartType = MessagePart['type'];
 
@@ -87,8 +107,10 @@ export interface Chat extends SyncMeta {
   /** 上次用的看法：聊天气泡 / 剧场立绘 */
   mode: 'im' | 'stage';
   currentScene: string | null;
-  /** 你们此刻一起在哪个地点（从地图进场景时设置，离开时清空）；为空表示各在各处、只是发消息 */
+  /** 一起做事时她那边在哪（连线 / 去她那：她世界里的地点；带她来：你真实世界里的地点）；为空表示只是在发消息 */
   togetherAt: string | null;
+  /** 怎么在一起；不在一起时为空 */
+  togetherMode: TogetherMode | null;
   /** 滚动摘要已经覆盖到哪条消息 */
   summaryUntilMessageId: string | null;
   pinned: boolean;
