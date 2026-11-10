@@ -527,6 +527,11 @@ export function isRealPlace(l: MapLocation | null | undefined): boolean {
 }
 
 /** 角色的世界；还没有专属世界的角色（例如刚导入的）先借用第一个世界 */
+/** 这个角色有没有自己的小世界（导入的角色在生成小世界之前没有） */
+export function hasOwnWorld(characterId: string | null | undefined): boolean {
+  return WORLDS.some((w) => w.characterId === characterId);
+}
+
 export function worldOf(characterId: string | null | undefined): World {
   return WORLDS.find((w) => w.characterId === characterId) ?? (WORLDS[0] as World);
 }

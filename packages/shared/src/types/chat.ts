@@ -1,5 +1,6 @@
 import type { MealSlot } from './activity.ts';
 import type { SyncMeta } from './common.ts';
+import type { LoreTimedState } from './lorebook.ts';
 import type { ChatBackground } from './settings.ts';
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'narrator';
@@ -117,4 +118,8 @@ export interface Chat extends SyncMeta {
   lastMessageAt: number;
   /** 这个聊天单独的背景；为空时用外观设置里的通用背景 */
   background: ChatBackground | null;
+  /** 世界书条目的粘性 / 冷却状态（同 ST 的 chat_metadata.timedWorldInfo） */
+  loreState?: LoreTimedState;
+  /** 聊天变量：{{setvar::x::v}} / {{getvar::x}} */
+  vars?: Record<string, string>;
 }

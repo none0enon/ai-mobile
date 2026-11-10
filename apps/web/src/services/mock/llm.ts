@@ -1,3 +1,4 @@
+import { estimateTokens } from '@app/shared';
 import type { LLMClient, LLMRequest, LLMResult, StreamState } from '../types';
 import { pick, sleep } from '@/utils/id';
 
@@ -58,7 +59,22 @@ const FALLBACK = [
   '[expr:shy]（托着下巴看你）[expr:smile]你说什么我都爱听。',
 ];
 
+/** 演示台词是给苏晚、江屿写的 */
+const DEMO_CHARACTERS = new Set(['suwan', 'jiangyu']);
+
+/**
+ * 导入的角色还没接真实模型时：不说演示台词，而是报告这一轮实际拼出来的提示词，方便核对。
+ */
+function echo(req: LLMRequest): string {
+  const n = (role: string) => req.messages.filter((m) => m.role === role).length;
+  const tokens = req.messages.reduce((t, m) => t + estimateTokens(m.content), 0);
+  const lastUser = [...req.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+  const quote = lastUser.length > 24 ? `${lastUser.slice(0, 24)}…` : lastUser;
+  return `（演示模型，还没接真实 API）这一轮拼好了 ${req.messages.length} 条消息，约 ${tokens} tokens：系统 ${n('system')} 条、你 ${n('user')} 条、角色 ${n('assistant')} 条。你最后说的是「${quote}」。右上角 ⋯ → 查看提示词 能看到每一条。`;
+}
+
 function choose(req: LLMRequest): string {
+  if (req.characterId && !DEMO_CHARACTERS.has(req.characterId)) return echo(req);
   const lastUser = [...req.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
   const rule = RULES.find((r) => r.test.test(lastUser));
   return pick(rule ? rule.replies : FALLBACK);

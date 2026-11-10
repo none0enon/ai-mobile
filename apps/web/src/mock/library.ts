@@ -1,4 +1,4 @@
-import type { LoreEntry, Lorebook, PokeHotspot, Preset, PromptBlock } from '@app/shared';
+import { DEFAULT_PRESET_FORMATS, type LoreEntry, type Lorebook, type PokeHotspot, type Preset, type PromptBlock } from '@app/shared';
 import { at } from '@/utils/time';
 
 function entry(uid: string, comment: string, keys: string[], content: string, extra: Partial<LoreEntry> = {}): LoreEntry {
@@ -16,12 +16,18 @@ function entry(uid: string, comment: string, keys: string[], content: string, ex
     role: 'system',
     order: 100,
     probability: 100,
+    useProbability: true,
     scanDepth: null,
-    caseSensitive: false,
-    matchWholeWords: false,
+    caseSensitive: null,
+    matchWholeWords: null,
     group: '',
+    groupOverride: false,
+    groupWeight: 100,
     preventRecursion: false,
     excludeRecursion: false,
+    delayUntilRecursion: false,
+    ignoreBudget: false,
+    triggers: [],
     sticky: 0,
     cooldown: 0,
     delay: 0,
@@ -79,11 +85,11 @@ const dailyBlocks: PromptBlock[] = [
   block('worldInfoAfter', '世界书（角色后）', true),
   block('personaDescription', '用户人设', true),
   block('dialogueExamples', '示例对话', true),
-  block('summary', '过往摘要', true),
+  block('summary', '过往摘要', true, '', { origin: 'app' }),
   block('chatHistory', '聊天历史', true),
-  block('memory', '长期记忆 + 关系状态', true, '', { injection: { position: 'absolute', depth: 4 } }),
-  block('environment', '当前环境', true, '', { injection: { position: 'absolute', depth: 2 } }),
-  block('sceneRules', '当前场景规则 + 可用标签', true, '', { injection: { position: 'absolute', depth: 1 } }),
+  block('memory', '长期记忆 + 关系状态', true, '', { injection: { position: 'absolute', depth: 4 }, origin: 'app' }),
+  block('environment', '当前环境', true, '', { injection: { position: 'absolute', depth: 2 }, origin: 'app' }),
+  block('sceneRules', '当前场景规则 + 可用标签', true, '', { injection: { position: 'absolute', depth: 1 }, origin: 'app' }),
   block('tagDirective', '控制标签说明', false, '在情绪变化处插入隐藏标签，例如 [expr:smile]；只能用下面列出的表情。用户看不到这些标签。'),
   block('jailbreak', '后置指令', false, '保持角色，不要跳出扮演。回复长度跟随对话节奏，日常聊天一般 1-3 句。', { role: 'system' }),
 ];
@@ -97,6 +103,7 @@ export const presets: Preset[] = [
     description: '默认预设。稳定内容在前（便于命中前缀缓存），环境、记忆、场景这类经常变的内容按深度插进聊天记录末尾。',
     blocks: dailyBlocks,
     sampler: { temperature: 0.9, topP: 0.95, maxTokens: 600, contextTokens: 24000, frequencyPenalty: 0.2, presencePenalty: 0.1, stream: true },
+    formats: { ...DEFAULT_PRESET_FORMATS },
     regex: [{ id: 'r1', name: '去掉多余的星号', find: '\\*{3,}', replace: '', placement: ['ai_output'], enabled: true }],
   },
   {
@@ -107,6 +114,7 @@ export const presets: Preset[] = [
     description: '剧场 / 约会用：旁白 + 对话，鼓励使用 [choice:] 和 [cg:]。',
     blocks: dailyBlocks.map((b) => (b.identifier === 'jailbreak' ? { ...b, content: '用"（旁白）+「台词」"的形式推进剧情，每轮结尾给 2-3 个选项。' } : b)),
     sampler: { temperature: 1.0, topP: 0.95, maxTokens: 900, contextTokens: 32000, frequencyPenalty: 0.3, presencePenalty: 0.2, stream: true },
+    formats: { ...DEFAULT_PRESET_FORMATS },
     regex: [],
   },
   {
@@ -117,6 +125,7 @@ export const presets: Preset[] = [
     description: '语音通话用：短句、口语、不写动作描写，方便分句合成语音。',
     blocks: dailyBlocks.map((b) => (b.identifier === 'jailbreak' ? { ...b, content: '这是语音通话。每次只说 1-2 个短句，不写括号里的动作，不用表情符号。' } : b)),
     sampler: { temperature: 0.85, topP: 0.9, maxTokens: 160, contextTokens: 12000, frequencyPenalty: 0.2, presencePenalty: 0.1, stream: true },
+    formats: { ...DEFAULT_PRESET_FORMATS },
     regex: [],
   },
 ];

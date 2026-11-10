@@ -21,6 +21,13 @@ export interface StCardFields {
   tags: string[];
   creator?: string;
   characterVersion?: string;
+  /**
+   * 角色卡 data.extensions 原样保存（depth_prompt、world、talkativeness、regex_scripts……）。
+   * depth_prompt 在拼提示词时按深度插入；其余导出时原样写回。
+   */
+  extensions: Record<string, unknown>;
+  /** data 里其他没有对应字段的内容（V3 的 assets、nickname、group_only_greetings、creation_date……），导出时原样写回 */
+  extra: Record<string, unknown>;
 }
 
 /** 主动消息的性格：决定频率，以及没回复时会不会追发 */

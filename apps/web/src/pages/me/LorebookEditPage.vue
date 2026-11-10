@@ -3,10 +3,11 @@ import type { LoreEntry, LorePosition } from '@app/shared';
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import PageHeader from '@/layouts/PageHeader.vue';
-import { lorebooks } from '@/mock/library';
+import { useLibraryStore } from '@/stores/library';
 
 const route = useRoute();
-const book = computed(() => lorebooks.find((b) => b.id === route.params.id) ?? lorebooks[0]!);
+const lib = useLibraryStore();
+const book = computed(() => lib.lorebookById(route.params.id as string) ?? lib.lorebooks[0]!);
 const POSITION: Record<LorePosition, string> = {
   before_char: '角色定义前',
   after_char: '角色定义后',

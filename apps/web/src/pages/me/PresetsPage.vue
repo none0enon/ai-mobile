@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import PageHeader from '@/layouts/PageHeader.vue';
-import { presets } from '@/mock/library';
+import { useLibraryStore } from '@/stores/library';
+
+const lib = useLibraryStore();
 </script>
 
 <template>
@@ -11,7 +13,7 @@ import { presets } from '@/mock/library';
       </template>
     </PageHeader>
     <div class="page-scroll px-4 py-3 grid gap-3 content-start">
-      <RouterLink v-for="p in presets" :key="p.id" :to="`/me/presets/${p.id}`" class="preset press">
+      <RouterLink v-for="p in lib.presets" :key="p.id" :to="`/me/presets/${p.id}`" class="preset press">
         <div class="flex items-center gap-2">
           <span class="text-[16px] font-600">{{ p.name }}</span>
           <span class="ml-auto i-lucide-chevron-right text-ink-3" />

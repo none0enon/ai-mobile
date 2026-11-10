@@ -15,9 +15,9 @@ import StageView from '@/components/stage/StageView.vue';
 import { usePoke } from '@/composables/usePoke';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { mockToday, weather } from '@/mock/activity';
-import { presets } from '@/mock/library';
 import { goBack } from '@/router';
 import { services } from '@/services';
+import { presetFor } from '@/services/prompt';
 import { useAppStore } from '@/stores/app';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
@@ -42,7 +42,7 @@ const messages = computed(() => chatStore.list(chatId.value));
 const stream = computed(() => chatStore.streams[chatId.value]);
 const expression = computed(() => chars.expression[character.value?.id ?? ''] ?? 'neutral');
 const lastAi = computed(() => [...messages.value].reverse().find((m) => m.role === 'assistant'));
-const preset = computed(() => presets.find((p) => p.id === chat.value?.presetId));
+const preset = computed(() => presetFor(chat.value, character.value));
 
 function setMode(m: 'im' | 'stage') {
   if (chat.value) chat.value.mode = m;
@@ -100,7 +100,7 @@ function onAction(id: string) {
       void router.push('/scene/meal');
       break;
     case 'scenes':
-      void router.push(mapLink.value);
+      void router.push(placeKnown.value ? mapLink.value : '/map');
       break;
     case 'call':
       void router.push(`/call/${c.id}`);
@@ -188,6 +188,8 @@ const timeChip = `${hhmm(Date.now())} · ${weather.text} ${weather.tempC}°`;
 const stageLoc = computed<MapLocation>(
   () => getLocation(chat.value?.togetherAt ?? character.value?.locationId) ?? (worldOf(character.value?.id).locations[0] as MapLocation),
 );
+/** 知不知道她在哪：导入的角色还没有自己的小世界时不显示地点（不借用别人的世界） */
+const placeKnown = computed(() => !!getLocation(chat.value?.togetherAt ?? character.value?.locationId));
 /** 在地图上看：她世界里的地点去她的世界，你真实世界里的地点去"我的世界" */
 const mapLink = computed(() => `/map?world=${isRealPlace(stageLoc.value) ? 'me' : character.value?.id}&focus=${stageLoc.value.id}`);
 const stageBackdrop = computed(() =>
@@ -210,7 +212,10 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
                 <span class="font-600 text-[16px] truncate min-w-[2.2em]">{{ chat.title }}</span>
                 <span class="aff"><span class="i-lucide-heart" />{{ character.relationship.affection }}</span>
               </RouterLink>
-              <RouterLink :to="mapLink" class="where" aria-label="在地图上看她在哪">
+              <span v-if="!placeKnown" class="where">
+                <span class="truncate">{{ stream ? '对方正在输入…' : character.status || '在线' }} · {{ weather.text }} {{ weather.tempC }}°C</span>
+              </span>
+              <RouterLink v-else :to="mapLink" class="where" aria-label="在地图上看她在哪">
                 <span class="i-lucide-map-pin text-accent-ink shrink-0" />
                 <span class="truncate">{{ chat.togetherAt ? `你们在${stageLoc.name}` : stageLoc.name }} · {{ stream ? '对方正在输入…' : character.status }} · {{ weather.text }} {{ weather.tempC }}°C</span>
               </RouterLink>
@@ -252,9 +257,10 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
     <StageView v-else :character="character" :expression="expression" :backdrop="stageBackdrop" :rain="stageRain" pokeable @poke="onPoke">
       <div class="stage-top">
         <button class="chip-btn" aria-label="返回" @click="goBack('/chats')"><span class="i-lucide-chevron-left text-[20px]" /></button>
-        <RouterLink :to="mapLink" class="chip-btn loc-chip !px-3 num"
+        <RouterLink v-if="placeKnown" :to="mapLink" class="chip-btn loc-chip !px-3 num"
           ><span class="i-lucide-map-pin shrink-0" /><span class="truncate">{{ stageLoc.name }} · {{ timeChip }}</span></RouterLink
         >
+        <span v-else class="chip-btn loc-chip !px-3 num"><span class="truncate">{{ timeChip }}</span></span>
         <span class="chip-btn aff-chip shrink-0 !px-3"><span class="i-lucide-heart text-accent" />{{ character.relationship.affection }}</span>
         <span class="flex-1" />
         <button class="chip-btn" aria-label="切换到聊天模式" @click="setMode('im')"><span class="i-lucide-message-circle text-[19px]" /></button>

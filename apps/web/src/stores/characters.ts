@@ -1,6 +1,7 @@
 import { slotAt, worldOf, type Character } from '@app/shared';
 import { defineStore } from 'pinia';
 import { reactive, ref } from 'vue';
+import { autoSave, getAll } from '@/db/idb';
 import { characters } from '@/mock/characters';
 
 /** 她们此刻在各自世界的哪儿：按作息表（和你同一个时间）。M3 起由 Worker 的 Cron 推进并同步 */
@@ -9,13 +10,41 @@ for (const c of characters) {
   if (slot) Object.assign(c, { locationId: slot.locationId, status: slot.status });
 }
 
+/** 演示角色每次打开重新生成，不存；导入的角色存在本机 */
+const DEMO_IDS = new Set(characters.map((c) => c.id));
+
 export const useCharacterStore = defineStore('characters', () => {
-  const list = ref<Character[]>(characters);
+  const list = ref<Character[]>([...characters]);
   /** 每个角色此刻的立绘表情（由流式回复里的 [expr:] 标签、戳戳乐驱动） */
   const expression = reactive<Record<string, string>>({ suwan: 'smile', jiangyu: 'neutral' });
 
+  const saver = autoSave(
+    'characters',
+    () => list.value.filter((c) => !DEMO_IDS.has(c.id)).map((c) => ({ key: c.id, value: c })),
+    list,
+  );
+
+  async function hydrate() {
+    const saved = (await getAll<Character>('characters')).sort((a, b) => a.createdAt - b.createdAt);
+    for (const c of saved) if (!list.value.some((x) => x.id === c.id)) list.value.push(c);
+    saver.start();
+  }
+
   function byId(id: string | null | undefined): Character | undefined {
     return list.value.find((c) => c.id === id);
+  }
+
+  function isDemo(id: string) {
+    return DEMO_IDS.has(id);
+  }
+
+  function add(c: Character) {
+    list.value.push(c);
+    return list.value.at(-1) as Character;
+  }
+
+  function remove(id: string) {
+    list.value = list.value.filter((c) => c.id !== id);
   }
 
   function setExpression(id: string, value: string) {
@@ -27,5 +56,5 @@ export const useCharacterStore = defineStore('characters', () => {
     if (c) c.relationship.affection = Math.max(0, Math.min(100, c.relationship.affection + delta));
   }
 
-  return { list, expression, byId, setExpression, bumpAffection };
+  return { list, expression, hydrate, byId, isDemo, add, remove, setExpression, bumpAffection };
 });

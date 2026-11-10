@@ -10,12 +10,14 @@ import CharacterFigure from '@/components/figure/CharacterFigure.vue';
 import StageView from '@/components/stage/StageView.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { FIGURE } from '@/mock/characters';
-import { lorebooks, pokeHotspots } from '@/mock/library';
+import { pokeHotspots } from '@/mock/library';
+import { useLibraryStore } from '@/stores/library';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
 
 const route = useRoute();
 const chars = useCharacterStore();
+const lib = useLibraryStore();
 const looks = useAppearanceStore();
 async function pickAvatar(file: File) {
   try {
@@ -105,7 +107,7 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
         </van-tab>
         <van-tab title="世界书" name="lore">
           <div class="px-4 pt-3 grid gap-2">
-            <label v-for="b in lorebooks" :key="b.id" class="pick">
+            <label v-for="b in lib.lorebooks" :key="b.id" class="pick">
               <van-checkbox :model-value="character.lorebookIds.includes(b.id)" icon-size="18px" @update:model-value="(v: boolean) => (character.lorebookIds = v ? [...character.lorebookIds, b.id] : character.lorebookIds.filter((x) => x !== b.id))" />
               <div class="flex-1 min-w-0">
                 <div class="text-[14.5px]">{{ b.name }}</div>

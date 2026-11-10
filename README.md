@@ -3,7 +3,9 @@
 AI 陪伴对话 App：像 SillyTavern 一样用角色卡、世界书、预设聊天，但她会**主动找你**，记得你说过的事，知道现在几点、下不下雨，陪你运动、吃饭、学习、睡觉、听歌、约会，也会打电话给你。
 
 - 设计文档：[`docs/DESIGN.md`](docs/DESIGN.md)
-- 当前进度：**M0 界面骨架**。所有页面和导航都有，数据都是演示用的假数据，还没有接真实的 AI / 同步 / 推送。
+- 当前进度：**M1 进行中**。
+  - 已经是真的：导入 SillyTavern 角色卡（PNG / JSON，V1–V3，内嵌世界书自动拆出来绑定）、世界书、Chat Completion 预设；导入的东西和聊天存在本机（IndexedDB），刷新后还在；发消息时按 SillyTavern 的规则拼提示词（预设顺序、世界书扫描、宏、按深度插入、token 预算），"查看提示词"里看到的就是请求体。
+  - 还是假的：模型（假模型不调用 API；和导入的角色聊天时，它会回报这一轮拼出了几条消息）、同步、推送，以及演示角色、天气、今日活动这些数据。
 
 ## 目录
 
@@ -14,8 +16,10 @@ apps/web/            前端（Vue 3 + Vite + TypeScript + Pinia + Vue Router + V
   src/components/    聊天气泡与卡片、剧场立绘与对话框、场景外壳、小地图、占位立绘 / 背景……
   src/services/      服务接口 + 假实现（假的流式模型会吐 [expr:] 等控制标签）
   src/mock/          演示数据（两个原创角色：苏晚、江屿）
-  scripts/           shots.cjs（逐页截图检查）、make-artifact.mjs（生成预览页）
+  scripts/           shots.cjs（逐页截图检查）、import-e2e.cjs（导入 + 发送的端到端检查）、make-artifact.mjs（生成预览页）
 packages/shared/     前端和以后的 Worker 共用：领域类型、场景注册表、地图地点、控制标签解析、环境描述、LRC 解析
+  src/st/            SillyTavern 兼容：PNG 文本块、角色卡 / 世界书 / 预设的导入导出、宏、世界书扫描、提示词拼装
+  test/fixtures/     测试用的 ST 预设、JSON 角色卡、PNG 角色卡
 docs/DESIGN.md       完整设计
 ```
 
@@ -29,7 +33,7 @@ docs/DESIGN.md       完整设计
 pnpm install
 pnpm dev            # http://localhost:5173
 pnpm typecheck      # vue-tsc + tsc
-pnpm test           # 控制标签、LRC、环境描述的单元测试
+pnpm test           # 单元测试：控制标签、LRC、环境描述、ST 导入 / 世界书 / 宏 / 提示词拼装
 pnpm build          # 正式构建 → apps/web/dist（hash 路由，可放在任意静态目录）
 pnpm build:preview  # 单文件预览页 → apps/web/artifact/index.html
 ```
@@ -40,9 +44,14 @@ pnpm build:preview  # 单文件预览页 → apps/web/artifact/index.html
 cd apps/web && npx vite preview --port 4173 &
 node scripts/shots.cjs            # 全部页面，深色
 node scripts/shots.cjs chat --light   # 只看名字含 chat 的页面，浅色
+node scripts/import-e2e.cjs       # 导入测试用的预设和两张角色卡，发一条消息，核对"查看提示词"
 ```
 
 ## 可以在骨架里试的
+
+- "我的 → 导入 ST 文件"：选一个 Chat Completion 预设、一张角色卡（PNG 或 JSON）。先显示识别结果，确认后导入；角色卡导入后直接去聊天，第一条是开场白。
+  - 发一条消息，然后右上角 ⋯ → 查看提示词：能看到发出去的每一条消息、预设每一块发没发和为什么、世界书每一条触发没触发和为什么、请求体 JSON。
+  - 预设的开关以 ST 实际生效的那套顺序（`prompt_order` 里的 100001）为准。那套里关掉的块（例如主提示、世界书位置）不会发送，和 SillyTavern 一样。
 
 - 聊天里发"好累""想你""画一张""听歌""约会"：假模型会流式回复，并切换表情、发配图 / 歌曲卡、给选项、发起来电。
 - 右上角切到剧场模式，点她的头、脸、肩膀（长按是摸头，连击会生气）。
