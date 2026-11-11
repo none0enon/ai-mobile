@@ -19,7 +19,7 @@ export const connections: ProviderConnection[] = [
     keyStorage: 'device',
     hasKey: false,
     capabilities: ['chat', 'vision'],
-    models: ['relay-main-model', 'relay-fast-model', 'deepseek-chat'],
+    models: ['relay-main-model', 'relay-fast-model', 'deepseek-flash'],
     viaWorker: false,
   },
   {
@@ -27,12 +27,12 @@ export const connections: ProviderConnection[] = [
     createdAt: t,
     updatedAt: t,
     name: 'DeepSeek 官方',
-    kind: 'openai',
-    baseUrl: 'https://api.deepseek.com/v1',
+    kind: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
     keyStorage: 'device',
     hasKey: false,
-    capabilities: ['chat'],
-    models: ['deepseek-chat', 'deepseek-reasoner'],
+    capabilities: ['chat', 'vision'],
+    models: ['deepseek-flash', 'deepseek-v4-pro'],
     viaWorker: false,
   },
   {
@@ -103,13 +103,13 @@ export const connections: ProviderConnection[] = [
 ];
 
 export const agentRoutes: AgentRoute[] = [
-  { role: 'main', connectionId: 'conn-relay', model: 'relay-main-model', fallbackConnectionId: 'conn-deepseek', fallbackModel: 'deepseek-chat', runsOn: 'device', params: { temperature: 0.9 } },
-  { role: 'sidestory', connectionId: 'conn-deepseek', model: 'deepseek-chat', fallbackConnectionId: 'conn-relay', fallbackModel: 'relay-fast-model', runsOn: 'auto', params: { temperature: 1 }, dailyTokenBudget: 60_000 },
-  { role: 'summary', connectionId: 'conn-deepseek', model: 'deepseek-chat', fallbackConnectionId: null, runsOn: 'auto', dailyTokenBudget: 200_000 },
+  { role: 'main', connectionId: 'conn-relay', model: 'relay-main-model', fallbackConnectionId: 'conn-deepseek', fallbackModel: 'deepseek-flash', runsOn: 'device', params: { temperature: 0.9 } },
+  { role: 'sidestory', connectionId: 'conn-deepseek', model: 'deepseek-flash', fallbackConnectionId: 'conn-relay', fallbackModel: 'relay-fast-model', runsOn: 'auto', params: { temperature: 1 }, dailyTokenBudget: 60_000 },
+  { role: 'summary', connectionId: 'conn-deepseek', model: 'deepseek-flash', fallbackConnectionId: null, runsOn: 'auto', dailyTokenBudget: 200_000 },
   { role: 'embedding', connectionId: 'conn-sf', model: 'BAAI/bge-m3', fallbackConnectionId: 'conn-cf', fallbackModel: '@cf/baai/bge-m3', runsOn: 'auto', dims: 1024 },
-  { role: 'imagePrompt', connectionId: 'conn-deepseek', model: 'deepseek-chat', fallbackConnectionId: null, runsOn: 'auto' },
+  { role: 'imagePrompt', connectionId: 'conn-deepseek', model: 'deepseek-flash', fallbackConnectionId: null, runsOn: 'auto' },
   { role: 'image', connectionId: 'conn-nai', model: 'nai-diffusion-4-5-full', fallbackConnectionId: null, runsOn: 'hub' },
-  { role: 'proactive', connectionId: 'conn-deepseek', model: 'deepseek-chat', fallbackConnectionId: 'conn-relay', fallbackModel: 'relay-fast-model', runsOn: 'hub', dailyTokenBudget: 100_000 },
+  { role: 'proactive', connectionId: 'conn-deepseek', model: 'deepseek-flash', fallbackConnectionId: 'conn-relay', fallbackModel: 'relay-fast-model', runsOn: 'hub', dailyTokenBudget: 100_000 },
   { role: 'vision', connectionId: 'conn-relay', model: 'relay-main-model', fallbackConnectionId: null, runsOn: 'device' },
   { role: 'tts', connectionId: 'conn-sf', model: 'FunAudioLLM/CosyVoice2-0.5B', fallbackConnectionId: null, runsOn: 'device' },
   { role: 'stt', connectionId: 'conn-sf', model: 'FunAudioLLM/SenseVoiceSmall', fallbackConnectionId: null, runsOn: 'device' },
@@ -128,8 +128,11 @@ export interface ConnectionTemplate {
 }
 
 export const CONNECTION_TEMPLATES: ConnectionTemplate[] = [
-  { label: '中转', name: '我的中转', kind: 'openai', baseUrl: 'https://', capabilities: ['chat', 'vision'], models: [] },
-  { label: 'DeepSeek', name: 'DeepSeek', kind: 'openai', baseUrl: 'https://api.deepseek.com/v1', capabilities: ['chat'], models: ['deepseek-chat', 'deepseek-reasoner'] },
+  // 任意地址的 OpenAI 格式（中转、各家兼容接口）；math-reader 里 openai / deepseek 渠道改地址就是这种
+  { label: '自定义 OpenAI 兼容', name: '我的中转', kind: 'openai', baseUrl: 'https://', capabilities: ['chat', 'vision'], models: [] },
+  // math-reader 的"自定义"渠道：任意地址，走 Gemini 原生协议（Key 放在 key 参数）
+  { label: '自定义 Gemini 协议', name: '我的 Gemini 中转', kind: 'gemini', baseUrl: 'https://', capabilities: ['chat', 'vision'], models: [] },
+  { label: 'DeepSeek', name: 'DeepSeek', kind: 'deepseek', baseUrl: 'https://api.deepseek.com', capabilities: ['chat', 'vision'], models: ['deepseek-flash', 'deepseek-v4-pro'] },
   {
     label: '硅基流动',
     name: '硅基流动',
@@ -141,12 +144,20 @@ export const CONNECTION_TEMPLATES: ConnectionTemplate[] = [
   { label: 'OpenRouter', name: 'OpenRouter', kind: 'openai', baseUrl: 'https://openrouter.ai/api/v1', capabilities: ['chat', 'vision'], models: [] },
   { label: 'Claude', name: 'Claude', kind: 'anthropic', baseUrl: 'https://api.anthropic.com/v1', capabilities: ['chat', 'vision'], models: [] },
   {
-    label: 'Gemini',
+    label: 'Gemini（AI Studio）',
     name: 'Gemini',
     kind: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     capabilities: ['chat', 'vision', 'embedding'],
     models: ['gemini-2.5-flash', 'gemini-embedding-001'],
+  },
+  {
+    label: 'Vertex Agent',
+    name: 'Vertex Agent',
+    kind: 'vertex',
+    baseUrl: 'https://aiplatform.googleapis.com/v1/publishers/google',
+    capabilities: ['chat', 'vision'],
+    models: ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-2.5-pro', 'deepseek-ai/deepseek-v4.1-flash-maas'],
   },
   { label: 'NovelAI', name: 'NovelAI', kind: 'novelai', baseUrl: 'https://image.novelai.net', capabilities: ['image'], models: ['nai-diffusion-4-5-full', 'nai-diffusion-4-5-curated'] },
   {

@@ -1,5 +1,5 @@
 import type { Capability } from '@app/shared';
-import { anthropicBase, bearerHeaders, geminiBase, joinUrl, openaiBase, transportOf, type Endpoint } from './core/endpoint.ts';
+import { anthropicBase, bearerHeaders, deepseekBase, geminiBase, joinUrl, openaiBase, transportOf, type Endpoint } from './core/endpoint.ts';
 import { AiError, errorText, httpError } from './core/errors.ts';
 import { readText, request } from './core/http.ts';
 import { embedTexts } from './embedding/client.ts';
@@ -9,11 +9,26 @@ import { chatOnce } from './llm/client.ts';
 import { synthesize } from './tts/client.ts';
 import type { VoiceSpec } from './tts/types.ts';
 
+/** Vertex Agent 的常用模型（Gemini 来自 math-reader 和官方 express 模式的模型表；DeepSeek 来自官方的 DeepSeek 模型页） */
+export const VERTEX_MODELS = [
+  'gemini-3.7-flash',
+  'gemini-3.5-flash',
+  'gemini-3.1-pro-preview',
+  'gemini-3-flash-preview',
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'deepseek-ai/deepseek-v4.1-flash-maas',
+];
+
 /**
  * "API 与智能体"页的两个按钮：拉取模型列表、测试连接（移植自 math-reader 的 fetchModels，扩展到各家）。
  */
 
 export const STATIC_MODELS: Partial<Record<Endpoint['kind'], string[]>> = {
+  // Vertex 的 API Key 拉不到模型列表（要 OAuth，同 math-reader）：列出官方文档里的常用模型，也可以手动填。
+  // 最后一个是 DeepSeek（开源模型，要服务账号授权）
+  vertex: VERTEX_MODELS,
   novelai: NOVELAI_MODELS,
   minimax: ['speech-02-hd', 'speech-02-turbo', 'speech-2.5-hd-preview', 'speech-2.5-turbo-preview'],
   // 火山引擎的"模型"就是 Resource ID
@@ -43,8 +58,9 @@ export async function listModels(ep: Endpoint, signal?: AbortSignal): Promise<st
       headers: { ...(ep.key ? { 'x-api-key': ep.key } : {}), 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', ...(ep.headers ?? {}) },
       signal,
     });
-  } else if (ep.kind === 'openai') {
-    res = await request(transportOf(ep), ep.name, joinUrl(openaiBase(ep.baseUrl), 'models'), { method: 'GET', headers: bearerHeaders(ep, false), signal });
+  } else if (ep.kind === 'openai' || ep.kind === 'deepseek') {
+    const base = ep.kind === 'deepseek' ? deepseekBase(ep.baseUrl) : openaiBase(ep.baseUrl);
+    res = await request(transportOf(ep), ep.name, joinUrl(base, 'models'), { method: 'GET', headers: bearerHeaders(ep, false), signal });
   } else {
     return [];
   }

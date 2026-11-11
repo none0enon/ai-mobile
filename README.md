@@ -22,7 +22,7 @@ packages/shared/     前端和以后的 Worker 共用：领域类型、场景注
   src/st/            SillyTavern 兼容：PNG 文本块、角色卡 / 世界书 / 预设的导入导出、宏、世界书扫描、提示词拼装
   test/fixtures/     测试用的 ST 预设、JSON 角色卡、PNG 角色卡
 packages/ai/         AI 调用层，前端和以后的 Worker 共用（只用 Web 标准接口），说明见 packages/ai/README.md
-  src/llm/           文本对话：OpenAI 兼容 / Claude / Gemini（流式、思考内容、流式失败改普通请求、按报错调整参数）
+  src/llm/           文本对话：OpenAI 兼容 / DeepSeek / Claude / Gemini / Vertex Agent（流式、思考内容、流式失败改普通请求、按报错调整参数）
   src/tts/ image/ embedding/   语音合成（含火山引擎声音复刻）、生图（NovelAI、OpenAI 兼容）、向量化
   src/agents/        多智能体：路由与备用连接、每日上限、番外 / 生图提示词 / 总结的提示词与解析、配图流水线、记忆检索
 docs/DESIGN.md       完整设计

@@ -44,7 +44,7 @@ export interface ChatRequest {
   reasoningEffort?: ReasoningEffort;
   /** 要不要模型返回思考内容；默认流式时要（只决定返回不返回，不改变思考多少） */
   includeReasoning?: boolean;
-  /** Claude 的助手预填（SillyTavern 预设的 assistant_prefill）：回复从这段文字接着写 */
+  /** 助手预填（预设的 assistant_prefill）：回复从这段文字接着写。Claude 原生支持，DeepSeek 官方走前缀续写 */
   prefill?: string;
   /** 覆盖连接里的消息整理方式（OpenAI 兼容） */
   processing?: PromptProcessing;

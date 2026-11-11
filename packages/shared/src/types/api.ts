@@ -5,6 +5,8 @@ export type ConnectionKind =
   | 'openai' // OpenAI 兼容（各家中转、DeepSeek、硅基流动、Ollama……）
   | 'anthropic'
   | 'gemini'
+  | 'deepseek' // DeepSeek 官方（OpenAI 格式；思考开关、推理强度、前缀续写按官网）
+  | 'vertex' // Google Gemini Enterprise Agent Platform（原 Vertex AI，math-reader 里叫 Vertex Agent）：Gemini，用服务账号时也能调 DeepSeek 等开源模型
   | 'novelai'
   | 'workers-ai' // Cloudflare Workers AI（只能经 Worker 用）
   | 'minimax' // MiniMax 语音合成（t2a_v2）
@@ -35,8 +37,8 @@ export type KeyStorage = 'device' | 'hub' | 'none';
  */
 export type PromptProcessing = 'none' | 'merge' | 'semi' | 'strict' | 'single';
 
-/** 推理强度（同 SillyTavern）：auto 交给模型；其余按各家映射成 reasoning_effort / 思考预算 / 思考等级 */
-export type ReasoningEffort = 'auto' | 'min' | 'low' | 'medium' | 'high' | 'max';
+/** 推理强度：auto 交给模型；none 尽量不思考（DeepSeek 关掉思考模式）；其余按各家映射成 reasoning_effort / 思考预算 / 思考等级 */
+export type ReasoningEffort = 'auto' | 'none' | 'min' | 'low' | 'medium' | 'high' | 'max';
 
 /** 一个 API 连接。同步数据里只有 keyStorage 和 hasKey，没有 Key 本身 */
 export interface ProviderConnection extends SyncMeta {
@@ -55,6 +57,7 @@ export interface ProviderConnection extends SyncMeta {
    * 服务商专有的设置（不是 Key，可以同步）：
    * - minimax：groupId（老账号的接口要带 GroupId）
    * - volcengine：appId、resourceId（默认 seed-tts-2.0；复刻的音色 S_… 自动用 seed-icl-2.0）
+   * - vertex：location（默认 global）、projectId（服务账号 JSON 里有 project_id 时不用填）；只在用服务账号授权时用到
    * - workers-ai：accountId（直连 Cloudflare 时用；经自己的 Worker 时不需要）
    * - openai 语音合成：emotion = 'off' 时不给 CosyVoice 加情绪指令
    */

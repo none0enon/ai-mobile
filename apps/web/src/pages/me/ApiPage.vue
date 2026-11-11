@@ -32,8 +32,10 @@ const chars = useCharacterStore();
 
 const KIND_LABEL: Record<ConnectionKind, string> = {
   openai: 'OpenAI 兼容',
+  deepseek: 'DeepSeek',
   anthropic: 'Claude',
-  gemini: 'Gemini',
+  gemini: 'Gemini（AI Studio）',
+  vertex: 'Vertex Agent',
   novelai: 'NovelAI',
   minimax: 'MiniMax',
   volcengine: '火山引擎',
@@ -59,12 +61,24 @@ const PROCESSING: { value: PromptProcessing; label: string; hint: string }[] = [
 /** 推理强度：OpenAI 的 reasoning_effort、Claude 的思考预算 / effort、Gemini 的 thinkingBudget / thinkingLevel */
 const EFFORTS: { value: ReasoningEffort; label: string }[] = [
   { value: 'auto', label: '自动' },
+  { value: 'none', label: '关闭' },
   { value: 'min', label: '最低' },
   { value: 'low', label: '低' },
   { value: 'medium', label: '中' },
   { value: 'high', label: '高' },
   { value: 'max', label: '最高' },
 ];
+/** Key 输入框的说明和占位 */
+const KEY_HINT: Partial<Record<ConnectionKind, string>> = {
+  novelai: '（持久 API Token，pst- 开头）',
+  volcengine: '（Access Token）',
+  vertex: '（API Key 或服务账号 JSON）',
+};
+const KEY_PLACEHOLDER: Partial<Record<ConnectionKind, string>> = {
+  novelai: 'pst-…',
+  volcengine: 'Access Token',
+  vertex: 'API Key，或 {"type": "service_account", …}',
+};
 const NAI_SAMPLERS = ['k_euler_ancestral', 'k_euler', 'k_dpmpp_2s_ancestral', 'k_dpmpp_2m_sde', 'k_dpmpp_2m', 'k_dpmpp_sde'];
 const NAI_SCHEDULES = ['karras', 'native', 'exponential', 'polyexponential'];
 
@@ -192,7 +206,11 @@ async function fetchModels() {
   try {
     const list = await listModels(ai.endpointOf(c, currentKey()));
     if (!list.length) showToast('没有拉到模型，可以在下面手动填');
-    else {
+    else if (c.kind === 'vertex') {
+      // 同 math-reader：Vertex 的 API Key 拉不到模型列表（要 OAuth），列出常用的，保留已经填的
+      c.models = [...new Set([...c.models, ...list])];
+      showToast('Vertex 的 API Key 拉不到模型列表，先列出常用模型；别的模型在下面手动填');
+    } else {
       c.models = list;
       showToast(`拉取到 ${list.length} 个模型`);
     }
@@ -505,8 +523,11 @@ async function runReindex() {
         <input id="conn-url" v-model="editing.baseUrl" class="input" inputmode="url" autocomplete="off" />
         <p v-if="editing.kind === 'novelai'" class="text-[12px] text-ink-3 mt-1.5 mb-0">官方填 https://image.novelai.net；公益站、反代填它给的地址，Key 填它给的 Token。</p>
         <template v-if="editing.keyStorage !== 'none'">
-          <label class="field-label" for="conn-key">Key{{ editing.kind === 'novelai' ? '（持久 API Token，pst- 开头）' : editing.kind === 'volcengine' ? '（Access Token）' : '' }}</label>
-          <input id="conn-key" v-model="keyDraft" class="input" type="password" :placeholder="editing.kind === 'novelai' ? 'pst-…' : editing.kind === 'volcengine' ? 'Access Token' : 'sk-…'" autocomplete="off" @focus="keyDraft === KEY_MASK && (keyDraft = '')" />
+          <label class="field-label" for="conn-key">Key{{ KEY_HINT[editing.kind] ?? '' }}</label>
+          <input id="conn-key" v-model="keyDraft" class="input" type="password" :placeholder="KEY_PLACEHOLDER[editing.kind] ?? 'sk-…'" autocomplete="off" @focus="keyDraft === KEY_MASK && (keyDraft = '')" />
+          <p v-if="editing.kind === 'vertex'" class="text-[12px] text-ink-3 mt-1.5 mb-0">
+            API Key（express 模式或绑定服务账号的 Key，同 math-reader）只能调 Gemini；要调 DeepSeek 等开源模型，粘贴整个服务账号 JSON（官方的 OpenAI 兼容接口只认 Google Cloud 授权）。
+          </p>
         </template>
         <label class="field-label">Key 存在哪里</label>
         <Segmented
@@ -520,6 +541,12 @@ async function runReindex() {
         <template v-if="editing.kind === 'minimax'">
           <label class="field-label" for="conn-group">GroupId（老账号需要，新账号可以不填）</label>
           <input id="conn-group" :value="editing.extra?.groupId ?? ''" class="input" @input="setExtra('groupId', ($event.target as HTMLInputElement).value)" />
+        </template>
+        <template v-if="editing.kind === 'vertex'">
+          <label class="field-label" for="conn-location">地区（只在用服务账号时用；空着用 global）</label>
+          <input id="conn-location" :value="editing.extra?.location ?? ''" class="input" placeholder="global" autocomplete="off" @input="setExtra('location', ($event.target as HTMLInputElement).value)" />
+          <label class="field-label" for="conn-project">项目 ID（服务账号 JSON 里有就不用填）</label>
+          <input id="conn-project" :value="editing.extra?.projectId ?? ''" class="input" autocomplete="off" @input="setExtra('projectId', ($event.target as HTMLInputElement).value)" />
         </template>
         <template v-if="editing.kind === 'volcengine'">
           <label class="field-label" for="conn-appid">APP ID（火山引擎控制台 → 豆包语音 → 应用管理）</label>
@@ -565,7 +592,7 @@ async function runReindex() {
           <input v-model="modelDraft" class="input flex-1" placeholder="手动添加模型名" autocomplete="off" @keydown.enter="addModel" />
           <van-button size="small" round @click="addModel">添加</van-button>
         </div>
-        <template v-if="editing.kind === 'openai' && editing.capabilities.includes('chat')">
+        <template v-if="(editing.kind === 'openai' || editing.kind === 'deepseek') && editing.capabilities.includes('chat')">
           <button class="adv-toggle" @click="advancedOpen = !advancedOpen">
             <span>高级：消息整理、请求参数</span>
             <span :class="advancedOpen ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" />
@@ -631,7 +658,9 @@ async function runReindex() {
             <button v-for="e in EFFORTS" :key="e.value" class="opt" :class="{ on: effort === e.value }" @click="effort = e.value">{{ e.label }}</button>
           </div>
           <p class="text-[12px] text-ink-3 mt-1.5 mb-0">
-            按各家换算：OpenAI 的 reasoning_effort、Claude 的思考预算、Gemini 的思考预算或等级。{{ routeEditing.role === 'main' ? '预设里设了推理强度时以预设为准。' : '' }}
+            按各家换算：OpenAI 的 reasoning_effort、Claude 的思考预算、Gemini 的思考预算或等级、DeepSeek 的思考开关。"关闭"在 DeepSeek 上关掉思考模式（默认是开的），回复更快。{{
+              routeEditing.role === 'main' ? '预设里设了推理强度时以预设为准。' : ''
+            }}
           </p>
           <div class="flex items-center justify-between gap-3 mt-3">
             <div>

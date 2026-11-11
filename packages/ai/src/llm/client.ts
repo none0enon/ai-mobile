@@ -1,19 +1,28 @@
 import type { ConnectionKind } from '@app/shared';
-import type { Endpoint } from '../core/endpoint.ts';
+import { isDeepSeekOfficial, type Endpoint } from '../core/endpoint.ts';
 import { AiError, errorText, isAbortError } from '../core/errors.ts';
-import { anthropicChat, geminiChat, openaiChat, type ChatProvider } from './providers.ts';
+import { anthropicChat, deepseekChat, geminiChat, openaiChat, type ChatProvider } from './providers.ts';
+import { vertexChat } from './vertex.ts';
 import type { ChatOptions, ChatRequest, ChatResult } from './types.ts';
 
 const CHAT_PROVIDERS: Partial<Record<ConnectionKind, ChatProvider>> = {
   openai: openaiChat,
+  deepseek: deepseekChat,
   anthropic: anthropicChat,
   gemini: geminiChat,
+  vertex: vertexChat,
   // Cloudflare Workers AI 也提供 OpenAI 兼容的 /chat/completions
   'workers-ai': openaiChat,
 };
 
 export function canChat(kind: ConnectionKind): boolean {
   return !!CHAT_PROVIDERS[kind];
+}
+
+/** 选成"OpenAI 兼容"、地址却是 DeepSeek 官方的连接（以前的设置、从 math-reader 粘过来的地址）也按 DeepSeek 的规则发 */
+function providerOf(ep: Endpoint): ChatProvider | undefined {
+  if (ep.kind === 'openai' && isDeepSeekOfficial(ep.baseUrl)) return deepseekChat;
+  return CHAT_PROVIDERS[ep.kind];
 }
 
 /** 流式失败后改普通请求也没用的错误：Key 不对、没余额、地址或模型不存在 */
@@ -30,7 +39,7 @@ function hopeless(e: unknown): boolean {
  * 换备用连接不在这里，在智能体路由（agents/router.ts）。
  */
 export async function chatOnce(ep: Endpoint, req: ChatRequest, opts: ChatOptions = {}): Promise<ChatResult> {
-  const provider = CHAT_PROVIDERS[ep.kind];
+  const provider = providerOf(ep);
   if (!provider) throw new AiError('unsupported', `"${ep.name}" 是 ${ep.kind} 连接，不能用来对话`);
   const wantStream = opts.stream ?? !!opts.onDelta;
   let shownText = '';

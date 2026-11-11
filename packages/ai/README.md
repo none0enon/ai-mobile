@@ -4,7 +4,7 @@
 
 ```
 src/core/       端点（连接 + 模型）、Base URL 规范化、请求、统一错误 AiError
-src/llm/        文本对话：OpenAI 兼容 / Claude / Gemini；消息整理、推理强度、回复修剪
+src/llm/        文本对话：OpenAI 兼容 / DeepSeek / Claude / Gemini（AI Studio）/ Vertex Agent；消息整理、推理强度、回复修剪
 src/tts/        语音合成：OpenAI 兼容（硅基流动 CosyVoice）/ MiniMax / 火山引擎（含声音复刻）/ Fish Audio / GPT-SoVITS
 src/image/      生图：NovelAI（V4.5 / V4 / V3）/ OpenAI 兼容 /images/generations；生图风格
 src/embedding/  向量化：OpenAI 兼容 / Gemini / Workers AI；float16 编码、向量空间
@@ -29,13 +29,32 @@ src/connection.ts  拉取模型列表、测试连接
 ## 文本对话（参考 SillyTavern、SleepTogether）
 
 - **消息整理**（`llm/messages.ts` 的 `postProcessMessages`，ST 的 Prompt Post-Processing）：连接上选 原样 / 合并 / 半严格 / 严格 / 单条；严格模式下系统消息后第一条不是 user 时补 "Let's get started."。导入的 ST 预设里的 `custom_prompt_post_processing` 也认。
-- **推理强度**（`llm/reasoning.ts`）：自动 / 最低 / 低 / 中 / 高 / 最高，按各家换算：OpenAI `reasoning_effort`；Claude 新模型用 adaptive thinking + `output_config.effort`，老模型按回复上限算 `budget_tokens`；Gemini 2.5 用 `thinkingBudget`、Gemini 3 用 `thinkingLevel`。中转常用的 `-thinking` / `-high` 这类模型名后缀也能识别（同 SleepTogether），自动把温度设成 1、留够输出上限。
+- **推理强度**（`llm/reasoning.ts`）：自动 / 关闭 / 最低 / 低 / 中 / 高 / 最高，按各家换算：OpenAI `reasoning_effort`；Claude 新模型用 adaptive thinking + `output_config.effort`，老模型按回复上限算 `budget_tokens`；Gemini 2.5 用 `thinkingBudget`（2.5 Flash 能关到 0）、Gemini 3 用 `thinkingLevel`、Gemini 4 只认 `thinkingLevel` 且没有 MINIMAL（Vertex 官方文档）；DeepSeek 用思考开关。中转常用的 `-thinking` / `-high` 这类模型名后缀也能识别（同 SleepTogether），自动把温度设成 1、留够输出上限。
 - **Claude 型号表**（`llm/claude.ts`）：哪些型号会思考、哪些不接受 temperature / top_p、哪些不能预填 assistant（预填改成 user 消息合并），同 ST 的规则；预设里的 `assistant_prefill` 会接上。
 - **Gemini**：安全过滤全部 `OFF`（含 CIVIC_INTEGRITY，同 ST）；要思考过程时带 `includeThoughts`。
 - **额外请求参数**：连接上可以并入、去掉请求体的字段（ST 的 Include / Exclude Body Parameters），给只认某些字段的中转用。
 - **备用连接发最简请求**（同 SleepTogether 的备用 API）：只带 model / messages / temperature / max_tokens / stream，不带思考参数和额外字段，换过去更容易成功。
 - **回复修剪**（`llm/filter.ts`，SleepTogether 的全局正则）：所有文本智能体的回复过一遍正则，默认去掉 `<think>…</think>`、只剩结束标签的半截思考、`<!-- consider: … -->`；流式时每次更新都修剪。修剪完是空的算失败。
 - **流式兼容**：有的中转在流里给 `message.content` 或 `text` 而不是 `delta.content`，都认。
+
+## DeepSeek（按官网文档，2026-11）
+
+- 地址 `https://api.deepseek.com/chat/completions`，模型 `deepseek-flash`（V4.1 Flash，能看图）/ `deepseek-v4-pro`。
+- 思考模式默认开、强度 high：推理强度换成 `thinking: {type}` 和 `reasoning_effort`（low / high / max），"关闭"发 `thinking: {type: "disabled"}`。思考模式下回复上限也算思考的 token，自动留出空间（至少 16K，最高强度 64K），免得只有思考、没有正文。
+- 预设的助手预填走前缀续写（Beta）：地址换成 `/beta/chat/completions`，最后一条 assistant 带 `prefix: true`。
+- 旧模型名 `deepseek-chat` / `deepseek-reasoner` 已在 2026-07-24 停用：调用时换成 `deepseek-flash` 的非思考 / 思考模式；以前存的设置打开 App 时也改过来。
+- 选成"OpenAI 兼容"、地址是 `api.deepseek.com` 的连接也按这些规则发（math-reader 里 deepseek 渠道就是填这个地址）。
+
+## Vertex Agent（按 math-reader main 和 Google 官网）
+
+Google 的 Gemini Enterprise Agent Platform（原 Vertex AI），math-reader 里叫 Vertex Agent。
+
+- **API Key**（同 math-reader）：默认地址 `https://aiplatform.googleapis.com/v1/publishers/google`，请求 `{base}/models/{model}:streamGenerateContent?alt=sse&key=…`，Gemini 原生协议；基础地址和完整的 generateContent 地址都能粘。这种 Key（express 模式，或绑定服务账号的 Google Cloud API Key）只能调 Gemini，也拉不到模型列表（要 OAuth），"拉取模型列表"列出常用模型。
+- **服务账号 JSON**（官方文档的 Google Cloud 授权）：Key 里粘整个 JSON，本机用 WebCrypto 签 JWT（RS256）、到 `oauth2.googleapis.com/token` 换访问令牌（缓存到过期前一分钟）；请求发到 `…/v1/projects/{项目}/locations/{地区}/…`，地区默认 `global`，连接上可以改地区、填项目 ID。
+- **DeepSeek 等开源模型**：要用服务账号授权（官方：OpenAI 兼容接口只认 Google Cloud 授权）。走 `…/endpoints/openapi/chat/completions`，模型名带发布方前缀（`deepseek-ai/deepseek-v4.1-flash-maas`，只写 `deepseek-v4.1-flash-maas` 会自动补上）；官方要求第一条是 user、user 和 assistant 轮流，默认按"严格"整理消息。
+- 安全设置按 Vertex 文档的四类关掉；`thinkingLevel` 写成大写枚举。
+
+**math-reader 的"自定义"渠道**走的是 Gemini 原生协议（任意地址，Key 放在 key 参数）；这里对应"自定义 Gemini 协议"模板。任意地址的 OpenAI 格式用"自定义 OpenAI 兼容"模板，粘 math-reader 习惯的完整地址（…/v1/chat/completions）也行。
 
 ## 语音合成、生图（参考 SleepTogether、SillyTavern）
 

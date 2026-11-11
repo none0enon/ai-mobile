@@ -56,6 +56,37 @@ export function openaiBase(url: string): string {
   return originOnly(u) ? `${u}/v1` : u;
 }
 
+export const DEEPSEEK_DEFAULT_URL = 'https://api.deepseek.com';
+
+/**
+ * DeepSeek 的 Base URL：官网写 https://api.deepseek.com（不带 /v1），对话是 {base}/chat/completions；
+ * 也容忍 math-reader 习惯的完整地址（…/v1/chat/completions）。
+ */
+export function deepseekBase(url: string): string {
+  return trimUrl(trimUrl(url || DEEPSEEK_DEFAULT_URL).replace(OPENAI_SUFFIX, '')) || DEEPSEEK_DEFAULT_URL;
+}
+
+/** 是不是 DeepSeek 官方接口（前缀续写的 /beta、停用的旧模型名只对官方处理） */
+export function isDeepSeekOfficial(url: string): boolean {
+  try {
+    return new URL(trimUrl(url)).hostname === 'api.deepseek.com';
+  } catch {
+    return false;
+  }
+}
+
+/** Gemini Enterprise Agent Platform（原 Vertex AI）express 模式的全球地址，同 math-reader 的 Vertex Agent 默认地址 */
+export const VERTEX_DEFAULT_URL = 'https://aiplatform.googleapis.com/v1/publishers/google';
+
+/**
+ * Vertex 的 Gemini Base URL（同 math-reader 的 geminiBaseUrl）：基础地址、…/models、
+ * 完整的 …/models/gemini-x:streamGenerateContent?key=… 都认；只填了域名时补 /v1/publishers/google。
+ */
+export function vertexBase(url: string): string {
+  const u = trimUrl(trimUrl((url || VERTEX_DEFAULT_URL).replace(/[?#].*$/, '')).replace(/\/models(?:\/[^/]+)?$/i, ''));
+  return originOnly(u) ? `${u}/v1/publishers/google` : u;
+}
+
 /** Anthropic Messages 接口的 Base URL（https://api.anthropic.com/v1） */
 export function anthropicBase(url: string): string {
   const u = trimUrl(trimUrl(url).replace(/\/(?:messages|models)$/i, ''));

@@ -1,4 +1,14 @@
-import { AgentSystem, DEFAULT_IMAGE_STYLE, DEFAULT_OUTPUT_FILTERS, DEFAULT_TTS_TEXT, MemoryAudioCache, type AgentConfig, type Endpoint, type RouteStatus } from '@app/ai';
+import {
+  AgentSystem,
+  DEFAULT_IMAGE_STYLE,
+  DEFAULT_OUTPUT_FILTERS,
+  DEFAULT_TTS_TEXT,
+  isDeepSeekOfficial,
+  MemoryAudioCache,
+  type AgentConfig,
+  type Endpoint,
+  type RouteStatus,
+} from '@app/ai';
 import { AGENT_META, type AgentRole, type AgentRoute, type ProviderConnection } from '@app/shared';
 import { defineStore } from 'pinia';
 import { showToast } from 'vant';
@@ -25,6 +35,30 @@ function completeRoutes(saved: AgentRoute[]): AgentRoute[] {
     if (role === 'tts' && !r.ttsText) r.ttsText = clone(DEFAULT_TTS_TEXT);
     return r;
   });
+}
+
+const LEGACY_DEEPSEEK = /^deepseek-(?:chat|reasoner)$/;
+
+/**
+ * DeepSeek 的旧模型名 deepseek-chat / deepseek-reasoner 已在 2026-07-24 停用（官网更新日志）。
+ * 以前存的、地址是 DeepSeek 官方的连接改成 DeepSeek 协议，模型换成 deepseek-flash；
+ * 原来用 deepseek-chat（不思考）的智能体把推理强度设成"关闭"，保持原来的快速回复。调用时也会自动换，这里让界面显示对
+ */
+function migrateDeepSeek(conns: ProviderConnection[], routes: AgentRoute[]) {
+  const ids = new Set<string>();
+  for (const c of conns) {
+    if ((c.kind !== 'openai' && c.kind !== 'deepseek') || !isDeepSeekOfficial(c.baseUrl)) continue;
+    ids.add(c.id);
+    c.kind = 'deepseek';
+    if (c.models.some((m) => LEGACY_DEEPSEEK.test(m))) c.models = [...new Set([...c.models.map((m) => (LEGACY_DEEPSEEK.test(m) ? 'deepseek-flash' : m)), 'deepseek-v4-pro'])];
+  }
+  for (const r of routes) {
+    if (r.connectionId && ids.has(r.connectionId) && LEGACY_DEEPSEEK.test(r.model)) {
+      if (r.model === 'deepseek-chat' && !r.params?.reasoningEffort) r.params = { ...(r.params ?? {}), reasoningEffort: 'none' };
+      r.model = 'deepseek-flash';
+    }
+    if (r.fallbackConnectionId && ids.has(r.fallbackConnectionId) && r.fallbackModel && LEGACY_DEEPSEEK.test(r.fallbackModel)) r.fallbackModel = 'deepseek-flash';
+  }
 }
 
 /**
@@ -94,6 +128,7 @@ export const useAiStore = defineStore('ai', () => {
     ]);
     if (savedConns?.length) connections.value = savedConns;
     if (savedRoutes?.length) routes.value = completeRoutes(savedRoutes);
+    migrateDeepSeek(connections.value, routes.value);
     if (Array.isArray(savedFilters)) setOutputFilters(savedFilters);
     for (const { key, value } of secrets) if (typeof value === 'string' && value) keys[key] = value;
     syncHasKey();

@@ -20,7 +20,8 @@ export { chatOnce, canChat } from './llm/client.ts';
 export { readAIStream } from './llm/stream.ts';
 export { fromOpenAIBody, normalizeTurns, postProcessMessages, START_PLACEHOLDER, toClaude, toGemini } from './llm/messages.ts';
 export { claudeModelInfo, type ClaudeModelInfo } from './llm/claude.ts';
-export { claudeThinking, geminiThinking, openaiReasoningEffort, thinkingAlias } from './llm/reasoning.ts';
+export { claudeThinking, deepseekThinking, geminiThinking, openaiReasoningEffort, thinkingAlias } from './llm/reasoning.ts';
+export { isVertexOpenModel, parseServiceAccount, vertexOpenModelId, type ServiceAccount } from './llm/vertex.ts';
 export { applyFilters, compileFilter, compileFilters, DEFAULT_OUTPUT_FILTERS } from './llm/filter.ts';
 export { outputTokenCaps } from './llm/retry.ts';
 
@@ -42,7 +43,7 @@ export { unzipFirst } from './image/zip.ts';
 export { embedTexts, canEmbed, instructionPrefix, type EmbedPurpose, type EmbedRequest, type EmbedResult } from './embedding/client.ts';
 export * from './embedding/vector.ts';
 
-export { listModels, testConnection, STATIC_MODELS, type TestResult } from './connection.ts';
+export { listModels, testConnection, STATIC_MODELS, VERTEX_MODELS, type TestResult } from './connection.ts';
 
 export * from './agents/router.ts';
 export * from './agents/usage.ts';

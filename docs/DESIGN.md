@@ -172,6 +172,7 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 |---|---|---|
 | `llm/` | OpenAI 兼容 / Claude / Gemini；读流兼容 SSE、JSON 数组、逐行 JSON、单个 JSON；思考内容和 `<think>`；流式失败同一连接改普通请求；输出上限超了按报错重试；不被接受的参数自动去掉 | 移植自 math-reader 的 `callAI` / `readAIStream` |
 | `llm/`（续） | 消息整理（原样 / 合并 / 半严格 / 严格 / 单条）；推理强度按各家换算；Claude 型号表（思考、采样参数、预填）；Gemini 安全过滤 OFF 和思考预算；额外 / 去掉的请求参数；备用连接发最简请求；回复修剪（正则） | SillyTavern 的 Chat Completion 设置；SleepTogether 的主备 API 和全局过滤 |
+| `llm/`（DeepSeek、Vertex） | DeepSeek 官方：deepseek-flash / deepseek-v4-pro，思考开关和强度，思考时留足输出上限，前缀续写（/beta），停用的旧模型名自动换；Vertex Agent：API Key 调 Gemini（express 地址），服务账号 JSON 换访问令牌后调项目地址的 Gemini 和 DeepSeek 等开源模型（OpenAI 兼容接口） | DeepSeek 官网文档；math-reader main 的 Vertex Agent 和 Google 官网文档 |
 | `tts/` | OpenAI 兼容 `/audio/speech`（硅基流动 CosyVoice）、MiniMax t2a_v2、火山引擎 v3（含声音复刻）、Fish Audio、GPT-SoVITS；朗读前的文字处理（只读引号、星号 / 括号、代码块、状态栏标签、自定义正则）；表情 → 情绪；按句缓存 | SleepTogether 的 TTS 管理（火山引擎、MiniMax）；SillyTavern 的 TTS 设置 |
 | `image/` | NovelAI V4.5 / V4（`v4_prompt`、多人位置）/ V3；生图风格（固定前后缀、负面词、采样器、噪声调度、Variety Boost）；质量词默认不加；zip / JSON / 图片都认；种子从 PNG 元数据核对；OpenAI 兼容 `/images/generations`（尺寸、Avoid 负面词） | SleepTogether 的生图管理；SillyTavern 的 NovelAI 设置 |
 | `embedding/` | OpenAI 兼容 `/embeddings`、Gemini `batchEmbedContents`、Workers AI（OpenAI 兼容接口）；查询 / 记忆的前缀；float16 base64；向量空间 = 模型族 + 维度；检索最低相似度 | 新写；阈值参考 SillyTavern 的向量存储 |

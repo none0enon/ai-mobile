@@ -19,7 +19,7 @@ const OPENAI_FIELDS: Record<string, keyof ChatRequest> = {
   stop: 'stop',
 };
 const IGNORED = new Set(['model', 'messages', 'stream', 'stream_options']);
-const EFFORTS = new Set<ReasoningEffort>(['auto', 'min', 'low', 'medium', 'high', 'max']);
+const EFFORTS = new Set<ReasoningEffort>(['auto', 'none', 'min', 'low', 'medium', 'high', 'max']);
 /** SillyTavern 的 custom_prompt_post_processing 取值 → 这里的写法（带 _tools 的当成不带的） */
 const ST_PROCESSING: Record<string, PromptProcessing> = {
   '': 'none',
