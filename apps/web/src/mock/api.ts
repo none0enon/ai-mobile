@@ -6,7 +6,7 @@ const t = at(-5, '21:00');
 /**
  * 第一次打开时的连接：常见的几家，地址和模型都填好了，只差 Key。
  * Key 只存在这台设备上（我的 → API 与智能体 → 点连接填）。没填 Key 的智能体继续用演示模型，所以不填也能逛。
- * "中转站 A"是示例地址，换成你自己的中转。
+ * "中转站 A"是示例地址，换成你自己的中转。文字类智能体用的是主要 / 次要 / 备用 API（各选一个连接和模型，同 math-reader）。
  */
 export const connections: ProviderConnection[] = [
   {
@@ -19,7 +19,7 @@ export const connections: ProviderConnection[] = [
     keyStorage: 'device',
     hasKey: false,
     capabilities: ['chat', 'vision'],
-    models: ['relay-main-model', 'relay-fast-model', 'deepseek-flash'],
+    models: [],
     viaWorker: false,
   },
   {
@@ -32,7 +32,7 @@ export const connections: ProviderConnection[] = [
     keyStorage: 'device',
     hasKey: false,
     capabilities: ['chat', 'vision'],
-    models: ['deepseek-flash', 'deepseek-v4-pro'],
+    models: ['deepseek-chat', 'deepseek-reasoner'],
     viaWorker: false,
   },
   {
@@ -103,14 +103,14 @@ export const connections: ProviderConnection[] = [
 ];
 
 export const agentRoutes: AgentRoute[] = [
-  { role: 'main', connectionId: 'conn-relay', model: 'relay-main-model', fallbackConnectionId: 'conn-deepseek', fallbackModel: 'deepseek-flash', runsOn: 'device', params: { temperature: 0.9 } },
-  { role: 'sidestory', connectionId: 'conn-deepseek', model: 'deepseek-flash', fallbackConnectionId: 'conn-relay', fallbackModel: 'relay-fast-model', runsOn: 'auto', params: { temperature: 1 }, dailyTokenBudget: 60_000 },
-  { role: 'summary', connectionId: 'conn-deepseek', model: 'deepseek-flash', fallbackConnectionId: null, runsOn: 'auto', dailyTokenBudget: 200_000 },
+  { role: 'main', connectionId: 'conn-relay', model: '', fallbackConnectionId: 'conn-deepseek', fallbackModel: 'deepseek-chat', runsOn: 'device', params: { temperature: 0.9 } },
+  { role: 'sidestory', connectionId: 'conn-deepseek', model: 'deepseek-chat', fallbackConnectionId: 'conn-relay', fallbackModel: '', runsOn: 'auto', params: { temperature: 1 }, dailyTokenBudget: 60_000 },
+  { role: 'summary', connectionId: 'conn-deepseek', model: 'deepseek-chat', fallbackConnectionId: null, runsOn: 'auto', dailyTokenBudget: 200_000 },
   { role: 'embedding', connectionId: 'conn-sf', model: 'BAAI/bge-m3', fallbackConnectionId: 'conn-cf', fallbackModel: '@cf/baai/bge-m3', runsOn: 'auto', dims: 1024 },
-  { role: 'imagePrompt', connectionId: 'conn-deepseek', model: 'deepseek-flash', fallbackConnectionId: null, runsOn: 'auto' },
+  { role: 'imagePrompt', connectionId: 'conn-deepseek', model: 'deepseek-chat', fallbackConnectionId: null, runsOn: 'auto' },
   { role: 'image', connectionId: 'conn-nai', model: 'nai-diffusion-4-5-full', fallbackConnectionId: null, runsOn: 'hub' },
-  { role: 'proactive', connectionId: 'conn-deepseek', model: 'deepseek-flash', fallbackConnectionId: 'conn-relay', fallbackModel: 'relay-fast-model', runsOn: 'hub', dailyTokenBudget: 100_000 },
-  { role: 'vision', connectionId: 'conn-relay', model: 'relay-main-model', fallbackConnectionId: null, runsOn: 'device' },
+  { role: 'proactive', connectionId: 'conn-deepseek', model: 'deepseek-chat', fallbackConnectionId: 'conn-relay', fallbackModel: '', runsOn: 'hub', dailyTokenBudget: 100_000 },
+  { role: 'vision', connectionId: 'conn-relay', model: '', fallbackConnectionId: null, runsOn: 'device' },
   { role: 'tts', connectionId: 'conn-sf', model: 'FunAudioLLM/CosyVoice2-0.5B', fallbackConnectionId: null, runsOn: 'device' },
   { role: 'stt', connectionId: 'conn-sf', model: 'FunAudioLLM/SenseVoiceSmall', fallbackConnectionId: null, runsOn: 'device' },
 ];
@@ -132,7 +132,7 @@ export const CONNECTION_TEMPLATES: ConnectionTemplate[] = [
   { label: '自定义 OpenAI 兼容', name: '我的中转', kind: 'openai', baseUrl: 'https://', capabilities: ['chat', 'vision'], models: [] },
   // math-reader 的"自定义"渠道：任意地址，走 Gemini 原生协议（Key 放在 key 参数）
   { label: '自定义 Gemini 协议', name: '我的 Gemini 中转', kind: 'gemini', baseUrl: 'https://', capabilities: ['chat', 'vision'], models: [] },
-  { label: 'DeepSeek', name: 'DeepSeek', kind: 'deepseek', baseUrl: 'https://api.deepseek.com', capabilities: ['chat', 'vision'], models: ['deepseek-flash', 'deepseek-v4-pro'] },
+  { label: 'DeepSeek', name: 'DeepSeek', kind: 'deepseek', baseUrl: 'https://api.deepseek.com', capabilities: ['chat', 'vision'], models: ['deepseek-chat', 'deepseek-reasoner'] },
   {
     label: '硅基流动',
     name: '硅基流动',

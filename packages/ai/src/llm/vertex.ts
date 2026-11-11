@@ -2,7 +2,7 @@ import { base64Decode, base64Encode, utf8Encode } from '@app/shared';
 import { transportOf, trimUrl, vertexBase, type Endpoint } from '../core/endpoint.ts';
 import { AiError, errorText, httpError } from '../core/errors.ts';
 import { readText, request } from '../core/http.ts';
-import { geminiGenerate, openaiCompatible, VERTEX_SAFETY_OFF, type ChatProvider } from './providers.ts';
+import { geminiGenerate, openaiCompatible, type ChatProvider } from './providers.ts';
 
 /**
  * Vertex Agent：Google 的 Gemini Enterprise Agent Platform（原 Vertex AI）。
@@ -162,7 +162,6 @@ export const vertexChat: ChatProvider = async (ep, req, call) => {
         url: `${base}:${stream ? 'streamGenerateContent?alt=sse' : 'generateContent'}`,
         headers: { Authorization: `Bearer ${await vertexAccessToken(ep, sa, call.signal)}` },
       }),
-      safety: VERTEX_SAFETY_OFF,
       upperLevel: true,
       cacheKey: `${base}|vertex`,
     });
@@ -176,7 +175,6 @@ export const vertexChat: ChatProvider = async (ep, req, call) => {
       url: `${base}/models/${encodeURIComponent(model)}${stream ? `:streamGenerateContent?alt=sse&key=${key}` : `:generateContent?key=${key}`}`,
       headers: {},
     }),
-    safety: VERTEX_SAFETY_OFF,
     upperLevel: true,
     cacheKey: `${base}|${model}`,
   });
