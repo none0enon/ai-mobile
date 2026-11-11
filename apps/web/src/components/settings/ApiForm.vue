@@ -72,7 +72,7 @@ async function fetchModels() {
   }
   fetching.value = true;
   try {
-    const list = await listModels(ep);
+    const list = await listModels(ep, undefined, cap.value);
     if (!list.length) fetchError.value = '没有拉到模型（服务端返回的列表是空的），可以在下面手动填';
     // Vertex 的 API Key 拉不到模型列表（要 OAuth，同 math-reader）：列出常用的，保留已经填的
     else a.models = a.channel === 'vertex' ? [...new Set([...a.models, ...list])] : list;
