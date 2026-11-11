@@ -133,6 +133,46 @@ const STATUS_HINT: Record<number, string> = {
   504: '网关超时',
 };
 
+/** Google 会把 Key 的 API 限制作为 403 返回；不能笼统归因为地区或风控。 */
+function googleKeyRestriction(body: string): { hint: string; advice: string } | undefined {
+  const services: Record<string, string> = {
+    'aiplatform.googleapis.com': 'Vertex Agent',
+    'generativelanguage.googleapis.com': 'Gemini (AI Studio)',
+  };
+  let reason = '';
+  let service = '';
+  try {
+    const error = JSON.parse(body)?.error;
+    if (Array.isArray(error?.details)) {
+      const info = error.details.find((d: any) => d?.['@type'] === 'type.googleapis.com/google.rpc.ErrorInfo' &&
+        d.domain === 'googleapis.com' && services[d.metadata?.service]);
+      reason = info?.reason ?? '';
+      service = info?.metadata?.service ?? '';
+    }
+    // 有的中转只保留 message，没有 ErrorInfo。
+    if (!reason && typeof error?.message === 'string') {
+      const blocked = error.message.match(/Requests to this API (aiplatform\.googleapis\.com|generativelanguage\.googleapis\.com) method .+ are blocked\./);
+      if (blocked) { reason = 'API_KEY_SERVICE_BLOCKED'; service = blocked[1]!; }
+    }
+  } catch {
+    return;
+  }
+  const name = services[service];
+  if (!name) return;
+  if (reason === 'API_KEY_SERVICE_BLOCKED') return {
+    hint: `Key 的 API 限制未允许 ${name}`,
+    advice: `在 Google Cloud 的“API 和服务 → 凭据”核对这把 Key 的 API 限制，确认允许 ${service}，或换用已允许该 API 的 Key。切换模型不会解除此限制。`,
+  };
+  if (reason === 'API_KEY_HTTP_REFERRER_BLOCKED') return {
+    hint: 'Key 的网站来源限制不允许当前页面',
+    advice: '在 Google Cloud 的“API 和服务 → 凭据”核对这把 Key 的网站限制，将当前应用的网址加入允许的网站。',
+  };
+  if (reason === 'SERVICE_DISABLED') return {
+    hint: `Key 所属项目未启用 ${name}`,
+    advice: `在 Google Cloud 中切换到这把 Key 所属的项目，启用 ${service} 后重试。`,
+  };
+}
+
 /** 每个响应是哪个请求发出的（http.ts 的 request 记下），报错时列出请求地址 */
 const sentRequests = new WeakMap<Response, { method: string; url: string }>();
 
@@ -181,9 +221,10 @@ export function responseContext(res: Response | undefined): ErrorContext {
  */
 export function httpError(provider: string, status: number, body: string, res?: Response): AiError {
   const said = extractErrorMessage(body);
-  const hint = STATUS_HINT[status] ?? (status >= 500 ? '服务端出错' : '请求失败');
+  const restriction = status === 401 || status === 403 ? googleKeyRestriction(body) : undefined;
+  const hint = restriction?.hint ?? STATUS_HINT[status] ?? (status >= 500 ? '服务端出错' : '请求失败');
   const retryable = status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
-  return new AiError('http', `${provider} 返回 ${status}（${hint}）${said ? `：${said}` : ''}`, {
+  return new AiError('http', `${provider} 返回 ${status}（${hint}）${said ? `：${said}` : ''}${restriction ? `\n${restriction.advice}` : ''}`, {
     status,
     retryable,
     detail: body,

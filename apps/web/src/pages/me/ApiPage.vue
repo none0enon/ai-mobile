@@ -68,12 +68,16 @@ function backupLine(role: AgentRole): string {
 }
 function statusOf(role: AgentRole): { live: boolean; text: string } {
   const s = ai.status(role);
-  return s.live ? { live: true, text: '已接通' } : { live: false, text: `演示模型 · ${s.reason}` };
+  if (!s.live) return { live: false, text: `演示模型 · ${s.reason}` };
+  const test = s.api.lastTest;
+  const error = ai.lastErrors[role] ?? ai.lastErrors[s.source];
+  if (error && error.at >= (test?.at ?? 0)) return { live: false, text: '上次调用失败' };
+  if (test) return { live: test.ok, text: test.ok ? '测试通过' : '上次测试失败' };
+  return { live: false, text: '已配置 · 未测试' };
 }
-/** 卡片上要不要提示"上次测试失败"：只看自己的 API */
+/** 跟随主对话的功能也显示实际使用的 API 的测试结果。 */
 function failedTest(role: AgentRole): FeatureApi | null {
-  if (following(role)) return null;
-  const a = ai.routeOf(role).api;
+  const a = ai.status(role).api;
   return a?.lastTest && !a.lastTest.ok ? a : null;
 }
 

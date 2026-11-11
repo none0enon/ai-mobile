@@ -54,6 +54,8 @@ Google 的 Gemini Enterprise Agent Platform（原 Vertex AI），math-reader 里
 - **DeepSeek 等开源模型**：要用服务账号授权（官方：OpenAI 兼容接口只认 Google Cloud 授权）。走 `…/endpoints/openapi/chat/completions`，模型名带发布方前缀（`deepseek-ai/deepseek-v4.1-flash-maas`，只写 `deepseek-v4.1-flash-maas` 会自动补上）；官方要求第一条是 user、user 和 assistant 轮流，默认按"严格"整理消息。
 - `thinkingLevel` 写成大写枚举。
 
+遇到 `API_KEY_SERVICE_BLOCKED` / “Requests to this API … are blocked” 时，表示这把 Key 的 API 限制没有允许目标服务。Vertex 对应 `aiplatform.googleapis.com`，AI Studio 对应 `generativelanguage.googleapis.com`；核对 [Google Cloud 凭据](https://console.cloud.google.com/apis/credentials) 中这把 Key 的限制，或换用已允许目标 API 的 Key。应用会区分 API 限制、网站来源限制和项目未启用服务，保留完整错误；单纯填了配置只显示“已配置 · 未测试”，测试成功后才显示“测试通过”。[Google 错误原因说明](https://docs.cloud.google.com/dotnet/docs/reference/Google.Api.CommonProtos/latest/Google.Api.ErrorReason)。
+
 **math-reader 的"自定义"渠道**走的是 Gemini 原生协议（任意地址，Key 放在 key 参数）；文本功能选"自定义"时默认就是这个，也可以把请求格式换成 OpenAI 或 Claude。其他功能的"自定义"是 OpenAI 格式（/embeddings、/audio/speech、/images/generations）。任意地址的 OpenAI 格式对话也可以选"OpenAI 兼容"，粘 math-reader 习惯的完整地址（…/v1/chat/completions）也行。
 
 ## 语音合成、生图（参考 SleepTogether、SillyTavern）

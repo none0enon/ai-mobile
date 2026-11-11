@@ -47,7 +47,7 @@ const groups = computed(() => [
       {
         icon: 'i-lucide-cpu',
         label: 'API 设置',
-        value: liveAgents.value ? `${liveAgents.value} 个功能已接通` : '',
+        value: liveAgents.value ? `${liveAgents.value} 个功能已配置` : '',
         desc: liveAgents.value ? '按功能设置：主对话、番外、生图、语音、向量化……' : '还没填 Key，现在用演示模型',
         to: '/me/api',
       },
