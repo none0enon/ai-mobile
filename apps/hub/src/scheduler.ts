@@ -35,7 +35,7 @@ export async function planContext(env: Env, row: ContextRow, now: number) {
   await env.DB.batch(points.map((t) => env.DB.prepare(`
     INSERT INTO touchpoints(id, character_id, rule_id, due_at, status, data) VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET due_at = excluded.due_at, data = excluded.data, status = excluded.status
-    WHERE touchpoints.status = 'planned' AND touchpoints.lease_until <= ? AND touchpoints.due_at > ?
+    WHERE touchpoints.status IN ('planned', 'skipped') AND touchpoints.lease_until <= ? AND touchpoints.due_at > ?
   `).bind(t.id, t.characterId, t.ruleId, t.dueAt, t.status, JSON.stringify(t), now, now)));
 }
 

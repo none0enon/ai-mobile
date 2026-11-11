@@ -66,6 +66,25 @@ test('days with App closed: Cron creates new daily plans from the saved IANA zon
   assert.equal(generated, 3); assert.equal(await count(DB), 3);
 });
 
+test('changing quiet hours refreshes future skipped plans without resurrecting completed messages', async (t) => {
+  const { env, DB } = await fixture(t);
+  const c = context();
+  c.memories[0]!.dueAt = NOW + 3_600_000;
+  c.character.proactive.quietHours = { start: '12:00', end: '14:00' };
+  await saveContext(env, c);
+  let generated = 0;
+  const generate: typeof generateMessage = async (ctx, _keys, point, now) => { generated++; return message(ctx, point, now); };
+  await runScheduled(env, NOW, generate);
+  assert.equal((await DB.prepare("SELECT status FROM touchpoints WHERE rule_id = 'followup'").first<{ status: string }>())!.status, 'skipped');
+  c.character.proactive.quietHours = { start: '00:00', end: '00:00' };
+  await saveContext(env, c);
+  await runScheduled(env, NOW + 300_000, generate);
+  assert.equal((await DB.prepare("SELECT status FROM touchpoints WHERE rule_id = 'followup'").first<{ status: string }>())!.status, 'planned');
+  await runScheduled(env, NOW + 3_600_000, generate);
+  await runScheduled(env, NOW + 3_900_000, generate);
+  assert.equal(generated, 1); assert.equal(await count(DB), 1);
+});
+
 test('model error retries on a later Cron; push failure retries saved message without regenerating', async (t) => {
   const { env, DB } = await fixture(t);
   await saveContext(env, context());
