@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import Waveform from '@/components/call/Waveform.vue';
 import Avatar from '@/components/common/Avatar.vue';
 import SceneBackdrop from '@/components/figure/SceneBackdrop.vue';
+import { callScriptOf } from '@/mock/call';
 import { services } from '@/services';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
@@ -32,25 +33,18 @@ const captions = ref<{ who: 'her' | 'you'; text: string }[]>([]);
 let alive = true;
 let clockTimer: ReturnType<typeof setInterval> | undefined;
 
+/** 演示台词按角色来（导入的角色用通用台词） */
+const script = computed(() => callScriptOf(character.value));
 const reason = computed(() => {
   const h = new Date().getHours();
-  if (h < 9) return '早上好～该起床啦（叫醒来电）';
-  if (h >= 23 || h < 2) return '还不睡？我来催你了';
-  return '想你了，接一下嘛';
+  const r = script.value.reason;
+  if (h >= 5 && h < 9) return r.morning;
+  if (h >= 23 || h < 2) return r.late;
+  return r.other;
 });
 
-const SCRIPT: { who: 'her' | 'you'; text: string }[] = [
-  { who: 'her', text: '喂？……嗯，是我。' },
-  { who: 'you', text: '怎么突然打电话来了' },
-  { who: 'her', text: '没什么，就是想听听你的声音。' },
-  { who: 'you', text: '今天论文写得好累' },
-  { who: 'her', text: '辛苦啦。先别想了，深呼吸……对，就这样。' },
-  { who: 'you', text: '嗯……' },
-  { who: 'her', text: '我陪你一会儿，你困了就直接睡，不用挂。' },
-];
-
 async function talkLoop() {
-  for (const turn of SCRIPT) {
+  for (const turn of script.value.lines) {
     if (!alive) return;
     if (turn.who === 'her') {
       speaker.value = 'her';
@@ -90,7 +84,10 @@ function hangUp(missed = false) {
   void services.native.keepAwake(false);
   if (chatId.value) {
     chat.postCard(chatId.value, missed ? 'assistant' : 'user', { type: 'call-log', durationSec: seconds.value, missed, scene: missed ? undefined : '语音通话' });
-    if (missed) chat.push(chatId.value, 'assistant', [{ type: 'text', text: '……不接我电话。好吧，你忙完记得回我。' }], { expression: 'pout', proactive: true });
+    if (missed) {
+      const m = script.value.missed;
+      chat.push(chatId.value, 'assistant', [{ type: 'text', text: m.text }], { expression: m.expr, proactive: true });
+    }
     void router.replace(`/chat/${chatId.value}`);
   } else {
     router.back();

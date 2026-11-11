@@ -37,6 +37,8 @@ const GROUPS: { title: string; roles: AgentRole[]; note: string }[] = [
   { title: '图片', roles: ['image'], note: '生图可选自定义（OpenAI 格式 /images/generations）、NovelAI（含公益站）、硅基流动。' },
   { title: '记忆', roles: ['embedding'], note: '向量化可选自定义（OpenAI 格式 /embeddings）、硅基流动、Gemini。备用 API 只在模型相同时才会用：不同模型的向量不能互相比较，换了模型要重算向量。' },
 ];
+/** 提示词和采样参数在预设里的功能（温度不在这里调） */
+const PRESET_DRIVEN: Partial<Record<AgentRole, string>> = { sidestory: '"小剧场"', summary: '"总结"', imagePrompt: '"生图"', proactive: '"主动消息"' };
 /** 后台跑的功能可以设每日上限 */
 const BUDGETED = new Set<AgentRole>(['sidestory', 'summary', 'imagePrompt', 'proactive', 'embedding']);
 /** 推理强度：OpenAI 的 reasoning_effort、Claude 的思考预算 / effort、Gemini 的 thinkingBudget / thinkingLevel */
@@ -360,11 +362,14 @@ async function runReindex() {
         <template v-if="isText || draft.role === 'image' || BUDGETED.has(draft.role)">
           <div class="params-title">参数</div>
         </template>
-        <template v-if="cap === 'chat' && draft.role !== 'main'">
+        <template v-if="cap === 'chat' && draft.role !== 'main' && !PRESET_DRIVEN[draft.role]">
           <label class="field-label">温度 {{ temperature.toFixed(2) }}（越高越有想象力）</label>
           <van-slider v-model="temperature" :min="0" :max="1.5" :step="0.05" bar-height="4px" button-size="16px" />
         </template>
-        <p v-if="draft.role === 'main'" class="text-[12px] text-ink-3 mt-2 mb-0">主对话的温度、回复长度等参数以聊天用的预设为准。</p>
+        <p v-if="draft.role === 'main'" class="text-[12px] text-ink-3 mt-2 mb-0">主对话的温度、回复长度等参数以预设为准（平时用角色的对话预设，一起做事时用那件事的功能预设）。</p>
+        <p v-else-if="PRESET_DRIVEN[draft.role]" class="text-[12px] text-ink-3 mt-2 mb-0">
+          温度、回复长度和提示词以{{ PRESET_DRIVEN[draft.role] }}预设为准，在 <RouterLink to="/me/presets" class="text-accent-ink">我的 → 预设</RouterLink> 里改。
+        </p>
         <template v-if="isText">
           <label class="field-label">推理强度（模型支持思考时）</label>
           <div class="flex flex-wrap gap-1.5">

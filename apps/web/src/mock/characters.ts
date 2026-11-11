@@ -52,7 +52,6 @@ export const characters: Character[] = [
     proactive: {
       enabled: true,
       personality: 'clingy',
-      dailyCap: 6,
       quietHours: { start: '00:30', end: '07:30' },
       triggers: allTriggers,
       allowCalls: true,
@@ -115,9 +114,8 @@ export const characters: Character[] = [
     proactive: {
       enabled: true,
       personality: 'independent',
-      dailyCap: 3,
       quietHours: { start: '23:00', end: '05:50' },
-      triggers: ['morning', 'sedentary', 'workout-praise'],
+      triggers: ['morning', 'lunch', 'sedentary', 'dinner', 'bedtime', 'followup', 'workout-praise'],
       allowCalls: false,
       allowSelfies: false,
     },

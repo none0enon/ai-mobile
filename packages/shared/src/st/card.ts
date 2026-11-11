@@ -154,9 +154,9 @@ export function characterFromCard(
     negativeTags: '',
     voice: { voiceId: '', voiceLabel: '未设置', speed: 1, emotionMap: {} },
     proactive: {
-      enabled: false,
+      // 会主动找你是这个 App 的核心：导入的角色默认也打开（主动消息页里可以逐个关）
+      enabled: true,
       personality: 'balanced',
-      dailyCap: 3,
       quietHours: { start: '00:30', end: '07:30' },
       triggers: DEFAULT_PROACTIVE_RULES.filter((r) => r.enabled).map((r) => r.id),
       allowCalls: false,

@@ -30,10 +30,10 @@ async function pickAvatar(file: File) {
 }
 const character = computed(() => chars.byId(route.params.id as string) ?? chars.list[0]!);
 const figure = computed(() => FIGURE[character.value.id] ?? { hairStyle: 'long' as const, eye: '#3b2531' });
-/** 和她聊天时实际用的预设（同拼提示词） */
-const presetId = computed(() => presetFor(character.value).id);
-function pickPreset(id: string) {
-  if (id === presetId.value) return;
+/** 和她平时聊天用的对话预设（同拼提示词）；一起做事时用各自的功能预设 */
+const presetId = computed(() => presetFor(character.value)?.id ?? null);
+function pickPreset(id: string | null) {
+  if (!id || id === presetId.value) return;
   chars.setPreset(character.value.id, id);
   showToast(`换成「${lib.presetById(id)?.name ?? ''}」了`);
 }
@@ -129,8 +129,11 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
         </van-tab>
         <van-tab title="预设" name="preset">
           <div class="px-4 pt-3">
-            <PresetPicker :model-value="presetId" @update:model-value="pickPreset" />
-            <p class="text-[12px] text-ink-3 mt-2.5 mb-0 leading-relaxed">和{{ character.pronoun }}聊天时按这套预设拼提示词（提示词顺序、采样参数、正则），下一条回复起生效。在聊天右上角 ⋯ → 预设 里也能换。</p>
+            <PresetPicker :model-value="presetId" category="chat" @update:model-value="pickPreset" />
+            <p class="text-[12px] text-ink-3 mt-2.5 mb-0 leading-relaxed">
+              和{{ character.pronoun }}平时聊天（聊天气泡、剧场模式）按这套对话预设拼提示词，下一条回复起生效；在聊天右上角 ⋯ → 预设 里也能换。一起吃饭、一起运动这些用各自的功能预设，主动消息、番外、总结、配图也各用各的，在
+              <RouterLink to="/me/presets" class="text-accent-ink">我的 → 预设</RouterLink> 里选。
+            </p>
           </div>
         </van-tab>
         <van-tab title="立绘" name="sprite">
@@ -181,14 +184,11 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
         <van-tab title="主动" name="proactive">
           <van-cell-group inset class="!mt-3">
             <van-cell title="会主动找你" center><template #right-icon><van-switch v-model="character.proactive.enabled" size="22px" /></template></van-cell>
-            <van-cell title="性格" :value="PERSONALITY[character.proactive.personality]" label="决定频率，以及没回复时会不会追发" />
-            <van-cell title="每天最多" center>
-              <template #right-icon><van-stepper v-model="character.proactive.dailyCap" min="1" max="12" /></template>
-            </van-cell>
+            <van-cell title="性格" :value="PERSONALITY[character.proactive.personality]" label="决定频率（没有条数上限）" />
             <van-cell title="勿扰时段" :value="`${character.proactive.quietHours.start} - ${character.proactive.quietHours.end}`" />
             <van-cell title="允许主动来电" center><template #right-icon><van-switch v-model="character.proactive.allowCalls" size="22px" /></template></van-cell>
             <van-cell title="允许主动发自拍" label="用 NovelAI 生成" center><template #right-icon><van-switch v-model="character.proactive.allowSelfies" size="22px" /></template></van-cell>
-            <van-cell title="触发规则和推送通道" is-link to="/me/proactive" />
+            <van-cell title="什么时候来找你、今天的计划、推送通道" is-link :to="`/me/proactive?char=${character.id}`" />
           </van-cell-group>
         </van-tab>
         <van-tab title="外观 tags" name="look">

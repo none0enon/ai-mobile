@@ -52,7 +52,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/me/voice', component: VoicePage, meta: { title: '语音' } },
   { path: '/me/proactive', component: ProactivePage, meta: { title: '主动消息' } },
   { path: '/me/environment', component: EnvironmentPage, meta: { title: '环境与作息' } },
-  { path: '/me/sync', component: SyncPage, meta: { title: '同步与备份' } },
+  { path: '/me/sync', component: SyncPage, meta: { title: '云端与同步' } },
   { path: '/me/install', component: InstallPage, meta: { title: '装成 App' } },
   { path: '/me/appearance', component: AppearancePage, meta: { title: '外观' } },
   { path: '/import', component: ImportPage, meta: { title: '导入' } },

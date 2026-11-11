@@ -9,7 +9,8 @@
     "build": "pnpm --filter @app/web build",
     "build:preview": "pnpm --filter @app/web build:preview",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "build:hub": "pnpm --filter @app/hub build",
+    "test": "pnpm --filter @app/hub build && pnpm --filter @app/hub test"
   },
   "devDependencies": {
     "typescript": "~6.0.3"

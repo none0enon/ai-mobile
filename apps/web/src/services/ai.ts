@@ -6,6 +6,7 @@ import {
   illustrate,
   isAbortError,
   parseSidestory,
+  samplerRequest,
   type ImagePromptInput,
   type Sidestory,
   type VoiceSpec,
@@ -14,6 +15,7 @@ import { getLocation, hasOwnWorld, slotAt, TIME_OF_DAY_LABEL, timeOfDay, worldOf
 import { showToast } from 'vant';
 import { putAsset } from './assets';
 import { playBytes, stopAudio } from './audio';
+import { MissingPresetError } from './prompt';
 import type {
   EmbeddingClient,
   IllustrateOutcome,
@@ -32,6 +34,7 @@ import { memories as demoMemories } from '@/mock/memories';
 import { DEMO_SIDESTORIES, genericSidestory } from '@/mock/sidestories';
 import { useAiStore } from '@/stores/ai';
 import { useCharacterStore } from '@/stores/characters';
+import { useLibraryStore } from '@/stores/library';
 import { sleep } from '@/utils/id';
 
 /**
@@ -201,7 +204,9 @@ export class RoutedImage implements ImageClient {
       },
       recent: req.recent,
     };
-    const r = await illustrate(useAiStore().system, input, { signal: opts.signal, onStage: opts.onStage, seed: req.seed });
+    // 写 tags 用"生图"预设（预设页里"配图"选的那个）；一个生图预设都没有时直接用外观 tags + 画面描述
+    const preset = useLibraryStore().presetForUse('image', c) ?? null;
+    const r = await illustrate(useAiStore().system, input, { signal: opts.signal, onStage: opts.onStage, seed: req.seed, preset });
     const img = r.image.images[0];
     const assetKey = img?.bytes ? await putAsset(img.bytes, img.mime) : null;
     return {
@@ -224,6 +229,8 @@ export interface SidestoryOutcome extends Sidestory {
   /** 用的是演示故事 */
   demo: boolean;
   model: string | null;
+  /** 用的哪个"小剧场"预设 */
+  presetName: string | null;
   at: number;
 }
 
@@ -241,8 +248,11 @@ export async function writeSidestory(characterId: string, opts: { recentChat?: s
   if (!c) throw new AiError('no_route', '找不到这个角色');
   if (!ai.isLive('sidestory')) {
     await sleep(500, signal);
-    return { ...(DEMO_SIDESTORIES[c.id] ?? genericSidestory(c.name)), characterId, demo: true, model: null, at: Date.now() };
+    return { ...(DEMO_SIDESTORIES[c.id] ?? genericSidestory(c.name)), characterId, demo: true, model: null, presetName: null, at: Date.now() };
   }
+  // 番外用"小剧场"预设（预设页里"番外"选的那个）：提示词和温度、长度都按它
+  const preset = useLibraryStore().presetForUse('theater', c);
+  if (!preset) throw new MissingPresetError('小剧场');
   const now = new Date();
   const own = hasOwnWorld(c.id);
   const world = own ? worldOf(c.id) : null;
@@ -273,11 +283,12 @@ export async function writeSidestory(characterId: string, opts: { recentChat?: s
         memories,
         recentChat,
         previous: previousTitles.get(c.id),
-      }),
+      }, preset),
+      ...samplerRequest(preset.sampler),
     },
     parseSidestory,
     { signal },
   );
   previousTitles.set(c.id, [...(previousTitles.get(c.id) ?? []), value.title].slice(-8));
-  return { ...value, characterId, demo: false, model: result.model, at: Date.now() };
+  return { ...value, characterId, demo: false, model: result.model, presetName: preset.name, at: Date.now() };
 }

@@ -1,20 +1,22 @@
 <script setup lang="ts">
 import { AGENT_META, type AgentRole } from '@app/shared';
-import { closeToast, showLoadingToast } from 'vant';
+import { closeToast, showLoadingToast, showToast } from 'vant';
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
+import PersonTabs from '@/components/common/PersonTabs.vue';
 import { personas } from '@/mock/characters';
 import { pwa } from '@/pwa';
 import { useLibraryStore } from '@/stores/library';
 import { memories, album } from '@/mock/memories';
-import { todayTouchpoints } from '@/mock/settings';
 import { weather } from '@/mock/activity';
 import { services, writeSidestory, type SidestoryOutcome } from '@/services';
 import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { useProactiveStore } from '@/stores/proactive';
+import { useHubStore } from '@/stores/hub';
 import { showErrorDialog } from '@/utils/errors';
 
 const router = useRouter();
@@ -25,8 +27,10 @@ const lib = useLibraryStore();
 const ai = useAiStore();
 const liveAgents = computed(() => (Object.keys(AGENT_META) as AgentRole[]).filter((r) => ai.isLive(r)).length);
 const me = personas.find((p) => p.isDefault) ?? personas[0]!;
-const upcoming = todayTouchpoints().filter((t) => t.status === 'planned').length;
-const sync = services.sync.status();
+const proactive = useProactiveStore();
+/** 今天所有打开了主动消息的角色加起来还会来找你几次 */
+const upcoming = computed(() => proactive.upcoming());
+const hub = useHubStore();
 const totalMessages = computed(() => Object.values(chat.messages).reduce((n, l) => n + l.length, 0) + 1268);
 const THEME_LABEL = { system: '跟随系统', dark: '夜', light: '昼' } as const;
 
@@ -57,14 +61,20 @@ const groups = computed(() => [
   {
     title: '陪伴',
     rows: [
-      { icon: 'i-lucide-bell-ring', label: '主动消息', value: upcoming ? `今天还会找你 ${upcoming} 次` : '今天的都发完了', to: '/me/proactive' },
+      {
+        icon: 'i-lucide-bell-ring',
+        label: '主动消息',
+        value: !hub.config.active ? '云端未开启' : !chars.list.some((c) => c.proactive.enabled) ? '都没打开' : upcoming.value ? `今天还会找你 ${upcoming.value} 次` : '查看云端计划',
+        desc: `${chars.list.filter((c) => c.proactive.enabled).map((c) => c.name).join('、') || '还没有角色'}会主动找你`,
+        to: '/me/proactive',
+      },
       { icon: 'i-lucide-cloud-sun', label: '环境与作息', value: `${weather.city} · ${weather.text}`, to: '/me/environment' },
     ],
   },
   {
     title: '数据',
     rows: [
-      { icon: 'i-lucide-refresh-cw', label: '同步与备份', value: sync.mode === 'hub' ? '已连接 Worker' : '仅本机', to: '/me/sync' },
+      { icon: 'i-lucide-refresh-cw', label: '云端与同步', value: hub.connected ? '已连接 Worker' : '仅本机', to: '/me/sync' },
       { icon: 'i-lucide-palette', label: '外观', value: THEME_LABEL[app.themeSetting], to: '/me/appearance' },
       {
         icon: 'i-lucide-smartphone',
@@ -77,28 +87,43 @@ const groups = computed(() => [
   },
 ]);
 
-function demoProactive() {
-  const c = chars.byId(app.activeCharacterId) ?? chars.list[0]!;
-  const id = chat.chatOfCharacter(c.id)?.id;
-  if (!id) return;
-  chat.push(id, 'assistant', [{ type: 'text', text: '在干嘛呀？突然有点想你。' }], { proactive: true, read: false, expression: 'shy' });
-  app.showBanner({ characterId: c.id, title: c.name, text: '在干嘛呀？突然有点想你。', to: `/chat/${id}`, icon: 'i-lucide-bell-ring' });
+// —— 试一试：对谁试（所有角色，包括导入的；默认是当前陪着你的那个）——
+const targetId = ref(app.activeCharacterId);
+const target = computed(() => chars.byId(targetId.value) ?? chars.list[0]);
+
+/** 马上让她发一条主动消息：接通了"主动消息"的 API 就由模型用她的口吻写，没接通用演示台词 */
+let simulating = false;
+async function demoProactive() {
+  const c = target.value;
+  if (!c || simulating) return;
+  simulating = true;
+  const live = ai.isLive('proactive');
+  if (live) showLoadingToast({ message: `${c.name}在打字…`, duration: 0, forbidClick: true });
+  try {
+    const r = await proactive.simulate(c.id);
+    if (live) closeToast();
+    if (!r.ok) {
+      if (r.error) showErrorDialog('主动消息没写出来', r.error);
+      else showToast(r.reason);
+    } else if (!live && !chars.isDemo(c.id)) {
+      showToast(`「主动消息」还没接通 API，${c.name}发的是占位台词`);
+    }
+  } finally {
+    simulating = false;
+  }
 }
 function demoCall() {
-  void router.push(`/call/${app.activeCharacterId}?incoming=1`);
+  if (target.value) void router.push(`/call/${target.value.id}?incoming=1`);
 }
 
 // —— 番外：她那边发生了什么 ——
 const story = ref<SidestoryOutcome | null>(null);
 const storyOpen = computed({ get: () => !!story.value, set: (v) => !v && (story.value = null) });
 let storyBusy = false;
-function storyCharacter() {
-  return chars.byId(app.activeCharacterId) ?? chars.list[0]!;
-}
 async function runSidestory() {
-  if (storyBusy) return;
+  const c = target.value;
+  if (storyBusy || !c) return;
   storyBusy = true;
-  const c = storyCharacter();
   const id = chat.chatOfCharacter(c.id)?.id;
   showLoadingToast({ message: `${c.name}那边……`, duration: 0, forbidClick: true });
   try {
@@ -163,22 +188,29 @@ function drawStory() {
         </van-cell-group>
       </section>
 
-      <section class="mt-4">
+      <section v-if="target" class="mt-4" data-section="try">
         <div class="group-title">试一试</div>
+        <PersonTabs v-model="targetId" :characters="chars.list" label="对谁试" class="px-4 pb-2.5" />
         <van-cell-group inset>
           <van-cell
-            title="写一段她的番外"
-            :label="ai.isLive('sidestory') ? `你不在的时候，${storyCharacter().name}那边发生了什么` : '演示故事；在 API 设置里设置好主对话后真的写'"
+            :title="`写一段${target.name}的番外`"
+            :label="ai.isLive('sidestory') ? `你不在的时候，${target.name}那边发生了什么` : '演示故事；在 API 设置里设置好主对话后真的写'"
             is-link
             center
             @click="runSidestory"
           >
             <template #icon><span class="i-lucide-book-heart row-icon" /></template>
           </van-cell>
-          <van-cell title="模拟一条主动消息" label="顶部会弹横幅；聊天列表出现未读" is-link center @click="demoProactive">
+          <van-cell
+            :title="`${target.name}发来一条主动消息`"
+            :label="ai.isLive('proactive') ? `由「主动消息」的模型用${target.pronoun}的口吻写；顶部弹横幅、聊天列表出现未读` : '演示台词；顶部会弹横幅、聊天列表出现未读'"
+            is-link
+            center
+            @click="demoProactive"
+          >
             <template #icon><span class="i-lucide-message-circle-heart row-icon" /></template>
           </van-cell>
-          <van-cell title="模拟她打来电话" label="来电界面：接听 / 拒绝 / 回消息" is-link center @click="demoCall">
+          <van-cell :title="`模拟${target.name}打来电话`" label="来电界面：接听 / 拒绝 / 回消息" is-link center @click="demoCall">
             <template #icon><span class="i-lucide-phone-incoming row-icon" /></template>
           </van-cell>
         </van-cell-group>
@@ -195,7 +227,7 @@ function drawStory() {
           {{ [story.time, story.place, story.mood, story.people.join('、')].filter(Boolean).join(' · ') }}
         </div>
         <p class="story">{{ story.story }}</p>
-        <div class="text-[11.5px] text-ink-3">{{ story.demo ? '演示故事' : `番外智能体 · ${story.model}` }}</div>
+        <div class="text-[11.5px] text-ink-3">{{ story.demo ? '演示故事' : `番外智能体 · ${story.model}${story.presetName ? ` · 预设「${story.presetName}」` : ''}` }}</div>
         <div class="flex gap-2.5 mt-4">
           <van-button v-if="story.cg" round block @click="drawStory">画这一幕</van-button>
           <van-button v-if="story.hook" round block type="primary" @click="sendHook">让她发来："{{ story.hook }}"</van-button>

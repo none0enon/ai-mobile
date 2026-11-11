@@ -59,8 +59,25 @@ const FALLBACK = [
   '[expr:shy]（托着下巴看你）[expr:smile]你说什么我都爱听。',
 ];
 
-/** 演示台词是给苏晚、江屿写的 */
-const DEMO_CHARACTERS = new Set(['suwan', 'jiangyu']);
+/** 江屿：话少、毒舌、嘴硬心软。上面那套是苏晚的口吻，不能给他用 */
+const JIANGYU_RULES: { test: RegExp; replies: string[] }[] = [
+  { test: /戳|拍了拍|摸/, replies: ['[expr:neutral]手拿开。', '[expr:angry]再戳，加一圈。', '[expr:neutral]……幼稚。'] },
+  { test: /饿|吃饭|晚饭|午饭|早饭|夜宵/, replies: ['[expr:neutral]吃点有蛋白质的。别又是泡面。', '[expr:neutral]食堂二楼的鸡胸肉饭，去。'] },
+  { test: /累|困|烦|焦虑|论文|难受/, replies: ['[expr:neutral]累就睡。明早的跑步，照常。', '[expr:neutral]……别硬撑。[expr:smile]明天少跑一圈，就一圈。'] },
+  { test: /喜欢|爱你|想你/, replies: ['[expr:neutral]……知道了。', '[expr:smile]少说这些，明早六点别迟到。'] },
+  { test: /歌|音乐|听/, replies: ['[expr:neutral]跑步不听歌。听自己的呼吸。'] },
+  { test: /画|照片|自拍|样子|看看你/, replies: ['[expr:neutral]拍什么。[cg:清晨的田径场，他把毛巾搭在肩上，侧过脸看镜头]'] },
+  { test: /约会|周六|水族馆|出去玩/, replies: ['[expr:neutral]周六上午训练，下午可以。[choice:去游泳馆|去江边跑步|随便走走]'] },
+  { test: /晚安|睡了|睡觉/, replies: ['[expr:neutral]嗯。睡吧。', '[expr:smile]晚安。六点见。'] },
+];
+
+const JIANGYU_FALLBACK = ['[expr:neutral]嗯。', '[expr:neutral]然后？', '[expr:neutral]……说重点。', '[expr:smile]行吧，继续。'];
+
+/** 演示台词按角色写：苏晚用上面那套，江屿用他自己的 */
+const DEMO_RULES: Record<string, { rules: { test: RegExp; replies: string[] }[]; fallback: string[] }> = {
+  suwan: { rules: RULES, fallback: FALLBACK },
+  jiangyu: { rules: JIANGYU_RULES, fallback: JIANGYU_FALLBACK },
+};
 
 /**
  * 导入的角色还没接真实模型时：不说演示台词，而是报告这一轮实际拼出来的提示词，方便核对。
@@ -74,10 +91,11 @@ function echo(req: LLMRequest): string {
 }
 
 function choose(req: LLMRequest): string {
-  if (req.characterId && !DEMO_CHARACTERS.has(req.characterId)) return echo(req);
+  const demo = req.characterId ? DEMO_RULES[req.characterId] : DEMO_RULES.suwan;
+  if (!demo) return echo(req);
   const lastUser = [...req.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
-  const rule = RULES.find((r) => r.test.test(lastUser));
-  return pick(rule ? rule.replies : FALLBACK);
+  const rule = demo.rules.find((r) => r.test.test(lastUser));
+  return pick(rule ? rule.replies : demo.fallback);
 }
 
 export class MockLLM implements LLMClient {

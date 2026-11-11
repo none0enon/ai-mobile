@@ -1,32 +1,46 @@
 import {
   characterFromCard,
   detectStFile,
+  looksLikePresetFile,
   parseCardFile,
   parseLorebook,
   parsePreset,
+  parsePresetFile,
+  PRESET_CATEGORIES,
   PROMPT_MARKERS,
   type Lorebook,
   type ParsedCard,
   type ParsedLorebook,
   type ParsedPreset,
   type Preset,
+  type PresetCategory,
+  type PresetUseId,
 } from '@app/shared';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
-import { isDemoRecord, useLibraryStore } from '@/stores/library';
+import { useLibraryStore } from '@/stores/library';
 import { uid } from '@/utils/id';
 
 /**
  * 导入 SillyTavern 文件：先读出来给你看识别结果，确认后再建记录。
  * - 角色卡（PNG / JSON）：建角色 + 拆出内嵌世界书并绑定 + 开一条聊天（第一条是开场白）；PNG 的图当头像
  * - 世界书 JSON：建世界书
- * - 预设 JSON：建预设（用 ST 实际生效的那套顺序，补上 App 自己的块）
+ * - 预设 JSON：SillyTavern 的 Chat Completion 预设（用 ST 实际生效的那套顺序，补上 App 自己的块），
+ *   或 App 自己的预设文件（自带的预设、从预设页导出的）；导入时选分类
  */
 
 export type PendingImport =
   | { kind: 'card'; file: File; fileName: string; parsed: ParsedCard; lines: string[]; warnings: string[] }
-  | { kind: 'preset'; fileName: string; parsed: ParsedPreset; lines: string[]; warnings: string[] }
+  | {
+      kind: 'preset';
+      fileName: string;
+      parsed: ParsedPreset & { id?: string; defaultFor?: PresetUseId[] };
+      /** App 自己的预设文件（分类按文件里写的）；SillyTavern 预设是对话预设，可以改成功能或主动消息 */
+      appFile: boolean;
+      lines: string[];
+      warnings: string[];
+    }
   | { kind: 'lorebook'; fileName: string; parsed: ParsedLorebook; lines: string[]; warnings: string[] };
 
 export interface ImportDone {
@@ -76,6 +90,20 @@ export async function readImport(file: File): Promise<PendingImport> {
     return { kind: 'card', file, fileName: file.name, parsed, lines, warnings: parsed.warnings };
   }
 
+  if (kind === 'preset' && looksLikePresetFile(json)) {
+    const parsed = parsePresetFile(json, file.name);
+    const markers = parsed.blocks.filter((b) => b.marker).length;
+    const off = parsed.blocks.filter((b) => !b.enabled).map((b) => b.name);
+    const s = parsed.sampler;
+    const lines = [
+      `预设文件 · ${PRESET_CATEGORIES[parsed.category].label}预设「${parsed.name}」`,
+      `${parsed.blocks.length} 块（程序填充 ${markers} 块）${off.length ? ` · 关着的：${off.join('、')}` : ''}`,
+      `采样：温度 ${s.temperature} · 回复最长 ${s.maxTokens}${parsed.category === 'chat' || parsed.category === 'feature' || parsed.category === 'proactive' ? ` · 上下文 ${s.contextTokens.toLocaleString('zh-CN')}` : ''}`,
+    ];
+    if (parsed.id && useLibraryStore().presetById(parsed.id)) lines.push('预设库里已经有同一个预设了，这次另存一份');
+    return { kind: 'preset', fileName: file.name, parsed, appFile: true, lines, warnings: parsed.warnings };
+  }
+
   if (kind === 'preset') {
     const parsed = parsePreset(json, file.name);
     const own = parsed.blocks.filter((b) => b.origin !== 'app');
@@ -93,7 +121,7 @@ export async function readImport(file: File): Promise<PendingImport> {
       `已在"聊天记录"前后补上 App 自己的：${parsed.blocks.filter((b) => b.origin === 'app').map((b) => PROMPT_MARKERS[b.identifier as keyof typeof PROMPT_MARKERS] ?? b.name).join(' / ')}（在预设里可以关掉）`,
     ];
     if (parsed.regex.length) lines.push(`正则 ${parsed.regex.length} 条（先保存，还没执行）`);
-    return { kind: 'preset', fileName: file.name, parsed, lines, warnings: parsed.warnings };
+    return { kind: 'preset', fileName: file.name, parsed, appFile: false, lines, warnings: parsed.warnings };
   }
 
   if (kind === 'lorebook') {
@@ -105,22 +133,32 @@ export async function readImport(file: File): Promise<PendingImport> {
   throw new Error('认不出这个文件：不是角色卡、世界书或 Chat Completion 预设');
 }
 
-/** 导入角色时默认用哪个预设：最近导入的 ST 预设，没有就用默认的"陪伴 · 日常" */
+/** 导入角色时默认用哪个对话预设：你最近导入的对话预设，没有就用预设库里的第一个对话预设 */
 export function defaultPresetId(): string | null {
   const lib = useLibraryStore();
-  const imported = lib.presets.filter((p) => !isDemoRecord(p.id)).sort((a, b) => b.createdAt - a.createdAt)[0];
-  return imported?.id ?? lib.presets[0]?.id ?? null;
+  const chats = lib.presetsOf('chat');
+  const imported = chats.filter((p) => !p.seedFile).sort((a, b) => b.createdAt - a.createdAt)[0];
+  return imported?.id ?? chats[0]?.id ?? null;
 }
 
-export async function commitImport(p: PendingImport, opts: { presetId?: string | null } = {}): Promise<ImportDone> {
+export async function commitImport(p: PendingImport, opts: { presetId?: string | null; category?: PresetCategory } = {}): Promise<ImportDone> {
   const lib = useLibraryStore();
   const now = Date.now();
 
   if (p.kind === 'preset') {
-    const { warnings: _w, ...data } = p.parsed;
-    const preset: Preset = { ...data, id: uid('preset'), createdAt: now, updatedAt: now };
+    const { warnings: _w, id: fileId, defaultFor: _d, ...data } = p.parsed;
+    // 预设文件里的 id 没被占用就沿用（演示角色、用途按它找），占用了另起一个
+    const id = fileId && !lib.presetById(fileId) ? fileId : uid('preset');
+    const category = p.appFile ? data.category : (opts.category ?? data.category);
+    const preset: Preset = { ...data, category, id, createdAt: now, updatedAt: now };
     lib.addPreset(preset);
-    return { message: `预设「${preset.name}」导入好了`, links: [{ label: '看预设', to: `/me/presets/${preset.id}` }] };
+    return {
+      message: `${PRESET_CATEGORIES[category].label}预设「${preset.name}」导入好了`,
+      links: [
+        { label: '看预设', to: `/me/presets/${preset.id}` },
+        { label: '给哪些功能用', to: `/me/presets?cat=${category}` },
+      ],
+    };
   }
 
   if (p.kind === 'lorebook') {

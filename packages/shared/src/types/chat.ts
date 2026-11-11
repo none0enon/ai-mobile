@@ -127,6 +127,8 @@ export interface Chat extends SyncMeta {
   togetherMode: TogetherMode | null;
   /** 滚动摘要已经覆盖到哪条消息 */
   summaryUntilMessageId: string | null;
+  /** 总结智能体写的摘要（从旧到新，每段对应一段聊天）；提示词里"过往摘要"一块用最近几段 */
+  summaries?: { fromMessageId: string; toMessageId: string; text: string; at: number }[];
   pinned: boolean;
   lastMessageAt: number;
   /** 这个聊天单独的背景；为空时用外观设置里的通用背景 */

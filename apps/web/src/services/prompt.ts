@@ -6,7 +6,11 @@ import {
   getLocation,
   getScene,
   isRealPlace,
+  PRESET_CATEGORIES,
+  presetUse,
+  sceneUse,
   type AppBlockFill,
+  type PresetUseId,
   type AssembleResult,
   type Character,
   type Chat,
@@ -14,6 +18,7 @@ import {
   type GenerationType,
   type Message,
   type MessagePart,
+  type AgentRole,
   type Persona,
   type Preset,
 } from '@app/shared';
@@ -82,7 +87,7 @@ export function toTurns(history: Message[], character: Character, user: string):
   return out;
 }
 
-/** 演示用的滚动摘要（每个演示角色一份；正式版由总结智能体写） */
+/** 演示角色还没总结过时的摘要；总结过（总结智能体写进 chat.summaries）就用写的 */
 const SUMMARIES: Record<string, string> = {
   suwan: '上周两人一起看了电影；他最近在赶论文、经常熬夜，她很担心；约好周六去水族馆。',
   jiangyu: '他最近每天早上跟江屿在操场晨跑；昨天下雨跑了 3.1 公里，比第一天快了一分钟；约好每天六点见，迟到一分钟加一圈。',
@@ -116,8 +121,13 @@ function appFills(chat: Chat, character: Character, history: Message[]): Record<
   const before = history.at(-2)?.createdAt;
   const sinceLastChatMin = before ? Math.max(0, (Date.now() - before) / 60_000) : null;
 
+  const written = chat.summaries ?? [];
+  const summary: AppBlockFill = written.length
+    ? { content: written.slice(-6).map((s) => s.text).join('\n'), source: `总结智能体写的摘要（最近 ${Math.min(6, written.length)} 段，共 ${written.length} 段）` }
+    : { content: SUMMARIES[character.id] ?? '', source: SUMMARIES[character.id] ? '演示摘要（这条聊天还没总结过）' : '这条聊天还没总结过' };
+
   return {
-    summary: { content: SUMMARIES[character.id] ?? '', source: '滚动摘要（总结智能体）' },
+    summary,
     memory: { content: memoryLines.join('\n'), source: `记忆检索 Top ${mems.length}（置顶必带）+ 关系状态` },
     environment: {
       content: formatEnvironmentBlock({
@@ -131,57 +141,122 @@ function appFills(chat: Chat, character: Character, history: Message[]): Record<
       source: '时间 / 节气 / 天气 / 今日活动 / 她在哪',
     },
     sceneRules: {
-      content: `${scene.promptFragment.replaceAll('{{char}}', character.name)}\n可用标签：${scene.allowedTags.map((t) => `[${t}]`).join(' ')}；可用表情：neutral smile laugh blush shy pout surprised sad angry sleepy sleep`,
+      content: `${scene.promptFragment.replaceAll('{{char}}', character.name)}\n${tagsLine(scene)}`,
       source: `场景"${scene.name}"`,
     },
   };
 }
 
-/** 这个角色用的预设；没选、或选的那个被删了时用第一个 */
-export function presetFor(character: Character | undefined): Preset {
-  const lib = useLibraryStore();
-  return lib.presetById(character?.presetId) ?? (lib.presets[0] as Preset);
+function tagsLine(scene: ReturnType<typeof getScene>): string {
+  return `可用标签：${scene.allowedTags.map((t) => `[${t}]`).join(' ')}；可用表情：neutral smile laugh blush shy pout surprised sad angry sleepy sleep`;
 }
 
-/** 主对话智能体用的模型名（请求体里的 model）；还没分配时显示"演示模型" */
-export function mainModel(): string {
+/** 功能预设自己写了场景规则时，程序那块只填这个场景能用的标签和表情 */
+function sceneTagsOnly(chat: Chat): AppBlockFill {
+  const scene = getScene(chat.currentScene ?? 'free');
+  return { content: tagsLine(scene), source: `场景"${scene.name}"能用的标签和表情（场景规则写在预设里）` };
+}
+
+/** 这个角色的对话预设；没选、或选的那个被删了时用第一个对话预设；一个对话预设都没有时为空 */
+export function presetFor(character: Character | undefined): Preset | undefined {
+  return useLibraryStore().chatPresetFor(character);
+}
+
+/** 这一轮用的是哪个用途的预设：主动消息 → 在一起做某件事（功能预设）→ 平时聊天（这个角色的对话预设） */
+export type ChatPresetUse = PresetUseId | 'chat';
+
+export function presetForTurn(chat: Chat, character: Character, agent?: AgentRole): { preset: Preset | undefined; use: ChatPresetUse } {
+  const lib = useLibraryStore();
+  if (agent === 'proactive') return { preset: lib.presetForUse('proactive', character), use: 'proactive' };
+  const scene = sceneUse(chat.currentScene);
+  if (scene) return { preset: lib.presetForUse(scene, character), use: scene };
+  return { preset: lib.chatPresetFor(character), use: 'chat' };
+}
+
+/** 一个预设都选不到时的报错：说清楚缺哪一类、去哪里补 */
+export class MissingPresetError extends Error {
+  constructor(what: string) {
+    super(`没有可用的${what}预设：去"我的 → 预设"导入一个预设文件，或者复制一个过来`);
+    this.name = 'MissingPresetError';
+  }
+}
+
+/** "功能 · 一起吃饭"、"对话"：这一轮的预设是按什么选的 */
+export function useLabel(use: ChatPresetUse): string {
+  if (use === 'chat') return '对话（这个角色的预设）';
+  const u = presetUse(use);
+  return u ? `${PRESET_CATEGORIES[u.category].label} · ${u.label}` : use;
+}
+
+/** 这个功能用的模型名（请求体里的 model）；还没接通时显示"演示模型" */
+export function modelOf(agent: AgentRole = 'main'): string {
   const ai = useAiStore();
-  return ai.isLive('main') ? ai.chatModelOf('main') || '演示模型' : '演示模型';
+  return ai.isLive(agent) ? ai.chatModelOf(agent) || '演示模型' : '演示模型';
+}
+
+/** 主对话智能体用的模型名 */
+export function mainModel(): string {
+  return modelOf('main');
 }
 
 export interface ChatPrompt extends AssembleResult {
   preset: Preset;
+  /** 预设是按什么选的：对话 / 某件事的功能预设 / 主动消息 */
+  use: ChatPresetUse;
   persona: Persona;
   request: Record<string, unknown>;
 }
 
+export interface ChatAssembleOptions {
+  /** 只是查看：不推进世界书的粘性 / 冷却、不改聊天变量 */
+  dryRun?: boolean;
+  type?: GenerationType;
+  /**
+   * 后台生成（主动消息）：这一次要她做的事（程序写的，只有时间和要做什么；怎么写由预设里的块说）。
+   * 预设里有"主动消息"这一块就填在那儿；没有或关着时接在最后（同 SillyTavern 的 quiet prompt），不然模型不知道这次是她先开口
+   */
+  quiet?: string;
+  /** 哪个功能在调用：决定用哪个用途的预设、请求体里写谁的模型；默认主对话 */
+  agent?: AgentRole;
+}
+
 /**
  * 拼这一轮的提示词。history 是要发出去的聊天记录（从旧到新，最后一条通常是你刚发的）。
- * dryRun：只是查看，不推进世界书的粘性 / 冷却、不改聊天变量。
+ * 预设按用途选：主动消息用"主动消息"预设，在一起做某件事时用那件事的功能预设，平时用这个角色的对话预设。
  */
-export function assembleForChat(chat: Chat, character: Character, history: Message[], opts: { dryRun?: boolean; type?: GenerationType } = {}): ChatPrompt {
+export function assembleForChat(chat: Chat, character: Character, history: Message[], opts: ChatAssembleOptions = {}): ChatPrompt {
   const lib = useLibraryStore();
-  const preset = presetFor(character);
+  const { preset, use } = presetForTurn(chat, character, opts.agent);
+  if (!preset) throw new MissingPresetError(use === 'chat' ? '对话' : useLabel(use));
   const persona = personaOf(chat);
+  const model = modelOf(opts.agent);
   const books = character.lorebookIds.map((id) => lib.lorebookById(id)).filter((b) => !!b);
   const lastUser = [...history].reverse().find((m) => m.role === 'user');
   const prevUser = [...history].reverse().filter((m) => m.role === 'user')[1];
+  const app = appFills(chat, character, history);
+  if (opts.quiet) app.proactive = { content: opts.quiet, source: '主动消息：这一次要她做的事' };
+  // 功能预设里写了自己的"场景规则"：程序那块只填能用的标签和表情，不再重复场景规则
+  if (preset.blocks.some((b) => b.identifier === 'sceneRule' && !b.marker && b.enabled) && app.sceneRules) app.sceneRules = sceneTagsOnly(chat);
   const result = assemblePrompt({
     preset,
     character,
     user: { name: persona.name, description: persona.description },
     lorebooks: books,
     history: toTurns(history, character, persona.name),
-    app: appFills(chat, character, history),
+    app,
     type: opts.type,
     now: new Date(),
     idleMs: lastUser && prevUser ? lastUser.createdAt - prevUser.createdAt : null,
     vars: chat.vars,
     loreState: chat.loreState,
     dryRun: opts.dryRun,
-    model: mainModel(),
+    model,
   });
-  return { ...result, preset, persona, request: buildChatRequest(result, preset, mainModel()) };
+  if (opts.quiet && !result.blocks.some((b) => b.identifier === 'proactive' && b.sent)) {
+    result.messages.push({ role: 'system', content: opts.quiet, source: 'quiet', label: '主动消息：这一次要她做的事（预设里没有这一块，接在最后）' });
+    result.tokens += estimateTokens(opts.quiet);
+  }
+  return { ...result, preset, use, persona, request: buildChatRequest(result, preset, model) };
 }
 
 /** 发给模型的消息（去掉来源说明） */

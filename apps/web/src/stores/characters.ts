@@ -1,7 +1,7 @@
 import { slotAt, worldOf, type Character } from '@app/shared';
 import { defineStore } from 'pinia';
 import { reactive, ref } from 'vue';
-import { autoSave, getAll } from '@/db/idb';
+import { autoSave, getAll, write } from '@/db/idb';
 import { characters } from '@/mock/characters';
 
 /** 她们此刻在各自世界的哪儿：按作息表（和你同一个时间）。M3 起由 Worker 的 Cron 推进并同步 */
@@ -10,7 +10,7 @@ for (const c of characters) {
   if (slot) Object.assign(c, { locationId: slot.locationId, status: slot.status });
 }
 
-/** 演示角色每次打开重新生成，不存；导入的角色存在本机 */
+/** 所有角色的设置都存在本机，云端主动消息不会因重开 App 被重置 */
 const DEMO_IDS = new Set(characters.map((c) => c.id));
 
 export const useCharacterStore = defineStore('characters', () => {
@@ -20,13 +20,18 @@ export const useCharacterStore = defineStore('characters', () => {
 
   const saver = autoSave(
     'characters',
-    () => list.value.filter((c) => !DEMO_IDS.has(c.id)).map((c) => ({ key: c.id, value: c })),
+    () => list.value.map((c) => ({ key: c.id, value: c })),
     list,
   );
 
   async function hydrate() {
     const saved = (await getAll<Character>('characters')).sort((a, b) => a.createdAt - b.createdAt);
-    for (const c of saved) if (!list.value.some((x) => x.id === c.id)) list.value.push(c);
+    for (const c of saved) {
+      const existing = list.value.findIndex((x) => x.id === c.id);
+      if (existing >= 0) list.value[existing] = c;
+      else list.value.push(c);
+    }
+    await write('characters', list.value.map((c) => ({ key: c.id, value: JSON.parse(JSON.stringify(c)) })));
     saver.start();
   }
 

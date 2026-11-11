@@ -1,4 +1,4 @@
-import { timeOfDay, type Chat, type Message, type MessagePart, type MessageRole, type TimeOfDay } from '@app/shared';
+import type { Chat, Message, MessagePart, MessageRole } from '@app/shared';
 import { at } from '@/utils/time';
 
 let seq = 0;
@@ -31,33 +31,12 @@ function m(
   };
 }
 
-/** 今天最后两条主动消息，按此刻的时段挑内容，保证任何时候打开都"对得上" */
-const PROACTIVE_NOW: Record<TimeOfDay, { lines: string[]; expr: string; poke?: boolean }> = {
-  dawn: { lines: ['早安～外面在下小雨，记得带伞。', '醒了没？'], expr: 'smile', poke: true },
-  morning: { lines: ['早饭吃了吗？我今天给自己煮了小馄饨。', '不许又空着肚子去上课。'], expr: 'pout' },
-  noon: { lines: ['午饭吃了吗？别又只吃泡面。', '我在食堂排队……好想跟你一起吃。'], expr: 'pout' },
-  afternoon: { lines: ['下午容易犯困，起来走两步？', '图书馆三楼靠窗的位置，我给你占着。'], expr: 'smile' },
-  dusk: { lines: ['你吃晚饭了吗？我有点饿了……', '走嘛，一起去吃饭？'], expr: 'shy', poke: true },
-  night: { lines: ['今天累不累？想听你说说话。', '要不要……打个电话？'], expr: 'blush' },
-  late: { lines: ['还不睡？明天早八哦。', '再不睡，我就打电话来催你了。'], expr: 'angry', poke: true },
-};
-
-const SWIPES_NOW: Record<TimeOfDay, string[]> = {
-  dawn: ['起床啦，太阳晒屁股了。', '再赖床五分钟，就五分钟哦。'],
-  morning: ['早饭有没有好好吃？', '今天降温，多穿一件。'],
-  noon: ['中午记得休息一会儿。', '吃完饭给我拍一下哦。'],
-  afternoon: ['喝水了没？', '下午茶要不要一起？'],
-  dusk: ['晚饭吃了没？别又用泡面糊弄我。', '我刚煮了点粥……你要是还没吃，就过来吧？'],
-  night: ['今天的你辛苦啦。', '想你了，就一下下。'],
-  late: ['再熬夜，我就不理你了。', '……陪你十分钟，然后必须睡。'],
-};
-
+/**
+ * 今天的主动消息不写在演示数据里：苏晚、江屿和导入的角色一样，由 stores/proactive.ts 按各自的计划到点发
+ * （以前这里只给苏晚造了两条"刚刚"发来的消息，打开 App 时就只有她来找你）。
+ */
 function buildSuwan(): Message[] {
   const c = 'chat-suwan';
-  const now = Date.now();
-  const tod = timeOfDay(new Date(now).getHours());
-  const p = PROACTIVE_NOW[tod];
-  const first = p.lines[0] ?? '';
   return [
     // 三天前：在电影院约会。约会是这条聊天里的一段，不再单独开一条会话
     m(c, 'narrator', at(-3, '19:30'), [
@@ -115,21 +94,11 @@ function buildSuwan(): Message[] {
       { type: 'date', place: '水族馆', when: '周六 14:00', status: 'invite' },
     ], { expression: 'shy' }),
     m(c, 'user', at(-1, '20:05'), '好呀，周六见'),
-
-    m(c, 'assistant', now - 3 * 60_000, first, {
-      proactive: true,
-      read: false,
-      expression: p.expr,
-      swipes: [first, ...SWIPES_NOW[tod]].map((text, i) => ({ text, createdAt: now - 3 * 60_000 + i, expression: p.expr })),
+    m(c, 'assistant', at(-1, '20:06'), '那说好了！我去查查水族馆几点有喂食秀。', {
+      expression: 'laugh',
+      swipes: ['那说好了！我去查查水族馆几点有喂食秀。', '一言为定～不许临时说要写论文。', '好！那我周六穿那条你说好看的裙子。'].map((text, i) => ({ text, createdAt: at(-1, '20:06') + i, expression: 'laugh' })),
       swipeIndex: 0,
     }),
-    m(
-      c,
-      'assistant',
-      now - 2 * 60_000,
-      p.poke ? [{ type: 'poke', actor: 'char', target: '你' }, { type: 'text', text: p.lines[1] ?? '' }] : (p.lines[1] ?? ''),
-      { proactive: true, read: false, expression: p.expr },
-    ),
   ];
 }
 

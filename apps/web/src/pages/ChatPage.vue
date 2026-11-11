@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { getLocation, isRealPlace, worldOf, type MapLocation, type MessagePart } from '@app/shared';
 import { isAbortError } from '@app/ai';
-import { showConfirmDialog, showToast } from 'vant';
+import { closeToast, showConfirmDialog, showLoadingToast, showToast } from 'vant';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Composer from '@/components/chat/Composer.vue';
@@ -22,7 +22,8 @@ import { goBack } from '@/router';
 import { services } from '@/services';
 import { putAsset } from '@/services/assets';
 import type { VoiceRecording } from '@/services/recorder';
-import { presetFor } from '@/services/prompt';
+import { presetFor, presetForTurn, useLabel } from '@/services/prompt';
+import { pendingForSummary, SUMMARY_EVERY, type SummaryOutcome } from '@/services/summary';
 import { useAppStore } from '@/stores/app';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
@@ -77,8 +78,19 @@ async function scrollToBottom(smooth = false) {
 
 onMounted(() => {
   chatStore.markRead(chatId.value);
-  if (character.value) app.activeCharacterId = character.value.id;
   void scrollToBottom();
+});
+// 正在看这条聊天：她这时发来的主动消息直接算已读、不弹横幅；"一起""回忆"也跟着换成她
+watch(
+  chatId,
+  (id) => {
+    app.viewingChatId = id;
+    if (character.value) app.activeCharacterId = character.value.id;
+  },
+  { immediate: true },
+);
+onBeforeUnmount(() => {
+  if (app.viewingChatId === chatId.value) app.viewingChatId = null;
 });
 watch(
   // 最后一条的正文变了、出错了、配图画好了：都滚到底（离底部不远时）
@@ -230,13 +242,28 @@ const wall = computed(() => looks.backgroundOf(chatId.value));
 const hasWall = computed(() => !!looks.imageUrl(wall.value?.assetKey));
 const wallOpen = ref(false);
 
+/** 现在这一轮会用哪个预设：在一起做某件事时是那件事的功能预设 */
+const turnPreset = computed(() => (chat.value && character.value ? presetForTurn(chat.value, character.value) : null));
+const presetLine = computed(() => {
+  const t = turnPreset.value;
+  if (!t?.preset) return '没有可用的预设，点这里看看';
+  if (t.use === 'chat') return `正在用「${t.preset.name}」，点这里换`;
+  return `现在${useLabel(t.use).split(' · ').at(-1)}，用功能预设「${t.preset.name}」；平时用「${preset.value?.name ?? '—'}」`;
+});
+const pendingSummary = computed(() => (chat.value ? pendingForSummary(chat.value, messages.value).length : 0));
+
 const moreActions = computed(() => [
   { name: '聊天背景', subname: looks.hasOwnBackground(chatId.value) ? '这个聊天单独设置了' : '跟随外观里的通用背景', key: 'background' },
   { name: '查看提示词', subname: '按预设组装后的完整提示（含世界书、记忆、环境）', key: 'inspect' },
   { name: '角色设定', subname: character.value?.name, key: 'character' },
   { name: '记忆本', subname: '她记得的事，可以改', key: 'memory' },
   { name: '世界书', key: 'lore' },
-  { name: '预设', subname: `正在用「${preset.value?.name ?? ''}」，点这里换`, key: 'preset' },
+  { name: '预设', subname: presetLine.value, key: 'preset' },
+  {
+    name: '整理这段聊天',
+    subname: chatStore.summarizing[chatId.value] ? '正在整理…' : `用"总结"预设写摘要、记下要记住的事 · 还有 ${pendingSummary.value} 条没整理（攒够 ${SUMMARY_EVERY} 条会自动整理）`,
+    key: 'summary',
+  },
   { name: '导出聊天', subname: 'SillyTavern .jsonl（M1）', key: 'export' },
 ]);
 function onMore(a: { key: string }) {
@@ -250,18 +277,37 @@ function onMore(a: { key: string }) {
   };
   if (a.key === 'background') wallOpen.value = true;
   else if (a.key === 'preset') presetOpen.value = true;
+  else if (a.key === 'summary') void summarize();
   else if (target[a.key]) void router.push(target[a.key] as string);
   else showToast('M1 实现');
 }
 
-// —— 换预设 ——
+// —— 换预设（这个角色的对话预设）——
 const presetOpen = ref(false);
-function pickPreset(id: string) {
+function pickPreset(id: string | null) {
   presetOpen.value = false;
   const c = character.value;
-  if (!c || id === preset.value.id) return;
+  if (!c || !id || id === preset.value?.id) return;
   chars.setPreset(c.id, id);
-  showToast(`换成「${preset.value.name}」了，下一条回复起生效`);
+  showToast(`换成「${preset.value?.name ?? ''}」了，下一条回复起生效`);
+}
+
+// —— 整理这段聊天（总结）——
+const summaryResult = ref<SummaryOutcome | null>(null);
+const summaryOpen = computed({ get: () => !!summaryResult.value, set: (v) => !v && (summaryResult.value = null) });
+async function summarize() {
+  const id = chatId.value;
+  if (chatStore.summarizing[id]) return;
+  showLoadingToast({ message: '正在整理…', duration: 0, forbidClick: true });
+  try {
+    const r = await chatStore.summarizeNow(id);
+    closeToast();
+    if (r) summaryResult.value = r;
+    else showToast('没有要整理的（最近 4 条先不整理）');
+  } catch (e) {
+    closeToast();
+    showErrorDialog('没整理出来', e);
+  }
 }
 
 // —— 剧场模式 ——
@@ -400,10 +446,27 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
 
     <van-popup v-model:show="presetOpen" position="bottom" round :style="{ maxHeight: '80%' }">
       <div class="sheet" data-testid="preset-sheet">
-        <div class="sheet-title">预设 · {{ character.name }}</div>
-        <p class="text-[12.5px] text-ink-3 mt-1 mb-3 leading-relaxed">换了以后，下一条回复起按新预设拼提示词，聊天记录不变。在角色设定 → 预设 里也能换。</p>
-        <PresetPicker :model-value="preset.id" @update:model-value="pickPreset" @edit="presetOpen = false" />
-        <RouterLink to="/import" class="import-link" @click="presetOpen = false"><span class="i-lucide-file-down" />导入 SillyTavern 预设</RouterLink>
+        <div class="sheet-title">对话预设 · {{ character.name }}</div>
+        <p class="text-[12.5px] text-ink-3 mt-1 mb-3 leading-relaxed">
+          平时聊天（气泡、剧场模式）用这套，下一条回复起生效，聊天记录不变。<template v-if="turnPreset && turnPreset.use !== 'chat' && turnPreset.preset">现在{{ useLabel(turnPreset.use).split(' · ').at(-1) }}，这一段用功能预设「{{ turnPreset.preset.name }}」。</template>功能、主动消息、番外、总结、配图的预设在
+          <RouterLink to="/me/presets" class="text-accent-ink" @click="presetOpen = false">我的 → 预设</RouterLink> 里选。
+        </p>
+        <PresetPicker :model-value="preset?.id" category="chat" @update:model-value="pickPreset" @edit="presetOpen = false" />
+        <RouterLink to="/import" class="import-link" @click="presetOpen = false"><span class="i-lucide-file-down" />导入预设（SillyTavern 预设或预设文件）</RouterLink>
+      </div>
+    </van-popup>
+
+    <van-popup v-model:show="summaryOpen" position="bottom" round :style="{ maxHeight: '80%' }">
+      <div v-if="summaryResult" class="sheet" data-testid="summary-sheet">
+        <div class="sheet-title">整理好了 · {{ summaryResult.covered }} 条</div>
+        <p class="story">{{ summaryResult.text }}</p>
+        <div v-if="summaryResult.memories.length" class="text-[13px] text-ink-2 leading-relaxed">
+          <div class="font-600 mb-1">{{ character.pronoun }}记下了：</div>
+          <div v-for="m in summaryResult.memories" :key="m">· {{ m }}</div>
+        </div>
+        <div class="text-[11.5px] text-ink-3 mt-3">
+          预设「{{ summaryResult.presetName }}」· {{ summaryResult.model }}{{ summaryResult.affectionDelta ? ` · 好感 ${summaryResult.affectionDelta > 0 ? '+' : ''}${summaryResult.affectionDelta}` : '' }} · 摘要进了提示词里的"过往摘要"
+        </div>
       </div>
     </van-popup>
 
@@ -443,6 +506,12 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
   background:
     radial-gradient(120% 60% at 50% -10%, var(--accent-soft), transparent 60%),
     var(--bg);
+}
+.story {
+  margin: 12px 0 10px;
+  font-size: 14.5px;
+  line-height: 1.8;
+  white-space: pre-wrap;
 }
 .import-link {
   display: flex;

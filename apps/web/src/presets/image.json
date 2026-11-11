@@ -1,0 +1,193 @@
+{
+  "format": "ai-mobile-preset",
+  "version": 1,
+  "id": "preset-image",
+  "category": "image",
+  "name": "生图 · NovelAI tags",
+  "defaultFor": [
+    "image"
+  ],
+  "description": "把要画的画面写成 NovelAI V4.5 的英文 tags；外观 tags 由程序加在最前面。\"画什么\"四块按这次画的类型只发一块。",
+  "blocks": [
+    {
+      "identifier": "main",
+      "name": "任务",
+      "role": "system",
+      "content": "你是 NovelAI V4.5 的提示词写手，把一个画面写成 Danbooru 风格的英文 tags。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "rules",
+      "name": "规则",
+      "role": "system",
+      "content": "规则：\n- tags 顺序：人数（1girl / 1boy / 1girl, 1boy）→ 构图与镜头（upper body, cowboy shot, from side, close-up…）→ 表情与动作 → 服装 → 场景与背景 → 光线、天气、时段 → 氛围。\n- 不要写角色的外观（发色、瞳色、发型、体型），程序会自动加在最前面。\n- 不要写画师名和质量词（masterpiece、best quality 之类程序会加）。\n- 人物特写、半身用 portrait；风景、两个人并排用 landscape。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "modeScene",
+      "name": "画什么 · 场景",
+      "role": "system",
+      "content": "画什么：画面就是下面\"要画的画面\"描述的那一刻。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "scene"
+      ]
+    },
+    {
+      "identifier": "modePortrait",
+      "name": "画什么 · 全身像",
+      "role": "system",
+      "content": "画什么：画{{char}}的全身像（full body）：站姿或坐姿、服装、表情；背景简单。tags 以 \"full body\" 开头。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "portrait"
+      ]
+    },
+    {
+      "identifier": "modeFace",
+      "name": "画什么 · 脸部特写",
+      "role": "system",
+      "content": "画什么：画{{char}}的脸部特写（close-up / portrait，像自拍）：表情、发型和发饰、上半身的衣服；不要画脖子以下。tags 以 \"close-up, portrait\" 开头。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "face"
+      ]
+    },
+    {
+      "identifier": "modeBackground",
+      "name": "画什么 · 只画背景",
+      "role": "system",
+      "content": "画什么：只画场景，不画任何人物：地点、时段、天气、光线和细节。tags 以 \"no humans, scenery\" 开头，不要写人数、表情、服装。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "background"
+      ]
+    },
+    {
+      "identifier": "format",
+      "name": "输出格式（JSON，字段名别改）",
+      "role": "system",
+      "content": "只输出一个 JSON 对象，不要任何其他文字：\n{\"caption\": \"中文短标题（12 字以内）\", \"tags\": \"逗号分隔的英文 tags\", \"negative\": \"额外的负面 tags，可以为空字符串\", \"size\": \"portrait|landscape|square\"}",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "imageCharacters",
+      "name": "两个人同框时的输出格式（只在画面里有你时填）",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "imageSubject",
+      "name": "角色和外观 tags",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "imageScene",
+      "name": "地点、服装、时间天气、表情",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "imageRecent",
+      "name": "最近的对话",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "imageCaption",
+      "name": "要画的画面",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    }
+  ],
+  "sampler": {
+    "temperature": 0.7,
+    "topP": 1,
+    "maxTokens": 800,
+    "contextTokens": 32000,
+    "frequencyPenalty": 0,
+    "presencePenalty": 0,
+    "stream": false
+  },
+  "formats": {
+    "newChatPrompt": "",
+    "newExampleChatPrompt": "",
+    "continueNudgePrompt": "",
+    "impersonationPrompt": "",
+    "sendIfEmpty": "",
+    "wiFormat": "{0}",
+    "scenarioFormat": "{{scenario}}",
+    "personalityFormat": "{{personality}}",
+    "namesBehavior": 0,
+    "squashSystemMessages": false,
+    "preferCharacterPrompt": true,
+    "preferCharacterJailbreak": true
+  },
+  "regex": []
+}

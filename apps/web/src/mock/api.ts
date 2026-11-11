@@ -16,7 +16,8 @@ export function defaultRoutes(): AgentRoute[] {
     { role: 'embedding', api: newFeatureApi('siliconflow', 'embedding'), backup: null, runsOn: 'auto', dims: 1024 },
     { role: 'imagePrompt', sameAsMain: true, api: null, backup: null, runsOn: 'auto' },
     { role: 'image', api: newFeatureApi('novelai', 'image'), backup: null, runsOn: 'hub' },
-    { role: 'proactive', sameAsMain: true, api: null, backup: null, runsOn: 'hub', dailyTokenBudget: 100_000 },
+    // 主动消息不设每日 token 上限：设了的话消息一多就被拦住，看起来像她不来找你了（要省钱可以在 API 设置里自己填）
+    { role: 'proactive', sameAsMain: true, api: null, backup: null, runsOn: 'hub' },
     { role: 'vision', sameAsMain: true, api: null, backup: null, runsOn: 'device' },
     { role: 'tts', api: newFeatureApi('siliconflow', 'tts'), backup: null, runsOn: 'device' },
     { role: 'stt', api: newFeatureApi('siliconflow', 'stt'), backup: null, runsOn: 'device' },

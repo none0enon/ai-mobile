@@ -77,8 +77,10 @@ export const useAppStore = defineStore('app', () => {
   applyTheme();
   // 地址栏颜色（meta theme-color）跟着配色走，在 stores/appearance.ts 里设
 
-  /** "一起"和"回忆"页当前陪着你的角色 */
+  /** "一起"和"回忆"页当前陪着你的角色；启动时换成最近聊过的那个（main.ts） */
   const activeCharacterId = ref('suwan');
+  /** 正在看的聊天（聊天页打开时设置）：主动消息发到这条聊天时不弹横幅、直接算已读 */
+  const viewingChatId = ref<string | null>(null);
 
   /** 应用内横幅：在别的页面时收到主动消息 / 来电 */
   const banner = ref<Banner | null>(null);
@@ -94,5 +96,5 @@ export const useAppStore = defineStore('app', () => {
     banner.value = null;
   }
 
-  return { themeSetting, resolvedTheme, setTheme, activeCharacterId, banner, showBanner, dismissBanner };
+  return { themeSetting, resolvedTheme, setTheme, activeCharacterId, viewingChatId, banner, showBanner, dismissBanner };
 });

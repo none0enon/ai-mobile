@@ -1,0 +1,30 @@
+name: Cloudflare Hub
+on:
+  push:
+    branches: [main]
+    paths: ['apps/hub/**', 'packages/**', 'pnpm-lock.yaml', '.github/workflows/hub.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || vars.HUB_D1_ID != ''
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      HUB_D1_ID: ${{ vars.HUB_D1_ID }}
+      HUB_APP_URL: ${{ vars.HUB_APP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: node apps/hub/scripts/configure.mjs
+      - run: pnpm --filter @app/hub exec wrangler d1 migrations apply ai-mobile-hub --remote --config wrangler.deploy.json
+      - run: pnpm --filter @app/hub exec wrangler deploy --config wrangler.deploy.json

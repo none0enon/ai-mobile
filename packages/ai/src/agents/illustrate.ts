@@ -1,6 +1,7 @@
 import type { ImageRequest } from '../image/types.ts';
 import { buildImagePromptMessages, fallbackImagePrompt, parseImagePrompt, toImageRequest, type ImagePromptInput, type ImagePromptOutput } from './imagePrompt.ts';
 import type { AgentCallOptions, AgentSystem, CallMeta } from './system.ts';
+import { samplerRequest, type TaskPreset } from './taskPreset.ts';
 
 /**
  * 配图流水线（设计文档 §4.1：[cg:] → 生图提示词智能体 → 生图智能体 → 相册）。
@@ -22,13 +23,14 @@ export interface IllustrateResult {
 export async function illustrate(
   system: AgentSystem,
   input: ImagePromptInput,
-  opts: AgentCallOptions & { seed?: number; onStage?(stage: IllustrateStage): void } = {},
+  opts: AgentCallOptions & { seed?: number; onStage?(stage: IllustrateStage): void; /** 写 tags 用的"生图"预设；没有时直接用外观 tags + 画面描述 */ preset?: TaskPreset | null } = {},
 ): Promise<IllustrateResult> {
   opts.onStage?.('prompt');
   let prompt: ImagePromptOutput;
   let promptBy: IllustrateResult['promptBy'] = null;
-  if (system.isLive('imagePrompt')) {
-    const { value, result } = await system.json('imagePrompt', { messages: buildImagePromptMessages(input), temperature: 0.7 }, parseImagePrompt, opts);
+  const preset = opts.preset;
+  if (system.isLive('imagePrompt') && preset) {
+    const { value, result } = await system.json('imagePrompt', { messages: buildImagePromptMessages(input, preset), ...samplerRequest(preset.sampler) }, parseImagePrompt, opts);
     prompt = value;
     promptBy = result;
   } else {

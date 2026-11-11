@@ -1,3 +1,4 @@
+import { looksLikePresetFile } from '../presetFile.ts';
 import { utf8Decode } from './bytes.ts';
 import { looksLikeCard } from './card.ts';
 import { looksLikeLorebook } from './lorebook.ts';
@@ -13,6 +14,7 @@ export * from './macros.ts';
 export * from './tokens.ts';
 export * from './worldinfo.ts';
 export * from './assemble.ts';
+export * from './task.ts';
 
 export type StFileKind = 'card' | 'lorebook' | 'preset' | 'chat' | 'unknown';
 
@@ -36,7 +38,8 @@ export function detectStFile(bytes: Uint8Array, fileName = ''): { kind: StFileKi
     return { kind: 'unknown' };
   }
   if (looksLikeCard(json)) return { kind: 'card', json };
-  if (looksLikePreset(json)) return { kind: 'preset', json };
+  // App 自己的预设文件（自带的预设、导出的预设）也当预设读
+  if (looksLikePresetFile(json) || looksLikePreset(json)) return { kind: 'preset', json };
   if (looksLikeLorebook(json)) return { kind: 'lorebook', json };
   return { kind: 'unknown', json };
 }

@@ -1,10 +1,13 @@
+import { assembleTaskPrompt } from '@app/shared';
 import type { ChatMessage } from '../llm/types.ts';
+import type { TaskPreset } from './taskPreset.ts';
 
 /**
  * 番外智能体（sidestory）：你不在的时候，她在自己的小世界里发生了什么。
  * 按她的性格、作息、此刻的地点、世界里的其他人，以及最近和你聊过的事，写一小段第三人称的日常故事。
  * 故事可以引出一条主动消息（hook）或一张配图（cg，交给生图提示词智能体），
  * 也写进她的"生活记录"，之后聊天时她能自然地提起（"今天室友又借我充电器"）。
+ * 提示词（说明、要求、输出格式）全在"小剧场"预设里；这里只填这一次的输入。
  */
 
 export interface SidestoryInput {
@@ -32,7 +35,6 @@ export interface SidestoryInput {
   recentChat?: string[];
   /** 最近写过的番外标题，避免重复 */
   previous?: string[];
-  length?: 'short' | 'medium';
 }
 
 export interface Sidestory {
@@ -61,34 +63,25 @@ function cut(text: string | undefined, max: number): string {
   return t.length > max ? `${t.slice(0, max)}…` : t;
 }
 
-export function buildSidestoryMessages(input: SidestoryInput): ChatMessage[] {
+/** 这一次的输入：填进"小剧场"预设的程序填充块 */
+export function sidestoryFills(input: SidestoryInput): Record<string, string> {
   const { character: c, user, world, current } = input;
-  const words = input.length === 'medium' ? '300–500' : '150–250';
-  const system = [
-    `你在为一个陪伴 App 写"番外"：${c.name}在${c.pronoun}自己的世界里，${user.name}不在场时发生的一小段日常。`,
-    '要求：',
-    `- 第三人称，像轻小说的番外，${words} 字；贴合${c.name}的性格、作息和此刻所在的地方。`,
-    `- 写一个小而具体的事件（一个小麻烦、一个小惊喜、一段对话），有画面感；不要流水账，不要结尾升华。`,
-    `- 可以出现${c.pronoun}世界里的其他人；${user.name}不出场，但${c.name}可以想到${user.name}、想起你们聊过的事。`,
-    '- 不要和最近写过的番外重复。',
-    '- 只输出一个 JSON 对象，不要任何其他文字：',
-    '{"title": "标题（12 字以内）", "story": "故事正文", "time": "发生的时段", "place": "地点", "mood": "她现在的心情（一个词）", "people": ["出场的其他人"], "hook": "写完这件事后她可能发给对方的一句消息（口语，30 字以内），没有就写 null", "cg": "最适合配一张图的画面（中文一句话），没有就写 null"}',
-  ].join('\n');
   const now = input.now;
-  const lines = [
-    `【角色】${c.name}\n${cut(c.description, 1200)}${c.personality ? `\n性格：${cut(c.personality, 300)}` : ''}${c.scenario ? `\n背景：${cut(c.scenario, 300)}` : ''}`,
-    world
+  return {
+    storyCharacter: `【角色】${c.name}\n${cut(c.description, 1200)}${c.personality ? `\n性格：${cut(c.personality, 300)}` : ''}${c.scenario ? `\n背景：${cut(c.scenario, 300)}` : ''}`,
+    storyWorld: world
       ? `【${c.pronoun}的世界】${world.name}${world.blurb ? `：${world.blurb}` : ''}${world.schedule?.length ? `\n作息：\n${world.schedule.join('\n')}` : ''}${world.studyTask ? `\n手头在忙：${world.studyTask}` : ''}${world.meals ? `\n三餐：${world.meals}` : ''}${world.people?.length ? `\n身边的人：${world.people.map((p) => `${p.name}（${p.relation}）`).join('、')}` : ''}`
       : '',
-    `【现在】${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${WEEKDAY[now.getDay()]} ${clock(now)}${current?.place ? `；${c.name}在${current.place}${current.status ? `（${current.status}）` : ''}` : ''}`,
-    input.memories?.length ? `【${c.name}记得的关于${user.name}的事】\n${input.memories.slice(0, 8).map((m) => `- ${m}`).join('\n')}` : '',
-    input.recentChat?.length ? `【最近的聊天】\n${input.recentChat.slice(-8).join('\n')}` : '',
-    input.previous?.length ? `【最近写过的番外】${input.previous.slice(-5).join('、')}` : '',
-  ].filter(Boolean);
-  return [
-    { role: 'system', content: system },
-    { role: 'user', content: lines.join('\n\n') },
-  ];
+    storyNow: `【现在】${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${WEEKDAY[now.getDay()]} ${clock(now)}${current?.place ? `；${c.name}在${current.place}${current.status ? `（${current.status}）` : ''}` : ''}`,
+    storyMemories: input.memories?.length ? `【${c.name}记得的关于${user.name}的事】\n${input.memories.slice(0, 8).map((m) => `- ${m}`).join('\n')}` : '',
+    storyRecent: input.recentChat?.length ? `【最近的聊天】\n${input.recentChat.slice(-8).join('\n')}` : '',
+    storyPrevious: input.previous?.length ? `【最近写过的番外】${input.previous.slice(-5).join('、')}` : '',
+  };
+}
+
+/** 按"小剧场"预设拼番外的提示词 */
+export function buildSidestoryMessages(input: SidestoryInput, preset: TaskPreset): ChatMessage[] {
+  return assembleTaskPrompt({ preset, fills: sidestoryFills(input), macros: { char: input.character.name, user: input.user.name, now: input.now } }).messages;
 }
 
 function str(v: unknown): string {

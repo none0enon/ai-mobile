@@ -4,16 +4,16 @@ import { computed, ref } from 'vue';
 import Segmented from '@/components/common/Segmented.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { mockToday, todayLine, weather } from '@/mock/activity';
-import { envSettings } from '@/mock/settings';
+import { useEnvironmentStore } from '@/stores/environment';
 import { useRealWorldStore } from '@/stores/realworld';
 
 /** 环境与作息：时间 / 节气 / 天气 / 今日活动，拼成【当前环境】注入每一轮对话 */
-const env = ref({ ...envSettings, meals: { ...envSettings.meals } });
+const env = useEnvironmentStore().settings;
 const inject = ref({ time: true, weather: true, calendar: true, activity: true });
 const block = computed(() =>
   formatEnvironmentBlock({
     now: new Date(),
-    weather: inject.value.weather ? { ...weather, city: env.value.city } : null,
+    weather: inject.value.weather ? { ...weather, city: env.city } : null,
     todayLine: inject.value.activity ? todayLine(mockToday()) : undefined,
     sinceLastChatMin: 3,
   }),
@@ -65,7 +65,7 @@ const homeDraft = ref(real.address);
             <div class="mt-1.5">和风天气国内更准（需要 key，由 Worker 代取并缓存）；Open-Meteo 免 key</div>
           </template>
         </van-cell>
-        <van-cell title="时区" :value="env.timezone" />
+        <van-field v-model="env.timezone" label="时区" placeholder="Asia/Shanghai" input-align="right" />
       </van-cell-group>
 
       <div class="group-title">作息</div>
