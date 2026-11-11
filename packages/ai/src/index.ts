@@ -33,6 +33,8 @@ export { CLONE_STATUS, isClonedVoice, volcengineClone, volcengineCloneStatus, vo
 export { DEFAULT_EMOTION_MAP, resolveEmotion } from './tts/emotion.ts';
 export { sniffAudioMime } from './tts/providers.ts';
 
+export { transcribeAudio, canTranscribe, type SttRequest } from './stt/client.ts';
+
 export * from './image/types.ts';
 export { generateImage, canDraw } from './image/client.ts';
 export { buildNovelaiPayload, novelaiSubscription, varietySigma, type NovelaiSubscription } from './image/novelai.ts';

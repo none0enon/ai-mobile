@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { Character, MessagePart } from '@app/shared';
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
+import { showToast } from 'vant';
+import { assetUrl } from '@/services/assets';
 import GenImage from '@/components/figure/GenImage.vue';
 import { clock } from '@/utils/time';
 
@@ -18,9 +20,37 @@ const bars = computed(() => {
   return Array.from({ length: n }, (_, i) => 30 + ((i * 37) % 60));
 });
 
-function playVoice() {
+let audio: HTMLAudioElement | null = null;
+let playback = 0;
+function stopVoice() {
+  playback += 1;
+  audio?.pause();
+  audio = null;
+  playing.value = false;
+}
+onBeforeUnmount(stopVoice);
+
+async function playVoice() {
+  if (playing.value) return stopVoice();
+  if (props.part.type !== 'voice' || !props.part.assetKey) {
+    showToast('这条语音没有录音文件');
+    return;
+  }
+  const current = ++playback;
   playing.value = true;
-  setTimeout(() => (playing.value = false), props.part.type === 'voice' ? Math.min(props.part.durationMs, 4000) : 0);
+  try {
+    const url = await assetUrl(props.part.assetKey);
+    if (current !== playback) return;
+    if (!url) throw new Error('找不到这条语音的录音文件');
+    audio = new Audio(url);
+    audio.onended = stopVoice;
+    audio.onerror = () => { stopVoice(); showToast('无法播放这条录音'); };
+    await audio.play();
+  } catch (e) {
+    if (current !== playback) return;
+    stopVoice();
+    showToast(e instanceof Error ? e.message : '无法播放这条录音');
+  }
 }
 </script>
 
