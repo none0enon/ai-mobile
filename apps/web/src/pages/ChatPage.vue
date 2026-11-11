@@ -6,7 +6,7 @@ import { useRoute, useRouter } from 'vue-router';
 import Composer from '@/components/chat/Composer.vue';
 import MessageItem from '@/components/chat/MessageItem.vue';
 import Avatar from '@/components/common/Avatar.vue';
-import CgArt from '@/components/figure/CgArt.vue';
+import GenImage from '@/components/figure/GenImage.vue';
 import DialogBox from '@/components/stage/DialogBox.vue';
 import Wallpaper from '@/components/common/Wallpaper.vue';
 import { backdropAt } from '@/components/scene/location';
@@ -75,7 +75,8 @@ onMounted(() => {
   void scrollToBottom();
 });
 watch(
-  () => [messages.value.length, messages.value.at(-1)?.text],
+  // 最后一条的正文变了、出错了、配图画好了：都滚到底（离底部不远时）
+  () => [messages.value.length, messages.value.at(-1)?.text, messages.value.at(-1)?.meta.error, messages.value.at(-1)?.parts.map((p) => (p.type === 'image' ? p.assetKey : '')).join()],
   () => {
     chatStore.markRead(chatId.value);
     const el = scroller.value;
@@ -138,6 +139,9 @@ const imagePart = ref<MessagePart | null>(null);
 function openImage(p: MessagePart) {
   imagePart.value = p;
   imageOpen.value = true;
+}
+function redrawImage() {
+  if (imagePart.value) chatStore.redraw(chatId.value, imagePart.value);
 }
 
 const moreOpen = ref(false);
@@ -308,12 +312,13 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
 
     <van-popup v-model:show="imageOpen" round class="w-[88%] max-w-[400px]">
       <div v-if="imagePart && imagePart.type === 'image'" class="p-3">
-        <CgArt :character="character" scene="library" expression="shy" class="rounded-[16px]" />
+        <GenImage :part="imagePart" :character="character" class="rounded-[16px] overflow-hidden" />
         <div class="mt-3 text-[15px] font-600">{{ imagePart.caption }}</div>
-        <div class="mt-1 text-[12px] text-ink-3 break-all">提示词：{{ imagePart.prompt ?? '生成中…' }}</div>
-        <div v-if="imagePart.seed" class="text-[12px] text-ink-3 num">种子：{{ imagePart.seed }} · NovelAI V4.5</div>
+        <div v-if="imagePart.error" class="mt-1 text-[12px] text-bad break-all">没画出来：{{ imagePart.error }}</div>
+        <div class="mt-1 text-[12px] text-ink-3 break-all max-h-[96px] overflow-y-auto">提示词：{{ imagePart.prompt ?? (imagePart.error ? '—' : '生成中…') }}</div>
+        <div v-if="imagePart.seed" class="text-[12px] text-ink-3 num">种子：{{ imagePart.seed }}{{ imagePart.model ? ` · ${imagePart.model}` : '' }}</div>
         <div class="flex gap-2 mt-3">
-          <van-button size="small" round block>重新生成</van-button>
+          <van-button size="small" round block :disabled="!imagePart.generated && !imagePart.error" @click="redrawImage">重新生成</van-button>
           <van-button size="small" round block type="primary">存进相册</van-button>
         </div>
       </div>

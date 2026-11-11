@@ -11,6 +11,7 @@
     "typecheck": "vue-tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@app/ai": "workspace:*",
     "@app/shared": "workspace:*",
     "pinia": "^4.1.0",
     "vant": "^4.10.2",

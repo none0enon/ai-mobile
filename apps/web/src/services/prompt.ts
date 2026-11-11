@@ -19,9 +19,9 @@ import {
 } from '@app/shared';
 import type { LLMChatMessage } from './types';
 import { mockToday, todayLine, weather } from '@/mock/activity';
-import { agentRoutes } from '@/mock/api';
 import { personas } from '@/mock/characters';
 import { memories } from '@/mock/memories';
+import { useAiStore } from '@/stores/ai';
 import { useLibraryStore } from '@/stores/library';
 
 /**
@@ -142,9 +142,10 @@ export function presetFor(chat: Chat | undefined, character: Character | undefin
   return lib.presetById(chat?.presetId) ?? lib.presetById(character?.presetId) ?? (lib.presets[0] as Preset);
 }
 
-/** 主对话智能体用的模型名（请求体里的 model） */
+/** 主对话智能体用的模型名（请求体里的 model）；还没分配时显示"演示模型" */
 export function mainModel(): string {
-  return agentRoutes.find((r) => r.role === 'main')?.model ?? 'demo-model';
+  const ai = useAiStore();
+  return ai.isLive('main') ? (ai.routeOf('main')?.model ?? '演示模型') : '演示模型';
 }
 
 export interface ChatPrompt extends AssembleResult {

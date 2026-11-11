@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { errorText } from '@app/ai';
+import { AGENT_META, type AgentRole } from '@app/shared';
+import { closeToast, showLoadingToast, showToast } from 'vant';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { connections, agentRoutes } from '@/mock/api';
 import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
 import { personas } from '@/mock/characters';
 import { useLibraryStore } from '@/stores/library';
 import { memories, album } from '@/mock/memories';
 import { todayTouchpoints } from '@/mock/settings';
 import { weather } from '@/mock/activity';
-import { services } from '@/services';
+import { services, writeSidestory, type SidestoryOutcome } from '@/services';
+import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
@@ -18,6 +21,8 @@ const app = useAppStore();
 const chars = useCharacterStore();
 const chat = useChatStore();
 const lib = useLibraryStore();
+const ai = useAiStore();
+const liveAgents = computed(() => (Object.keys(AGENT_META) as AgentRole[]).filter((r) => ai.isLive(r)).length);
 const me = personas.find((p) => p.isDefault) ?? personas[0]!;
 const upcoming = todayTouchpoints().filter((t) => t.status === 'planned').length;
 const sync = services.sync.status();
@@ -38,7 +43,13 @@ const groups = computed(() => [
   {
     title: 'AI 与语音',
     rows: [
-      { icon: 'i-lucide-cpu', label: 'API 与智能体', value: `${connections.length} 个连接`, desc: `${agentRoutes.length} 个智能体：主对话、总结、向量化、生图……`, to: '/me/api' },
+      {
+        icon: 'i-lucide-cpu',
+        label: 'API 与智能体',
+        value: `${ai.connections.length} 个连接`,
+        desc: liveAgents.value ? `${liveAgents.value} 个智能体已接通 · 主对话、番外、生图、向量化……` : '还没填 Key，现在用演示模型',
+        to: '/me/api',
+      },
       { icon: 'i-lucide-audio-lines', label: '语音', value: '', desc: '她们的声音、语音识别、通话', to: '/me/voice' },
     ],
   },
@@ -67,6 +78,52 @@ function demoProactive() {
 }
 function demoCall() {
   void router.push(`/call/${app.activeCharacterId}?incoming=1`);
+}
+
+// —— 番外：她那边发生了什么 ——
+const story = ref<SidestoryOutcome | null>(null);
+const storyOpen = computed({ get: () => !!story.value, set: (v) => !v && (story.value = null) });
+let storyBusy = false;
+function storyCharacter() {
+  return chars.byId(app.activeCharacterId) ?? chars.list[0]!;
+}
+async function runSidestory() {
+  if (storyBusy) return;
+  storyBusy = true;
+  const c = storyCharacter();
+  const id = chat.chatOfCharacter(c.id)?.id;
+  showLoadingToast({ message: `${c.name}那边……`, duration: 0, forbidClick: true });
+  try {
+    story.value = await writeSidestory(c.id, { recentChat: id ? chat.recentLines(id, 8) : [], userName: me.name });
+    closeToast();
+  } catch (e) {
+    closeToast();
+    showToast({ message: `没写出来：${errorText(e)}`.slice(0, 140), duration: 3500 });
+  } finally {
+    storyBusy = false;
+  }
+}
+/** 番外里她可能会发来的那句话：当作一条主动消息发进聊天 */
+function sendHook() {
+  const s = story.value;
+  const c = chars.byId(s?.characterId);
+  const id = c && chat.chatOfCharacter(c.id)?.id;
+  if (!s?.hook || !c || !id) return;
+  chat.push(id, 'assistant', [{ type: 'text', text: s.hook }], { proactive: true, read: false, expression: 'smile' });
+  app.showBanner({ characterId: c.id, title: c.name, text: s.hook, to: `/chat/${id}`, icon: 'i-lucide-bell-ring' });
+  story.value = null;
+}
+/** 番外里最适合配图的一幕：她"发来一张照片"，交给配图流水线 */
+function drawStory() {
+  const s = story.value;
+  const c = chars.byId(s?.characterId);
+  const id = c && chat.chatOfCharacter(c.id)?.id;
+  if (!s?.cg || !c || !id) return;
+  const msg = chat.push(id, 'assistant', [{ type: 'image', assetKey: null, caption: s.cg, generated: false }], { proactive: true, read: false });
+  const part = msg.parts[0];
+  if (part) chat.redraw(id, part);
+  story.value = null;
+  void router.push(`/chat/${id}`);
 }
 </script>
 
@@ -99,8 +156,17 @@ function demoCall() {
       </section>
 
       <section class="mt-4">
-        <div class="group-title">演示（假数据）</div>
+        <div class="group-title">试一试</div>
         <van-cell-group inset>
+          <van-cell
+            title="写一段她的番外"
+            :label="ai.isLive('sidestory') ? `你不在的时候，${storyCharacter().name}那边发生了什么` : '演示故事；给番外智能体分配连接并填 Key 后真的写'"
+            is-link
+            center
+            @click="runSidestory"
+          >
+            <template #icon><span class="i-lucide-book-heart row-icon" /></template>
+          </van-cell>
           <van-cell title="模拟一条主动消息" label="顶部会弹横幅；聊天列表出现未读" is-link center @click="demoProactive">
             <template #icon><span class="i-lucide-message-circle-heart row-icon" /></template>
           </van-cell>
@@ -110,12 +176,34 @@ function demoCall() {
         </van-cell-group>
       </section>
 
-      <p class="text-center text-[12px] text-ink-3 mt-6">AI 陪伴（暂名）· M0 界面骨架 · 数据都是演示用的</p>
+      <p class="text-center text-[12px] text-ink-3 mt-6">AI 陪伴（暂名）· M1 · 没填 Key 的部分用演示数据</p>
     </div>
+
+    <!-- 番外 -->
+    <van-popup v-model:show="storyOpen" position="bottom" round :style="{ maxHeight: '86%' }">
+      <div v-if="story" class="sheet" data-sheet="sidestory">
+        <div class="sheet-title">{{ story.title }}</div>
+        <div class="text-[12px] text-ink-3 mt-0.5">
+          {{ [story.time, story.place, story.mood, story.people.join('、')].filter(Boolean).join(' · ') }}
+        </div>
+        <p class="story">{{ story.story }}</p>
+        <div class="text-[11.5px] text-ink-3">{{ story.demo ? '演示故事' : `番外智能体 · ${story.model}` }}</div>
+        <div class="flex gap-2.5 mt-4">
+          <van-button v-if="story.cg" round block @click="drawStory">画这一幕</van-button>
+          <van-button v-if="story.hook" round block type="primary" @click="sendHook">让她发来："{{ story.hook }}"</van-button>
+        </div>
+      </div>
+    </van-popup>
   </div>
 </template>
 
 <style scoped>
+.story {
+  margin: 14px 0 10px;
+  font-size: 15px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
 .profile {
   display: flex;
   align-items: center;

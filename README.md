@@ -5,7 +5,8 @@ AI 陪伴对话 App：像 SillyTavern 一样用角色卡、世界书、预设聊
 - 设计文档：[`docs/DESIGN.md`](docs/DESIGN.md)
 - 当前进度：**M1 进行中**。
   - 已经是真的：导入 SillyTavern 角色卡（PNG / JSON，V1–V3，内嵌世界书自动拆出来绑定）、世界书、Chat Completion 预设；导入的东西和聊天存在本机（IndexedDB），刷新后还在；发消息时按 SillyTavern 的规则拼提示词（预设顺序、世界书扫描、宏、按深度插入、token 预算），"查看提示词"里看到的就是请求体。
-  - 还是假的：模型（假模型不调用 API；和导入的角色聊天时，它会回报这一轮拼出了几条消息）、同步、推送，以及演示角色、天气、今日活动这些数据。
+  - 也是真的（在"我的 → API 与智能体"里填了 Key 之后）：多智能体调用（`packages/ai`）。主对话流式回复（OpenAI 兼容 / Claude / Gemini，移植自 math-reader），主连接失败自动换备用；`[cg:]` 配图走生图提示词智能体 + NovelAI；她的声音走 TTS（硅基流动 CosyVoice / MiniMax / Fish Audio / GPT-SoVITS）；向量化（测相似度、重算向量）；"写一段她的番外"。连接、分配存在本机，Key 单独存、只在这台设备上。
+  - 还是假的：没填 Key 的智能体（用演示模型，所以不填也能逛）、语音识别、同步、推送，以及演示角色、记忆、天气、今日活动这些数据。
 
 ## 目录
 
@@ -16,10 +17,14 @@ apps/web/            前端（Vue 3 + Vite + TypeScript + Pinia + Vue Router + V
   src/components/    聊天气泡与卡片、剧场立绘与对话框、场景外壳、小地图、占位立绘 / 背景……
   src/services/      服务接口 + 假实现（假的流式模型会吐 [expr:] 等控制标签）
   src/mock/          演示数据（两个原创角色：苏晚、江屿）
-  scripts/           shots.cjs（逐页截图检查）、import-e2e.cjs（导入 + 发送的端到端检查）、make-artifact.mjs（生成预览页）
+  scripts/           shots.cjs（逐页截图检查）、import-e2e.cjs（导入 + 发送的端到端检查）、ai-e2e.cjs + fake-ai.cjs（接假 AI 服务端的端到端检查）、make-artifact.mjs（生成预览页）
 packages/shared/     前端和以后的 Worker 共用：领域类型、场景注册表、地图地点、控制标签解析、环境描述、LRC 解析
   src/st/            SillyTavern 兼容：PNG 文本块、角色卡 / 世界书 / 预设的导入导出、宏、世界书扫描、提示词拼装
   test/fixtures/     测试用的 ST 预设、JSON 角色卡、PNG 角色卡
+packages/ai/         AI 调用层，前端和以后的 Worker 共用（只用 Web 标准接口），说明见 packages/ai/README.md
+  src/llm/           文本对话：OpenAI 兼容 / Claude / Gemini（流式、思考内容、流式失败改普通请求、按报错调整参数）
+  src/tts/ image/ embedding/   语音合成、生图（NovelAI）、向量化
+  src/agents/        多智能体：路由与备用连接、每日上限、番外 / 生图提示词 / 总结的提示词与解析、配图流水线、记忆检索
 docs/DESIGN.md       完整设计
 ```
 
@@ -33,7 +38,7 @@ docs/DESIGN.md       完整设计
 pnpm install
 pnpm dev            # http://localhost:5173
 pnpm typecheck      # vue-tsc + tsc
-pnpm test           # 单元测试：控制标签、LRC、环境描述、ST 导入 / 世界书 / 宏 / 提示词拼装
+pnpm test           # 单元测试：控制标签、LRC、环境描述、ST 导入 / 世界书 / 宏 / 提示词拼装；AI 调用层（假的服务端）
 pnpm build          # 正式构建 → apps/web/dist（hash 路由，可放在任意静态目录）
 pnpm build:preview  # 单文件预览页 → apps/web/artifact/index.html
 ```
@@ -45,6 +50,7 @@ cd apps/web && npx vite preview --port 4173 &
 node scripts/shots.cjs            # 全部页面，深色
 node scripts/shots.cjs chat --light   # 只看名字含 chat 的页面，浅色
 node scripts/import-e2e.cjs       # 导入测试用的预设和两张角色卡，发一条消息，核对"查看提示词"
+node scripts/ai-e2e.cjs           # 起一个假的 AI 服务端，在页面里填地址和 Key：测试连接、流式聊天、配图、向量、试听、番外、备用连接、出错提示、刷新后设置还在
 ```
 
 ## 可以在骨架里试的
@@ -62,7 +68,13 @@ node scripts/import-e2e.cjs       # 导入测试用的预设和两张角色卡�
   - "我的世界"是你的真实世界（接 Google 地图前是示意图）：家、附近可以带她去的地方，带她出门时她会"来你这边"；一起待过的地方记成"我们的足迹"。
   - 家的地址在"我的 → 环境与作息"里填，只存在本机。
 - 消息按人分：一个角色只有一条聊天。去过的场景在聊天里是一段"来到… / 离开…"；在场景里点她的话可以去聊天接着聊。
-- "我的 → API 与智能体"：每个智能体选连接和模型，向量化可以测相似度、重算向量。
+- "我的 → API 与智能体"：接真实模型。
+  - 点一个连接（或"添加"，从模板选 DeepSeek / 硅基流动 / Claude / Gemini / NovelAI / MiniMax……），填 Base URL 和 Key，"拉取模型列表"、"测试连接"（按这个连接能做的事逐项测：对话、向量、语音、NovelAI 订阅），保存。
+  - 每个智能体单独选连接、模型、备用连接；卡片上写着"已接通"还是"演示模型"以及原因。番外、总结等后台智能体可以设每日 token 上限。
+  - 向量化可以测相似度、用新模型重算向量。
+  - 主对话填好后，聊天就是真的模型在回；她回复里的 `[cg:…]` 会真的出图（存在本机素材库）；回复失败时气泡下写着原因，可以重新生成。
+- "我的 → 语音"：给每个角色选 TTS 连接、音色、风格（GPT-SoVITS 填参考音频），试听。
+- "我的 → 试一试 → 写一段她的番外"：你不在的时候她那边发生了什么；可以让她把番外里的那句话发给你，或者把那一幕画出来。
 - "我的 → 演示"：模拟一条主动消息、模拟她打来电话。
 - "我的 → 外观"（参考 math-reader 的主题设置）：
   - 切换 跟随系统 / 夜 / 日；

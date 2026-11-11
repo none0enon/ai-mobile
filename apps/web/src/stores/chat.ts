@@ -11,6 +11,7 @@ import {
   type MessageRole,
   type TogetherMode,
 } from '@app/shared';
+import { errorText, isAbortError } from '@app/ai';
 import { defineStore } from 'pinia';
 import { computed, reactive, ref } from 'vue';
 import { useAppStore } from './app';
@@ -25,7 +26,10 @@ import { uid } from '@/utils/id';
 /** 正在生成的回复。只放内存，不进同步数据（math-reader 回滚提交的教训） */
 interface StreamState {
   messageId: string;
+  /** 还没有正文：请求刚发出、模型在思考、流式失败正改用普通请求 */
   thinking: boolean;
+  /** 模型的思考内容（有的模型会返回） */
+  reasoning: string;
   abort: AbortController;
 }
 
@@ -183,7 +187,7 @@ export const useChatStore = defineStore('chat', () => {
     const id = target ?? push(chatId, 'assistant', [{ type: 'text', text: '' }]).id;
     const history = list(chatId).filter((m) => m.id !== id && (!target || m.createdAt < (find(chatId, id)?.createdAt ?? Infinity)));
     const abort = new AbortController();
-    streams[chatId] = { messageId: id, thinking: true, abort };
+    streams[chatId] = { messageId: id, thinking: true, reasoning: '', abort };
     const scene = getScene(chat.currentScene ?? 'free');
     let raw = '';
 
@@ -194,15 +198,30 @@ export const useChatStore = defineStore('chat', () => {
     lastPrompt[chatId] = { prompt, at: Date.now() };
 
     try {
-      await services.llm.chat(
-        { agent: 'main', messages: toLLMMessages(prompt), body: prompt.request, characterId: character.id, signal: abort.signal },
+      const result = await services.llm.chat(
+        {
+          agent: 'main',
+          messages: toLLMMessages(prompt),
+          body: prompt.request,
+          characterId: character.id,
+          names: { user: prompt.persona.name, char: character.name },
+          signal: abort.signal,
+        },
         {
           onState: (s) => {
             const st = streams[chatId];
-            if (st) st.thinking = s !== 'streaming';
+            if (!st) return;
+            if (s === 'streaming') st.thinking = false;
+            else if (s === 'sent' || s === 'connected' || s === 'thinking' || s === 'fallback') st.thinking = !raw;
+          },
+          onThinking: (t) => {
+            const st = streams[chatId];
+            if (st) st.reasoning = t;
           },
           onText: (full) => {
             raw = full;
+            const st = streams[chatId];
+            if (st && full) st.thinking = false;
             const msg = find(chatId, id);
             if (!msg) return;
             const parsed = parseControlTags(full, scene.allowedTags);
@@ -219,8 +238,18 @@ export const useChatStore = defineStore('chat', () => {
 
       const msg = find(chatId, id);
       if (!msg) return;
+      raw = result.text || raw;
       const parsed = parseControlTags(raw, scene.allowedTags);
       msg.text = parsed.visible.trim();
+      msg.meta.error = undefined;
+      msg.meta.interrupted = undefined;
+      if (!result.demo) {
+        msg.meta.model = result.model;
+        msg.meta.agent = 'main';
+        msg.meta.latencyMs = result.latencyMs;
+        msg.meta.tokens = result.tokens;
+        msg.meta.fellBack = result.fellBack || undefined;
+      }
       const parts: MessagePart[] = [{ type: 'text', text: msg.text }];
       for (const { tag } of parsed.tags) {
         if (tag.kind === 'music') parts.push({ type: 'music', songId: 's1', title: tag.title, artist: tag.artist });
@@ -246,24 +275,81 @@ export const useChatStore = defineStore('chat', () => {
       } else {
         msg.swipes = [swipe];
       }
-      // 配图：假装交给生图提示词智能体 + NovelAI，过一会儿出图
-      if (parts.some((p) => p.type === 'image')) {
-        setTimeout(() => {
-          const m = find(chatId, id);
-          const img = m?.parts.find((p) => p.type === 'image');
-          if (img && img.type === 'image') {
-            img.generated = true;
-            img.seed = 20261110;
-            img.prompt = `${character.appearanceTags}, ${img.caption}`;
-          }
-        }, 2400);
-      }
-    } catch {
+      // 配图：生图提示词智能体写 tags → 生图智能体出图；没有生图连接时演示一下
+      for (const part of parts) if (part.type === 'image') void drawPart(chatId, id, part.caption);
+    } catch (e) {
       const msg = find(chatId, id);
-      if (msg) msg.meta.interrupted = true;
+      if (msg) {
+        if (isAbortError(e) || abort.signal.aborted) msg.meta.interrupted = true;
+        else msg.meta.error = errorText(e);
+      }
     } finally {
       delete streams[chatId];
     }
+  }
+
+  /** 最近几句对话（给生图提示词智能体、番外智能体看） */
+  function recentLines(chatId: string, n = 6): string[] {
+    const chat = chatById(chatId);
+    const character = useCharacterStore().byId(chat?.characterId);
+    const user = personaOf(chat).name;
+    return list(chatId)
+      .filter((m) => m.text && (m.role === 'user' || m.role === 'assistant'))
+      .slice(-n)
+      .map((m) => `${m.role === 'user' ? user : (character?.name ?? '她')}: ${m.text}`);
+  }
+
+  /**
+   * 给一条消息里的配图出图。await 之后按 id 重新取消息和卡片（设计文档 §3.1 的教训：生成期间对象可能被替换）
+   */
+  async function drawPart(chatId: string, messageId: string, caption: string) {
+    const chat = chatById(chatId);
+    const chars = useCharacterStore();
+    const character = chars.byId(chat?.characterId);
+    const findPart = () => {
+      const p = find(chatId, messageId)?.parts.find((x) => x.type === 'image' && x.caption === caption);
+      return p?.type === 'image' ? p : undefined;
+    };
+    if (!chat || !character) return;
+    if (!services.image.live) {
+      // 演示：过一会儿"画好"，用占位画
+      await new Promise((r) => setTimeout(r, 2400));
+      const part = findPart();
+      if (part) Object.assign(part, { generated: true, seed: 20261110, prompt: `${character.appearanceTags}, ${caption}` });
+      return;
+    }
+    const before = findPart();
+    if (before) Object.assign(before, { generated: false, error: undefined });
+    try {
+      const out = await services.image.illustrate({
+        characterId: character.id,
+        caption,
+        place: getLocation(chat.togetherAt ?? character.locationId)?.name,
+        expression: chars.expression[character.id],
+        recent: recentLines(chatId),
+      });
+      const part = findPart();
+      if (!part) return;
+      Object.assign(part, {
+        assetKey: out.assetKey ?? out.url ?? null,
+        prompt: out.prompt,
+        negative: out.negative,
+        seed: out.seed ?? undefined,
+        model: out.model,
+        generated: true,
+        error: undefined,
+      });
+    } catch (e) {
+      const part = findPart();
+      if (part) part.error = errorText(e);
+    }
+  }
+
+  /** 重画一张配图（失败后、或者想换一张） */
+  function redraw(chatId: string, part: MessagePart) {
+    if (part.type !== 'image') return;
+    const msg = list(chatId).find((m) => m.parts.includes(part));
+    if (msg) void drawPart(chatId, msg.id, part.caption);
   }
 
   async function send(chatId: string, text: string) {
@@ -293,7 +379,8 @@ export const useChatStore = defineStore('chat', () => {
   async function regenerate(chatId: string, messageId: string) {
     const msg = find(chatId, messageId);
     if (!msg) return;
-    if (!msg.swipes.length) msg.swipes = [{ text: msg.text, parts: msg.parts, expression: msg.expression, createdAt: msg.createdAt }];
+    // 失败时这条可能是空的：空的不当成一个备选回复
+    if (!msg.swipes.length && msg.text) msg.swipes = [{ text: msg.text, parts: msg.parts, expression: msg.expression, createdAt: msg.createdAt }];
     await generate(chatId, messageId);
   }
 
@@ -469,6 +556,8 @@ export const useChatStore = defineStore('chat', () => {
     generate,
     swipe,
     regenerate,
+    redraw,
+    recentLines,
     poke,
     postCard,
     enterScene,

@@ -10,6 +10,8 @@ import './styles/vant.css';
 import 'virtual:uno.css';
 import App from './App.vue';
 import { router } from './router';
+import { unlockAudio } from './services/audio';
+import { useAiStore } from './stores/ai';
 import { useCharacterStore } from './stores/characters';
 import { useChatStore } from './stores/chat';
 import { useLibraryStore } from './stores/library';
@@ -30,5 +32,11 @@ const app = createApp(App).use(createPinia()).use(router);
 
 // 先读本机数据库（导入的角色、世界书、预设、聊天），再挂载：刷新后直接打开导入角色的聊天也找得到
 // 个别 WebView 里 IndexedDB 可能一直不回应：最多等 1.5 秒，读到的数据之后再补进来
-const hydrated = Promise.all([useLibraryStore().hydrate(), useCharacterStore().hydrate(), useChatStore().hydrate()]).catch(() => undefined);
+const hydrated = Promise.all([useAiStore().hydrate(), useLibraryStore().hydrate(), useCharacterStore().hydrate(), useChatStore().hydrate()]).catch(() => undefined);
+
+// iPhone 上只有用户点过屏幕后"解锁"的 <audio> 才能在网络请求之后播放语音：第一次点屏幕时解锁
+const unlock = () => {
+  if (unlockAudio()) document.removeEventListener('pointerdown', unlock, true);
+};
+document.addEventListener('pointerdown', unlock, true);
 Promise.race([hydrated, new Promise((r) => setTimeout(r, 1500))]).finally(() => app.mount('#app'));

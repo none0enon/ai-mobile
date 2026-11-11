@@ -7,8 +7,13 @@ import { watch, type WatchSource } from 'vue';
  */
 
 const DB_NAME = 'ai-mobile';
-const VERSION = 1;
-const STORES = ['characters', 'lorebooks', 'presets', 'chats', 'messages'] as const;
+const VERSION = 2;
+/**
+ * - settings：API 连接、智能体分配等设置（以后随同步走）
+ * - secrets：API Key，只存这台设备，永远不进同步数据
+ * - assets：生成的图片、语音（按内容哈希存；以后同步时传到 R2）
+ */
+const STORES = ['characters', 'lorebooks', 'presets', 'chats', 'messages', 'settings', 'secrets', 'assets'] as const;
 export type StoreName = (typeof STORES)[number];
 
 let opening: Promise<IDBDatabase | null> | null = null;
@@ -49,6 +54,40 @@ export async function getAll<T>(store: StoreName): Promise<T[]> {
       const req = db.transaction(store, 'readonly').objectStore(store).getAll();
       req.onsuccess = () => resolve(req.result as T[]);
       req.onerror = () => resolve([]);
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
+export async function getOne<T>(store: StoreName, key: string): Promise<T | undefined> {
+  const db = await open();
+  if (!db) return undefined;
+  return new Promise((resolve) => {
+    try {
+      const req = db.transaction(store, 'readonly').objectStore(store).get(key);
+      req.onsuccess = () => resolve(req.result as T | undefined);
+      req.onerror = () => resolve(undefined);
+    } catch {
+      resolve(undefined);
+    }
+  });
+}
+
+/** 读出整张表：键和值一起（getAll 只给值） */
+export async function getEntries<T>(store: StoreName): Promise<{ key: string; value: T }[]> {
+  const db = await open();
+  if (!db) return [];
+  return new Promise((resolve) => {
+    try {
+      const os = db.transaction(store, 'readonly').objectStore(store);
+      const keysReq = os.getAllKeys();
+      const valuesReq = os.getAll();
+      valuesReq.onsuccess = () => {
+        const keys = (keysReq.result ?? []) as IDBValidKey[];
+        resolve((valuesReq.result as T[]).map((value, i) => ({ key: String(keys[i]), value })));
+      };
+      valuesReq.onerror = () => resolve([]);
     } catch {
       resolve([]);
     }

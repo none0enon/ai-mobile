@@ -18,8 +18,13 @@ export type MessagePart =
       caption: string;
       /** AI 生成的图带上提示词和种子，方便在相册里复现 */
       prompt?: string;
+      negative?: string;
       seed?: number;
+      /** 出图的模型（nai-diffusion-4-5-full …） */
+      model?: string;
       generated: boolean;
+      /** 生成失败的原因（界面显示，可以重画） */
+      error?: string;
     }
   | { type: 'music'; songId: string; title: string; artist: string; cover?: string | null }
   /** 拍一拍："你拍了拍她的头" / "她拍了拍你" */
@@ -92,6 +97,10 @@ export interface Message extends SyncMeta {
     choices?: string[];
     /** 回复被打断（切后台、断网）时保留半截内容，界面显示"继续" */
     interrupted?: boolean;
+    /** 生成失败的原因（接口报错、Key 不对……），界面显示，可以重新生成 */
+    error?: string;
+    /** 主连接失败后用了备用连接 */
+    fellBack?: boolean;
   };
 }
 

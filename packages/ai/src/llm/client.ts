@@ -1,0 +1,72 @@
+import type { ConnectionKind } from '@app/shared';
+import type { Endpoint } from '../core/endpoint.ts';
+import { AiError, errorText, isAbortError } from '../core/errors.ts';
+import { anthropicChat, geminiChat, openaiChat, type ChatProvider } from './providers.ts';
+import type { ChatOptions, ChatRequest, ChatResult } from './types.ts';
+
+const CHAT_PROVIDERS: Partial<Record<ConnectionKind, ChatProvider>> = {
+  openai: openaiChat,
+  anthropic: anthropicChat,
+  gemini: geminiChat,
+  // Cloudflare Workers AI 也提供 OpenAI 兼容的 /chat/completions
+  'workers-ai': openaiChat,
+};
+
+export function canChat(kind: ConnectionKind): boolean {
+  return !!CHAT_PROVIDERS[kind];
+}
+
+/** 流式失败后改普通请求也没用的错误：Key 不对、没余额、地址或模型不存在 */
+function hopeless(e: unknown): boolean {
+  return e instanceof AiError && e.code === 'http' && (e.status === 401 || e.status === 402 || e.status === 403 || e.status === 404);
+}
+
+/**
+ * 对一个连接发一次对话（移植自 math-reader 的 doAIRequestPreferStream）：
+ * - 有 onDelta 时走流式；流式请求在收到任何正文之前就失败（例如服务端没有流式接口），同一个连接改普通请求再试一次，并报告 fallback；
+ * - 只收到思考内容、还没有正文就失败时同样改普通请求；已经有正文了就直接报错（不重复生成）；
+ * - 没能流式的（普通请求、服务端忽略流式参数）最后补一次 onDelta，界面拿到的总是全文；
+ * - 正文为空算失败（可以换备用连接）。
+ * 换备用连接不在这里，在智能体路由（agents/router.ts）。
+ */
+export async function chatOnce(ep: Endpoint, req: ChatRequest, opts: ChatOptions = {}): Promise<ChatResult> {
+  const provider = CHAT_PROVIDERS[ep.kind];
+  if (!provider) throw new AiError('unsupported', `"${ep.name}" 是 ${ep.kind} 连接，不能用来对话`);
+  const wantStream = opts.stream ?? !!opts.onDelta;
+  let shownText = '';
+  let shownThinking = '';
+  const onDelta = opts.onDelta
+    ? (text: string, thinking: string) => {
+        shownText = text;
+        shownThinking = thinking;
+        opts.onDelta?.(text, thinking);
+      }
+    : undefined;
+
+  let result: ChatResult;
+  if (!wantStream) {
+    result = await provider(ep, req, { stream: false, onState: opts.onState, signal: opts.signal });
+  } else {
+    let received = false;
+    try {
+      result = await provider(ep, req, {
+        stream: true,
+        onState: opts.onState,
+        signal: opts.signal,
+        onDelta: (text, thinking) => {
+          if (text) received = true;
+          onDelta?.(text, thinking);
+        },
+      });
+    } catch (e) {
+      if (received || isAbortError(e) || opts.signal?.aborted || hopeless(e)) throw e;
+      opts.onState?.('fallback', errorText(e));
+      result = await provider(ep, req, { stream: false, onState: opts.onState, signal: opts.signal });
+    }
+  }
+  if (onDelta && (result.text !== shownText || result.thinking !== shownThinking)) onDelta(result.text, result.thinking);
+  if (!result.text.trim()) {
+    throw new AiError('empty', `${ep.name} 返回了空回复${result.finishReason ? `（结束原因：${result.finishReason}）` : ''}`, { retryable: true });
+  }
+  return result;
+}

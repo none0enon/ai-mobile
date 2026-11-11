@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // 只用 Web Worker 也有的接口（fetch、ReadableStream、DecompressionStream……）：
+    // 没有 document / window / localStorage，保证这里的代码能原样跑在 Cloudflare Worker 里
+    "lib": ["ES2022", "WebWorker"],
+    "types": []
+  },
+  "include": ["src"]
+}

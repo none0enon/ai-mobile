@@ -7,6 +7,9 @@ export type ConnectionKind =
   | 'gemini'
   | 'novelai'
   | 'workers-ai' // Cloudflare Workers AI（只能经 Worker 用）
+  | 'minimax' // MiniMax 语音合成（t2a_v2）
+  | 'fish-audio' // Fish Audio 语音合成
+  | 'gpt-sovits' // 自建 GPT-SoVITS（api_v2 的 /tts）
   | 'google-maps'; // 你的真实世界：地理编码、附近地点、地图
 
 export type Capability = 'chat' | 'vision' | 'embedding' | 'tts' | 'stt' | 'image' | 'maps';
@@ -33,12 +36,19 @@ export interface ProviderConnection extends SyncMeta {
   /** 对方不允许浏览器直连（没有 CORS）时，经自己的 Worker 转发 */
   viaWorker: boolean;
   extraHeaders?: Record<string, string>;
+  /**
+   * 服务商专有的设置（不是 Key，可以同步）：
+   * - minimax：groupId（老账号的接口要带 GroupId）
+   * - workers-ai：accountId（直连 Cloudflare REST 时用；经自己的 Worker 时不需要）
+   */
+  extra?: Record<string, string>;
   lastTest?: { ok: boolean; at: number; latencyMs?: number; message?: string };
 }
 
 /** 智能体角色。每个角色单独选"连接 + 模型 + 备用连接" */
 export type AgentRole =
   | 'main'
+  | 'sidestory'
   | 'summary'
   | 'embedding'
   | 'imagePrompt'
@@ -64,6 +74,11 @@ export interface AgentRoute {
   dailyTokenBudget?: number;
   /** 仅 embedding：当前向量维度。换模型后用于判断哪些记忆要重算 */
   dims?: number;
+  /**
+   * 原样并入请求体的其他字段，例如向量化的 dimensions / input_type、NovelAI 的 sampler。
+   * 只放服务商文档里有的字段；不认识的字段多数接口会报 400
+   */
+  extra?: Record<string, unknown>;
 }
 
 export const AGENT_META: Record<
@@ -76,6 +91,13 @@ export const AGENT_META: Record<
     capability: 'chat',
     runsOn: 'client',
     icon: 'i-lucide-message-circle-heart',
+  },
+  sidestory: {
+    label: '番外 · 她的生活',
+    desc: '你不在的时候她那边发生了什么：按她的作息、地点和身边的人写一小段故事，可以引出主动消息或配图',
+    capability: 'chat',
+    runsOn: 'both',
+    icon: 'i-lucide-book-heart',
   },
   summary: {
     label: '总结 / 记忆',
