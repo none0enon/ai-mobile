@@ -6,7 +6,6 @@ import { canEmbed } from '../embedding/client.ts';
 import { canDraw } from '../image/client.ts';
 import { canChat } from '../llm/client.ts';
 import { canSpeak } from '../tts/client.ts';
-import { canTranscribe } from '../stt/client.ts';
 
 /**
  * 功能路由：API 设置按功能分，每个功能自己选渠道、填地址、Key、模型，可以再设一个备用 API。
@@ -47,8 +46,6 @@ export function kindCan(kind: ConnectionKind, cap: Capability): boolean {
       return canEmbed(kind);
     case 'tts':
       return canSpeak(kind);
-    case 'stt':
-      return canTranscribe(kind);
     case 'image':
       return canDraw(kind);
     case 'maps':
@@ -75,6 +72,7 @@ export function endpointOfApi(
   const cap = AGENT_META[role].capability;
   const kind = kindOf(api, role);
   const name = `${apiLabel(api, role)}${opts.backup ? '（备用）' : ''}`;
+  if (cap === 'stt') return { reason: '语音识别还没接入，设置会先存着', code: 'unsupported' };
   if (!kindCan(kind, cap)) return { reason: `${name}不能做${capLabel(cap)}`, code: 'unsupported' };
   if (!api.baseUrl.trim()) return { reason: `${name}还没填地址`, code: 'no_route' };
   const model = (opts.model ?? api.model).trim();

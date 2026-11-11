@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { getLocation, isRealPlace, worldOf, type MapLocation, type MessagePart } from '@app/shared';
-import { isAbortError } from '@app/ai';
 import { showToast } from 'vant';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Composer from '@/components/chat/Composer.vue';
 import MessageItem from '@/components/chat/MessageItem.vue';
@@ -19,15 +18,12 @@ import PageHeader from '@/layouts/PageHeader.vue';
 import { mockToday, weather } from '@/mock/activity';
 import { goBack } from '@/router';
 import { services } from '@/services';
-import { putAsset } from '@/services/assets';
-import type { VoiceRecording } from '@/services/recorder';
 import { presetFor } from '@/services/prompt';
 import { useAppStore } from '@/stores/app';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 import { dividerTime, hhmm } from '@/utils/time';
-import { showErrorDialog } from '@/utils/errors';
 
 const route = useRoute();
 const router = useRouter();
@@ -89,34 +85,10 @@ watch(
   },
 );
 
-const voiceCalls = new Set<AbortController>();
-const recognizing = ref(0);
-function cancelVoiceCalls() {
-  for (const ctrl of voiceCalls) ctrl.abort();
-  voiceCalls.clear();
-  recognizing.value = 0;
-}
-watch(chatId, cancelVoiceCalls, { flush: 'sync' });
-onBeforeUnmount(cancelVoiceCalls);
-
-async function onVoice(recording: VoiceRecording) {
-  const target = chatId.value;
-  const ctrl = new AbortController();
-  voiceCalls.add(ctrl);
-  recognizing.value = voiceCalls.size;
-  try {
-    const transcript = await services.stt.transcribe(recording.audio, { signal: ctrl.signal });
-    if (ctrl.signal.aborted || chatId.value !== target) return;
-    const assetKey = await putAsset(new Uint8Array(await recording.audio.arrayBuffer()), recording.audio.type);
-    if (ctrl.signal.aborted || chatId.value !== target) return;
-    chatStore.push(target, 'user', [{ type: 'voice', assetKey, durationMs: recording.durationMs, transcript }]);
-    void chatStore.generate(target);
-  } catch (e) {
-    if (!ctrl.signal.aborted && !isAbortError(e)) showErrorDialog('语音识别失败', e);
-  } finally {
-    voiceCalls.delete(ctrl);
-    recognizing.value = voiceCalls.size;
-  }
+async function onVoice(ms: number) {
+  const transcript = await services.stt.transcribe(new Blob());
+  chatStore.push(chatId.value, 'user', [{ type: 'voice', assetKey: null, durationMs: ms, transcript }]);
+  await chatStore.generate(chatId.value);
 }
 
 function onAction(id: string) {
@@ -283,7 +255,7 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
           </template>
         </div>
       </div>
-      <Composer :key="chatId" :busy="!!stream" :voice-busy="recognizing > 0" @send="(t) => chatStore.send(chatId, t)" @stop="chatStore.stop(chatId)" @voice="onVoice" @voice-error="(e) => showErrorDialog('录音失败', e)" @action="onAction" />
+      <Composer :busy="!!stream" @send="(t) => chatStore.send(chatId, t)" @stop="chatStore.stop(chatId)" @voice="onVoice" @action="onAction" />
     </template>
 
     <!-- 剧场模式 -->

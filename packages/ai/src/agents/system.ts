@@ -12,7 +12,6 @@ import { textOf } from '../llm/messages.ts';
 import type { ChatOptions, ChatRequest, ChatResult } from '../llm/types.ts';
 import { synthesize, ttsCacheKey } from '../tts/client.ts';
 import type { TtsAudio, TtsRequest } from '../tts/types.ts';
-import { transcribeAudio, type SttRequest } from '../stt/client.ts';
 import { AgentRouter, type AgentConfig, type Attempt, type RouteStatus } from './router.ts';
 import { dayKey, MemoryUsageMeter, type UsageMeter } from './usage.ts';
 
@@ -261,20 +260,6 @@ export class AgentSystem {
       this.record('tts', estimateTokens(value.text));
       // TTS 的模型以实际用的为准（角色可以单独填模型）
       return { ...this.meta(attempt, fellBack, started), ...value, cached: false };
-    });
-  }
-
-  /** 语音识别：沿用功能自己的 API、备用 API 和完整错误记录。 */
-  async transcribe(req: SttRequest, opts: AgentCallOptions = {}): Promise<{ text: string } & CallMeta> {
-    return this.track('stt', async () => {
-      const attempts = this.router.attempts('stt');
-      const started = Date.now();
-      const { value, attempt, fellBack } = await this.router.run(
-        attempts,
-        (ep) => transcribeAudio(ep, { ...req, signal: req.signal ?? opts.signal }),
-        this.failover('stt', opts),
-      );
-      return { ...value, ...this.meta(attempt, fellBack, started) };
     });
   }
 

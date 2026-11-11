@@ -5,11 +5,12 @@ import {
   MockMaps,
   MockMusic,
   MockPush,
+  MockSTT,
   MockSync,
   MockTTS,
   MockWeather,
 } from './mock/others';
-import { RoutedEmbedding, RoutedImage, RoutedLLM, RoutedSTT, RoutedTTS } from './ai';
+import { RoutedEmbedding, RoutedImage, RoutedLLM, RoutedTTS } from './ai';
 import type {
   EmbeddingClient,
   ImageClient,
@@ -40,12 +41,12 @@ export interface Services {
 
 /**
  * 对话、语音合成、向量化、生图走多智能体（services/ai.ts）：分配的连接有 Key 时真的调用，否则用演示实现。
- * 语音识别走真实录音与转录接口；音乐、天气、地图、同步、推送仍为演示实现。
+ * 语音识别、音乐、天气、地图、同步、推送还是演示实现，之后的里程碑逐个替换：界面只依赖接口，替换时不用改页面
  */
 export const services: Services = {
   llm: new RoutedLLM(new MockLLM()),
   tts: new RoutedTTS(new MockTTS()),
-  stt: new RoutedSTT(),
+  stt: new MockSTT(),
   embedding: new RoutedEmbedding(new MockEmbedding()),
   image: new RoutedImage(),
   music: new MockMusic(),

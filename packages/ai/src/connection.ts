@@ -9,7 +9,6 @@ import { novelaiSubscription } from './image/novelai.ts';
 import { chatOnce } from './llm/client.ts';
 import { synthesize } from './tts/client.ts';
 import type { VoiceSpec } from './tts/types.ts';
-import { sttTestAudio, transcribeAudio } from './stt/client.ts';
 
 /**
  * API 设置里的两个按钮：拉取模型列表、测试连接（移植自 math-reader 的 fetchModels，扩展到各家）。
@@ -37,15 +36,15 @@ function hostOf(url: string): string {
 }
 
 /** 拉取模型列表；出错时报错里带上是哪个 API（界面显示完整报错） */
-export async function listModels(ep: Endpoint, signal?: AbortSignal, capability?: Capability): Promise<string[]> {
+export async function listModels(ep: Endpoint, signal?: AbortSignal): Promise<string[]> {
   try {
-    return await fetchModelList(ep, signal, capability);
+    return await fetchModelList(ep, signal);
   } catch (e) {
     throw annotate(e, ep);
   }
 }
 
-async function fetchModelList(ep: Endpoint, signal?: AbortSignal, capability?: Capability): Promise<string[]> {
+async function fetchModelList(ep: Endpoint, signal?: AbortSignal): Promise<string[]> {
   const fixed = STATIC_MODELS[ep.kind];
   if (fixed) return [...fixed];
   let res: Response;
@@ -75,12 +74,7 @@ async function fetchModelList(ep: Endpoint, signal?: AbortSignal, capability?: C
     });
   } else if (ep.kind === 'openai' || ep.kind === 'deepseek' || ep.kind === 'anthropic') {
     // 同 math-reader 的 fetchModels：GET {URL 去掉 /chat/completions}/models，Bearer 鉴权
-    let url = ep.kind === 'deepseek' && !isFullChatUrl(ep.baseUrl) ? joinUrl(deepseekBase(ep.baseUrl), 'models') : openaiModelsUrl(ep.baseUrl);
-    if (capability === 'stt' && /(^|\.)siliconflow\.(cn|com)$/i.test(hostOf(url))) {
-      const filtered = new URL(url);
-      filtered.searchParams.set('sub_type', 'speech-to-text');
-      url = filtered.toString();
-    }
+    const url = ep.kind === 'deepseek' && !isFullChatUrl(ep.baseUrl) ? joinUrl(deepseekBase(ep.baseUrl), 'models') : openaiModelsUrl(ep.baseUrl);
     res = await request(transportOf(ep), ep.name, url, { method: 'GET', headers: bearerHeaders(ep, false), signal });
   } else {
     return [];
@@ -157,10 +151,8 @@ export async function testConnection(ep: Endpoint, capability: Capability, opts:
         const models = await listModels(ep, opts.signal);
         return done(true, `接口正常（${models.length} 个模型）；没有真的出图，免得花钱`);
       }
-      case 'stt': {
-        const r = await transcribeAudio(ep, { audio: sttTestAudio(), signal: opts.signal });
-        return done(true, r.text ? `识别接口已接通：${r.text.slice(0, 40)}` : '识别接口已接通（静音样本测试）');
-      }
+      case 'stt':
+        return done(false, '语音识别还没接入，还不能测试');
       default:
         return done(false, '这个功能还不能测试');
     }

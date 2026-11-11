@@ -68,7 +68,7 @@ export interface TTSClient {
 }
 
 export interface STTClient {
-  transcribe(audio: Blob, opts?: { signal?: AbortSignal }): Promise<string>;
+  transcribe(audio: Blob): Promise<string>;
 }
 
 export interface EmbeddingClient {

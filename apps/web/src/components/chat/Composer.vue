@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import { showToast } from 'vant';
-import { VoiceRecorder, type VoiceRecording } from '@/services/recorder';
+import { nextTick, ref } from 'vue';
 
 /** 输入栏：文字 / 按住说话 / ＋面板（相册、拍照、一起听歌、约会、戳一戳……） */
-const props = withDefaults(defineProps<{ busy?: boolean; voiceBusy?: boolean; placeholder?: string; compact?: boolean }>(), {
+const props = withDefaults(defineProps<{ busy?: boolean; placeholder?: string; compact?: boolean }>(), {
   busy: false,
   placeholder: '说点什么…',
   compact: false,
@@ -12,8 +10,7 @@ const props = withDefaults(defineProps<{ busy?: boolean; voiceBusy?: boolean; pl
 const emit = defineEmits<{
   (e: 'send', text: string): void;
   (e: 'stop'): void;
-  (e: 'voice', recording: VoiceRecording): void;
-  (e: 'voice-error', error: unknown): void;
+  (e: 'voice', durationMs: number): void;
   (e: 'action', id: string): void;
 }>();
 
@@ -23,12 +20,8 @@ const plusOpen = ref(false);
 const holding = ref(false);
 const cancelling = ref(false);
 const input = ref<HTMLTextAreaElement | null>(null);
+let holdStart = 0;
 let startY = 0;
-const recorder = new VoiceRecorder();
-const preparing = ref(false);
-let finishing = false;
-let gesture = 0;
-let pointerId: number | null = null;
 
 const ACTIONS = [
   { id: 'album', label: '相册', icon: 'i-lucide-image' },
@@ -65,77 +58,24 @@ function onKey(e: KeyboardEvent) {
   }
 }
 
-async function pressStart(e: PointerEvent) {
-  if (holding.value || finishing || e.button !== 0 || !e.isPrimary) return;
-  const current = ++gesture;
-  pointerId = e.pointerId;
+function pressStart(e: PointerEvent) {
   holding.value = true;
-  preparing.value = true;
   cancelling.value = false;
+  holdStart = Date.now();
   startY = e.clientY;
-  (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-  try {
-    await recorder.start();
-  } catch (error) {
-    if (current === gesture) {
-      holding.value = false;
-      emit('voice-error', error);
-    }
-  } finally {
-    if (current === gesture) preparing.value = false;
-  }
+  (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
 }
 function pressMove(e: PointerEvent) {
-  if (holding.value && e.pointerId === pointerId) cancelling.value = startY - e.clientY > 60;
+  if (holding.value) cancelling.value = startY - e.clientY > 60;
 }
-async function pressEnd(e: PointerEvent) {
-  if (!holding.value || e.pointerId !== pointerId) return;
+function pressEnd() {
+  if (!holding.value) return;
   holding.value = false;
-  if (cancelling.value || preparing.value) {
-    cancelRecording();
-    return;
-  }
-  const current = gesture;
-  finishing = true;
-  try {
-    const recording = await recorder.stop();
-    if (current !== gesture || !recording) return;
-    if (recording.durationMs < 400 || !recording.audio.size) showToast('说话时间太短，请重新录音');
-    else emit('voice', recording);
-  } catch (error) {
-    if (current === gesture) emit('voice-error', error);
-  } finally {
-    finishing = false;
-  }
+  const ms = Date.now() - holdStart;
+  if (!cancelling.value && ms > 400) emit('voice', ms);
 }
-
-function cancelRecording() {
-  gesture += 1;
-  pointerId = null;
-  holding.value = false;
-  preparing.value = false;
-  recorder.cancel();
-}
-
-function cancelPointer(e: PointerEvent) {
-  if (e.pointerId === pointerId && holding.value) cancelRecording();
-}
-
-function onVisibilityChange() {
-  if (document.hidden) cancelRecording();
-}
-onMounted(() => {
-  document.addEventListener('visibilitychange', onVisibilityChange);
-  window.addEventListener('pagehide', cancelRecording);
-});
-onBeforeUnmount(() => {
-  cancelRecording();
-  document.removeEventListener('visibilitychange', onVisibilityChange);
-  window.removeEventListener('pagehide', cancelRecording);
-});
 
 function toggleVoice() {
-  cancelRecording();
   voiceMode.value = !voiceMode.value;
   plusOpen.value = false;
 }
@@ -158,14 +98,12 @@ defineExpose({ focus: () => input.value?.focus() });
         v-if="voiceMode"
         class="hold"
         :class="{ active: holding }"
-        @pointerdown.prevent="pressStart"
+        @pointerdown="pressStart"
         @pointermove="pressMove"
         @pointerup="pressEnd"
-        @pointercancel="cancelPointer"
-        @lostpointercapture="cancelPointer"
-        @contextmenu.prevent
+        @pointercancel="pressEnd"
       >
-        {{ holding ? (preparing ? '正在开启麦克风…' : cancelling ? '松开取消' : '松开发送 · 上滑取消') : props.voiceBusy ? '识别中 · 可继续说话' : '按住 说话' }}
+        {{ holding ? (cancelling ? '松开取消' : '松开发送 · 上滑取消') : '按住 说话' }}
       </button>
       <textarea
         v-else
@@ -201,7 +139,7 @@ defineExpose({ focus: () => input.value?.focus() });
       <span class="flex items-end gap-[3px] h-8">
         <span v-for="i in 12" :key="i" class="wave" :style="{ animationDelay: `${i * 70}ms` }" />
       </span>
-      <span class="text-[13px]">{{ preparing ? '请允许麦克风，然后重新按住说话' : cancelling ? '松开手指，取消发送' : '正在录音 · 松开发送，上滑取消' }}</span>
+      <span class="text-[13px]">{{ cancelling ? '松开手指，取消发送' : '正在听…（演示：松开后识别成文字）' }}</span>
     </div>
   </div>
 </template>

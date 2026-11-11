@@ -61,7 +61,7 @@ test('router status explains why a feature cannot run; text features follow the 
   // 局域网地址、自建 GPT-SoVITS 不填 Key 也能用
   assert.equal(r.status('vision').live, true);
   assert.equal(r.status('tts').live, true);
-  assert.equal(r.status('stt').live, true);
+  assert.match((r.status('stt') as { reason: string }).reason, /还没接入/);
   // 自定义渠道的文本功能默认按 Gemini 格式（同 math-reader 的自定义渠道），其他功能按 OpenAI 格式
   const custom = new AgentRouter(setup([route('main', { api: api('c', { channel: 'custom' }) }), route('summary', { sameAsMain: true }), route('embedding', { api: api('e', { channel: 'custom' }) })]));
   const a = custom.attempts('summary')[0]!;

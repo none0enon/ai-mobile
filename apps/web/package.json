@@ -8,8 +8,7 @@
     "build": "vite build",
     "build:preview": "vite build --mode preview && node scripts/make-artifact.mjs",
     "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
-    "test": "node --test test/*.test.ts"
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@app/ai": "workspace:*",

@@ -24,7 +24,6 @@ import type {
   LLMRequest,
   LLMResult,
   SpeakOptions,
-  STTClient,
   TTSClient,
 } from './types';
 import { weather } from '@/mock/activity';
@@ -138,15 +137,6 @@ export class RoutedTTS implements TTSClient {
     this.ctrl = null;
     stopAudio();
     this.demo.stop();
-  }
-}
-
-/** 没配置或调用失败时明确报错，不把演示台词当成用户的录音。 */
-export class RoutedSTT implements STTClient {
-  async transcribe(audio: Blob, opts: { signal?: AbortSignal } = {}): Promise<string> {
-    const r = await useAiStore().system.transcribe({ audio, signal: opts.signal });
-    if (!r.text) throw new AiError('empty', '没有识别到说话声，请重新录音');
-    return r.text;
   }
 }
 
