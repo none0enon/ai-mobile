@@ -59,6 +59,8 @@ export const useHubStore = defineStore('hub', () => {
     const result = await response.json() as { token: string; deviceId: string; error?: string };
     if (!response.ok) throw new Error(result.error || `登录失败 HTTP ${response.status}`);
     connectionVersion++;
+    syncing.value = false;
+    error.value = '';
     if (config.url !== base) Object.assign(config, { cursor: 0, active: false, revisions: {}, hashes: {}, apiHash: '' });
     config.url = base;
     config.deviceId = result.deviceId;
@@ -203,7 +205,7 @@ export const useHubStore = defineStore('hub', () => {
       const jobs = await Promise.allSettled([pull(), ...(config.active ? [uploadContexts(), uploadApi()] : [])]);
       const failure = jobs.find((r) => r.status === 'rejected');
       if (failure?.status === 'rejected') throw failure.reason;
-      lastSyncAt.value = Date.now(); error.value = '';
+      if (version === connectionVersion) { lastSyncAt.value = Date.now(); error.value = ''; }
     } catch (e) { if (version === connectionVersion) error.value = e instanceof Error ? e.message : String(e); }
     finally { if (version === connectionVersion) syncing.value = false; }
   }
