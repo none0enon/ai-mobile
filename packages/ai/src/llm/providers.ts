@@ -1,5 +1,5 @@
 import type { PromptProcessing } from '@app/shared';
-import { anthropicBase, bearerHeaders, deepseekBase, geminiBase, isDeepSeekOfficial, joinUrl, openaiBase, transportOf, type Endpoint } from '../core/endpoint.ts';
+import { anthropicBase, bearerHeaders, deepseekBase, geminiBase, isDeepSeekOfficial, isOpenAIOfficial, joinUrl, openaiBase, transportOf, type Endpoint } from '../core/endpoint.ts';
 import { httpError } from '../core/errors.ts';
 import { request } from '../core/http.ts';
 import { claudeModelInfo } from './claude.ts';
@@ -35,6 +35,8 @@ export interface OpenAIDialect {
   processing?: PromptProcessing;
   /** 不按模型名后缀开思考（DeepSeek 自己有思考开关） */
   noAlias?: boolean;
+  /** 输出上限的字段名：默认 max_tokens；OpenAI 官方直接用 max_completion_tokens（推理模型不认 max_tokens，省一次被拒） */
+  tokenField?: 'max_tokens' | 'max_completion_tokens';
   /** 在并入连接的额外字段之前改请求体；返回 maxTokens 时改用这个输出上限 */
   tweak?: (body: Record<string, unknown>, messages: Record<string, unknown>[]) => { maxTokens?: number } | void;
 }
@@ -82,7 +84,7 @@ export async function openaiCompatible(ep: Endpoint, req: ChatRequest, call: Pro
   for (const k of excluded) delete body[k];
 
   // OpenAI 的推理模型不认 max_tokens，要 max_completion_tokens
-  let tokenField = 'max_tokens';
+  let tokenField: string = d.tokenField ?? 'max_tokens';
   const fixes: RequestFix[] = [
     (err) => {
       if (tokenField !== 'max_tokens' || !/max_completion_tokens/i.test(err)) return false;
@@ -114,9 +116,13 @@ export async function openaiCompatible(ep: Endpoint, req: ChatRequest, call: Pro
   return readWhole(response, ep.name, opts);
 }
 
-/** OpenAI 兼容：…/chat/completions */
+/** OpenAI 兼容：…/chat/completions（OpenAI 官方、各家中转、Termux 等本机服务） */
 export const openaiChat: ChatProvider = (ep, req, call) =>
-  openaiCompatible(ep, req, call, { url: joinUrl(openaiBase(ep.baseUrl), 'chat/completions'), headers: bearerHeaders(ep) });
+  openaiCompatible(ep, req, call, {
+    url: joinUrl(openaiBase(ep.baseUrl), 'chat/completions'),
+    headers: bearerHeaders(ep),
+    ...(isOpenAIOfficial(ep.baseUrl) ? { tokenField: 'max_completion_tokens' as const } : {}),
+  });
 
 /**
  * DeepSeek 官方（按官网文档，2026-11）：

@@ -77,6 +77,8 @@ export interface TestResult {
   ok: boolean;
   latencyMs: number;
   message: string;
+  /** 失败时服务端返回的状态码（404 / 405 多半是协议选错了：OpenAI 格式和 Claude 格式的路径不一样） */
+  status?: number;
 }
 
 /** 没有指定音色时，测试用各家的系统音色 */
@@ -132,6 +134,6 @@ export async function testConnection(ep: Endpoint, capability: Capability, opts:
         return done(false, '这类连接还不能测试');
     }
   } catch (e) {
-    return done(false, errorText(e));
+    return { ...done(false, errorText(e)), ...(e instanceof AiError && e.status ? { status: e.status } : {}) };
   }
 }

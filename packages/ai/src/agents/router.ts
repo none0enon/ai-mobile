@@ -1,5 +1,5 @@
 import { AGENT_META, type AgentRole, type AgentRoute, type Capability, type ConnectionKind, type ProviderConnection } from '@app/shared';
-import type { Endpoint } from '../core/endpoint.ts';
+import { isLocalUrl, type Endpoint } from '../core/endpoint.ts';
 import { AiError, errorText, shouldFailover } from '../core/errors.ts';
 import type { Transport } from '../core/http.ts';
 import { canEmbed } from '../embedding/client.ts';
@@ -70,6 +70,7 @@ export class AgentRouter {
   /**
    * 一个连接能不能用来做 cap：协议支持、Key 在、需要转发时已连上 Worker。
    * Key 交给 Worker 而本机没有时，只能经 Worker 转发。
+   * 本机和局域网的地址（Termux 里跑的服务、Ollama、LM Studio…）不填 Key 也能用：请求照发，只是不带鉴权头。
    */
   endpointFor(conn: ProviderConnection, model: string, cap: Capability): { endpoint: Endpoint } | { reason: string; code: 'no_key' | 'unsupported' | 'network' } {
     if (!kindCan(conn.kind, cap)) return { reason: `"${conn.name}" 不能做${capLabel(cap)}`, code: 'unsupported' };
@@ -84,7 +85,7 @@ export class AgentRouter {
         };
       }
       transport = relay;
-    } else if (!key && conn.keyStorage !== 'none') {
+    } else if (!key && conn.keyStorage !== 'none' && !isLocalUrl(conn.baseUrl)) {
       return { reason: `"${conn.name}" 还没在这台设备上填 Key`, code: 'no_key' };
     }
     return {

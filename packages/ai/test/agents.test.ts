@@ -11,6 +11,7 @@ import { AgentRouter, type AgentConfig } from '../src/agents/router.ts';
 import { buildSidestoryMessages, parseSidestory } from '../src/agents/sidestory.ts';
 import { parseSummary } from '../src/agents/summary.ts';
 import { AgentSystem, MemoryAudioCache } from '../src/agents/system.ts';
+import { chatOnce } from '../src/llm/client.ts';
 import { bytesResponse, fakeTransport, json } from './helpers.ts';
 
 function conn(id: string, over: Partial<ProviderConnection> = {}): ProviderConnection {
@@ -299,4 +300,30 @@ test('memory ranking: pinned and due always included, similarity only within the
   const scores = Object.fromEntries(ranked.map((r) => [r.memory.id, r.score]));
   assert.ok(scores.coriander! > scores.thesis!);
   assert.deepEqual(staleMemories(memories, { model: 'BAAI/bge-m3', dims: 3 }).map((m) => m.id), ['interview', 'old-model']);
+});
+
+test('local servers (Termux on 127.0.0.1:8787, LAN) need no key: the agent goes live and the request has no auth header', async () => {
+  const t = fakeTransport(() => json({ choices: [{ message: { content: '在' } }] }));
+  const cs = [
+    conn('termux', { baseUrl: 'http://127.0.0.1:8787/chat/completions' }),
+    conn('lan', { baseUrl: 'http://192.168.1.20:8787/v1' }),
+    conn('cloud', { baseUrl: 'https://api.openai.com/v1' }),
+  ];
+  const config: AgentConfig = {
+    connections: () => cs,
+    routes: () => [route('main', { connectionId: 'termux', model: 'local-model' }), route('summary', { connectionId: 'lan', model: 'm' }), route('sidestory', { connectionId: 'cloud', model: 'gpt-5.5' })],
+    keyOf: () => null,
+  };
+  const r = new AgentRouter(config);
+  assert.equal(r.status('main').live, true);
+  assert.equal(r.status('summary').live, true);
+  assert.equal((r.status('sidestory') as { code: string }).code, 'no_key');
+
+  const ep = r.attempts('main')[0]!.endpoint;
+  const res = await r.run(r.attempts('main'), (e) => chatOnce({ ...e, transport: t }, { messages: [{ role: 'user', content: '在吗' }] }));
+  assert.equal(res.value.text, '在');
+  // math-reader 习惯的完整地址照原样用：不带 /v1 的也不会被改成 /v1/chat/completions
+  assert.equal(t.calls[0]!.url, 'http://127.0.0.1:8787/chat/completions');
+  assert.equal(t.calls[0]!.headers.authorization, undefined);
+  assert.equal(ep.key, null);
 });

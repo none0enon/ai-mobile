@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { base64Decode, base64Encode, utf8Decode, utf8Encode } from '@app/shared';
-import { anthropicBase, deepseekBase, geminiBase, openaiBase, vertexBase } from '../src/core/endpoint.ts';
+import { addressSpace, anthropicBase, deepseekBase, geminiBase, isLocalUrl, openaiBase, vertexBase } from '../src/core/endpoint.ts';
+import { networkError } from '../src/core/errors.ts';
 import { AiError } from '../src/core/errors.ts';
 import { claudeModelInfo } from '../src/llm/claude.ts';
 import { chatOnce } from '../src/llm/client.ts';
@@ -305,6 +306,36 @@ test('base URL normalization tolerates pasted endpoints', () => {
   assert.equal(deepseekBase(''), 'https://api.deepseek.com');
   assert.equal(vertexBase('https://aiplatform.googleapis.com'), 'https://aiplatform.googleapis.com/v1/publishers/google');
   assert.equal(vertexBase('https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.7-flash:streamGenerateContent?alt=sse&key=k'), 'https://aiplatform.googleapis.com/v1/publishers/google');
+  // 粘的完整地址照原样用（同 math-reader）：不带 /v1 的不会被补成 /v1；只填域名才补
+  assert.equal(openaiBase('http://127.0.0.1:8787/chat/completions'), 'http://127.0.0.1:8787');
+  assert.equal(openaiBase('http://127.0.0.1:8787/v1/chat/completions'), 'http://127.0.0.1:8787/v1');
+  assert.equal(openaiBase('http://127.0.0.1:8787'), 'http://127.0.0.1:8787/v1');
+  assert.equal(anthropicBase('http://127.0.0.1:8787/messages'), 'http://127.0.0.1:8787');
+  assert.equal(anthropicBase('http://localhost:8787'), 'http://localhost:8787/v1');
+});
+
+test('local addresses: Termux / LAN servers recognised; network errors explain what to check', () => {
+  assert.equal(addressSpace('http://127.0.0.1:8787/v1'), 'loopback');
+  assert.equal(addressSpace('http://localhost:8787'), 'loopback');
+  assert.equal(addressSpace('http://[::1]:8787'), 'loopback');
+  assert.equal(addressSpace('http://192.168.1.5:8787'), 'local');
+  assert.equal(addressSpace('http://172.20.0.2'), 'local');
+  assert.equal(addressSpace('http://172.32.0.2'), 'public');
+  assert.equal(addressSpace('https://api.anthropic.com/v1'), 'public');
+  assert.equal(isLocalUrl('https://'), false);
+  assert.match(networkError('Termux', new TypeError('Failed to fetch'), 'http://127.0.0.1:8787/v1/chat/completions').message, /本机地址 127\.0\.0\.1:8787.*Termux.*跨域.*本地网络/);
+  assert.match(networkError('中转', new TypeError('Failed to fetch'), 'https://relay.example.com/v1').message, /断网|直连/);
+});
+
+test('OpenAI official: max_completion_tokens from the first request; relays keep max_tokens', async () => {
+  const t = fakeTransport(OK);
+  await chatOnce(endpoint('openai', t, { baseUrl: 'https://api.openai.com/v1', model: 'gpt-5.5' }), { messages: USER, maxTokens: 500 });
+  await chatOnce(endpoint('openai', t, { baseUrl: 'http://127.0.0.1:8787/v1', model: 'local' }), { messages: USER, maxTokens: 500 });
+  assert.equal(t.calls[0]!.url, 'https://api.openai.com/v1/chat/completions');
+  assert.equal(t.calls[0]!.body.max_completion_tokens, 500);
+  assert.equal(t.calls[0]!.body.max_tokens, undefined);
+  assert.equal(t.calls[1]!.body.max_tokens, 500);
+  assert.equal(t.calls.length, 2);
 });
 
 /** 流式请求回 SSE，普通请求回 JSON */
