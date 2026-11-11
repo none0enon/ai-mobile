@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { compileFilter, DEFAULT_TTS_TEXT, errorText, prepareTtsText, splitSentences, volcengineClone, volcengineCloneStatus } from '@app/ai';
-import type { Character, CharacterVoice, TtsTextOptions } from '@app/shared';
-import { showToast } from 'vant';
+import { apiLabel, compileFilter, DEFAULT_TTS_TEXT, errorReport, kindOf, prepareTtsText, splitSentences, volcengineClone, volcengineCloneStatus } from '@app/ai';
+import { apiKeyId, type Character, type CharacterVoice, type TtsTextOptions } from '@app/shared';
 import { computed, ref } from 'vue';
 import Waveform from '@/components/call/Waveform.vue';
 import Avatar from '@/components/common/Avatar.vue';
+import ErrorDetails from '@/components/common/ErrorDetails.vue';
 import Segmented from '@/components/common/Segmented.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { services } from '@/services';
@@ -21,16 +21,17 @@ const nativeFallback = ref(true);
 const playing = ref<string | null>(null);
 const level = ref(0);
 
-/** 她用哪个 TTS 连接：自己选的，或者"语音合成"智能体分配的 */
-function voiceConn(c: Character) {
-  return ai.byId(c.voice.connectionId ?? ai.routeOf('tts')?.connectionId);
-}
+/** 语音合成用的 API（API 设置里"语音合成"功能的渠道），所有角色共用；音色按角色设置 */
+const ttsApi = computed(() => ai.routeOf('tts').api);
+const ttsKind = computed(() => (ttsApi.value ? kindOf(ttsApi.value, 'tts') : undefined));
+const ttsName = computed(() => (ttsApi.value ? apiLabel(ttsApi.value, 'tts') : '还没设置'));
 function voiceLine(c: Character) {
-  const conn = voiceConn(c);
-  return `${c.voice.voiceLabel || c.voice.voiceId || '还没选音色'} · ${conn?.name ?? '未选择连接'}`;
+  return `${c.voice.voiceLabel || c.voice.voiceId || '还没选音色'} · ${ttsName.value}`;
 }
+/** 语音识别用的 API */
+const sttLine = computed(() => ai.apiLine('stt', ai.routeOf('stt').api));
 
-/** 朗读哪些字：存在"语音合成"智能体上，所有角色共用 */
+/** 朗读哪些字：存在"语音合成"功能上，所有角色共用 */
 const ttsText = computed<TtsTextOptions>(() => ai.routeOf('tts')?.ttsText ?? DEFAULT_TTS_TEXT);
 function setTtsText(patch: Partial<TtsTextOptions>) {
   const r = ai.routeOf('tts');
@@ -53,9 +54,7 @@ async function preview(c: Character) {
 const editingId = ref<string | null>(null);
 const draft = ref<CharacterVoice | null>(null);
 const editOpen = computed({ get: () => !!editingId.value, set: (v) => !v && (editingId.value = null) });
-const ttsConns = computed(() => ai.connections.filter((c) => c.capabilities.includes('tts')));
-const draftConn = computed(() => ai.byId(draft.value?.connectionId ?? ai.routeOf('tts')?.connectionId));
-const draftKind = computed(() => draftConn.value?.kind);
+const draftKind = ttsKind;
 const VOICE_HINT: Record<string, string> = {
   openai: '硅基流动系统音色写名字即可（claire、anna、alex…），上传的音色写 speech:…；OpenAI 写 alloy、coral…',
   minimax: 'voice_id，例如 female-shaonv，或你克隆的音色 id',
@@ -68,18 +67,22 @@ function openVoice(c: Character) {
   draft.value = JSON.parse(JSON.stringify(c.voice)) as CharacterVoice;
   cloneFile.value = null;
   cloneStatus.value = '';
+  cloneError.value = '';
 }
 
 // —— 火山引擎声音复刻（同 SleepTogether）：先在控制台买好音色位，拿到 S_ 开头的 Speaker ID ——
 const cloneFile = ref<File | null>(null);
 const cloneBusy = ref(false);
 const cloneStatus = ref('');
+const cloneError = ref('');
 function cloneEndpoint() {
-  const c = draftConn.value;
-  if (!c) throw new Error('还没选连接');
-  const key = ai.keyOf(c.id);
-  if (!key) throw new Error(`先在"API 与智能体"里给"${c.name}"填 Access Token`);
-  return ai.endpointOf(c, key);
+  const a = ttsApi.value;
+  if (!a) throw new Error('先在"API 设置 → 语音合成"里选火山引擎');
+  const key = ai.keyOf(apiKeyId('tts'));
+  if (!key) throw new Error('先在"API 设置 → 语音合成"里填 Access Token');
+  const ep = ai.endpointOf(a, 'tts', key);
+  if ('reason' in ep) throw new Error(ep.reason);
+  return ep;
 }
 function pickCloneFile(e: Event) {
   cloneFile.value = (e.target as HTMLInputElement).files?.[0] ?? null;
@@ -89,6 +92,7 @@ async function uploadClone() {
   const file = cloneFile.value;
   if (!v || !file) return;
   cloneBusy.value = true;
+  cloneError.value = '';
   try {
     const audio = new Uint8Array(await file.arrayBuffer());
     const format = file.name.split('.').pop()?.toLowerCase() || 'wav';
@@ -97,7 +101,7 @@ async function uploadClone() {
     cloneStatus.value = '已上传，训练中';
     await checkClone();
   } catch (e) {
-    showToast({ message: `复刻失败：${errorText(e)}`.slice(0, 140), duration: 3500 });
+    cloneError.value = errorReport(e);
   } finally {
     cloneBusy.value = false;
   }
@@ -105,10 +109,12 @@ async function uploadClone() {
 async function checkClone() {
   const v = draft.value;
   if (!v?.voiceId) return;
+  cloneError.value = '';
   try {
     cloneStatus.value = (await volcengineCloneStatus(cloneEndpoint(), v.voiceId)).text;
   } catch (e) {
-    cloneStatus.value = `查询失败：${errorText(e)}`;
+    cloneStatus.value = '';
+    cloneError.value = errorReport(e);
   }
 }
 function saveVoice() {
@@ -116,7 +122,7 @@ function saveVoice() {
   const v = draft.value;
   if (!c || !v) return;
   v.voiceId = v.voiceId.trim();
-  c.voice = { ...v, model: v.model?.trim() || undefined, style: v.style?.trim() || undefined, refText: v.refText?.trim() || undefined, refLang: v.refLang?.trim() || undefined };
+  c.voice = { ...v, connectionId: undefined, model: v.model?.trim() || undefined, style: v.style?.trim() || undefined, refText: v.refText?.trim() || undefined, refLang: v.refLang?.trim() || undefined };
   editingId.value = null;
 }
 </script>
@@ -133,7 +139,7 @@ function saveVoice() {
             <div class="flex-1 min-w-0">
               <div class="text-[15px] font-600">{{ c.name }}</div>
               <div class="text-[12.5px] text-ink-3 truncate">{{ voiceLine(c) }}</div>
-              <div class="text-[11.5px] truncate" :class="ttsLiveFor(c) ? 'text-good' : 'text-ink-3'">{{ ttsLiveFor(c) ? '已接通' : '演示（没有声音）：给语音合成分配连接并填 Key' }}</div>
+              <div class="text-[11.5px] truncate" :class="ttsLiveFor(c) ? 'text-good' : 'text-ink-3'">{{ ttsLiveFor(c) ? '已接通' : '演示（没有声音）：在 API 设置里给语音合成选渠道、填 Key，再选音色' }}</div>
             </div>
             <van-button size="small" round @click="openVoice(c)">音色</van-button>
             <van-button size="small" round :loading="playing === c.id" @click="preview(c)">试听</van-button>
@@ -192,7 +198,7 @@ function saveVoice() {
 
       <div class="group-title">语音识别 · 通话</div>
       <van-cell-group inset>
-        <van-cell title="识别服务" value="硅基流动 SenseVoice" label="OpenAI 兼容 /audio/transcriptions" />
+        <van-cell title="识别服务" :value="sttLine" label="在 API 设置 → 语音识别里改（还没接入，先存着）" is-link to="/me/api" />
         <van-cell title="安卓系统识别兜底" label="网络不好时用手机自带的识别" center>
           <template #right-icon><van-switch v-model="nativeFallback" size="22px" /></template>
         </van-cell>
@@ -211,17 +217,16 @@ function saveVoice() {
     <van-popup v-model:show="editOpen" position="bottom" round :style="{ maxHeight: '88%' }">
       <div v-if="draft" class="sheet">
         <div class="sheet-title">{{ chars.byId(editingId)?.name }}的声音</div>
-        <label class="field-label">用哪个连接</label>
-        <div class="flex flex-wrap gap-1.5">
-          <button class="opt" :class="{ on: !draft.connectionId }" @click="draft.connectionId = null">跟随"语音合成"智能体</button>
-          <button v-for="c in ttsConns" :key="c.id" class="opt" :class="{ on: draft.connectionId === c.id }" @click="draft.connectionId = c.id">{{ c.name }}</button>
+        <div class="text-[12.5px] text-ink-3 mt-1">
+          用 API 设置里"语音合成"的渠道：{{ ttsName }}
+          <router-link to="/me/api" class="text-accent-ink ml-1">去改</router-link>
         </div>
         <label class="field-label" for="voice-id">音色</label>
         <input id="voice-id" v-model="draft.voiceId" class="input" autocomplete="off" />
         <p v-if="draftKind && VOICE_HINT[draftKind]" class="text-[12px] text-ink-3 mt-1.5 mb-0">{{ VOICE_HINT[draftKind] }}</p>
         <label class="field-label" for="voice-label">名字（只是显示用）</label>
         <input id="voice-label" v-model="draft.voiceLabel" class="input" placeholder="温柔女声" />
-        <label class="field-label" for="voice-model">模型（空着用智能体分配的）</label>
+        <label class="field-label" for="voice-model">模型（空着用"语音合成"设置里的）</label>
         <input id="voice-model" v-model="draft.model" class="input" autocomplete="off" />
         <label class="field-label" for="voice-style">说话风格（CosyVoice、gpt-4o-mini-tts 会参考）</label>
         <input id="voice-style" v-model="draft.style" class="input" placeholder="温柔、语速稍慢" />
@@ -233,6 +238,7 @@ function saveVoice() {
             <van-button size="small" round :disabled="!draft.voiceId" @click="checkClone">查看进度</van-button>
           </div>
           <p v-if="cloneStatus" class="text-[12px] text-ink-3 mt-1.5 mb-0">{{ cloneStatus }}</p>
+          <ErrorDetails v-if="cloneError" :detail="cloneError" title="声音复刻出错" max-height="30vh" />
         </template>
         <template v-if="draftKind === 'gpt-sovits'">
           <label class="field-label" for="voice-ref">参考音频里说的话</label>

@@ -152,7 +152,7 @@ export function characterFromCard(
     spriteSetId: null,
     appearanceTags: '',
     negativeTags: '',
-    voice: { connectionId: null, voiceId: '', voiceLabel: '未设置', speed: 1, emotionMap: {} },
+    voice: { voiceId: '', voiceLabel: '未设置', speed: 1, emotionMap: {} },
     proactive: {
       enabled: false,
       personality: 'balanced',

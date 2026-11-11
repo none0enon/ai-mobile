@@ -3,6 +3,7 @@ import type { Character, Message, MessagePart } from '@app/shared';
 import { computed } from 'vue';
 import PartCard from './PartCard.vue';
 import Avatar from '@/components/common/Avatar.vue';
+import ErrorDetails from '@/components/common/ErrorDetails.vue';
 import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
 import { personas } from '@/mock/characters';
 import { useAppearanceStore } from '@/stores/appearance';
@@ -98,7 +99,7 @@ function segments(text: string) {
           <button v-for="c in message.meta.choices" :key="c" class="choice press" @click="emit('choose', c)">{{ c }}</button>
         </div>
         <span v-if="message.meta.interrupted" class="text-[12px] text-warn">回复被打断了 · 点重新生成继续</span>
-        <span v-if="message.meta.error" class="err">回复失败：{{ message.meta.error }}</span>
+        <ErrorDetails v-if="message.meta.error" class="err-details" :detail="message.meta.errorDetail ?? message.meta.error" title="回复失败（点上面的 ↻ 重新生成）" max-height="220px" />
       </div>
       <PersonaAvatar v-if="mine && showMyAvatar && me" :persona="me" :size="34" class="mt-0.5" />
     </div>
@@ -106,6 +107,11 @@ function segments(text: string) {
 </template>
 
 <style scoped>
+.err-details {
+  width: 100%;
+  max-width: 100%;
+  margin-top: 4px;
+}
 .err {
   max-width: 100%;
   font-size: 12px;

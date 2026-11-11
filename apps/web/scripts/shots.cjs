@@ -95,6 +95,8 @@ const SHOTS = [
   ['presets', '/me/presets'],
   ['preset-edit', '/me/presets/preset-daily'],
   ['api', '/me/api'],
+  ['api-main', '/me/api', async (p) => p.click('[data-role="main"] button >> nth=0')],
+  ['install', '/me/install'],
   ['voice', '/me/voice'],
   ['proactive', '/me/proactive'],
   ['environment', '/me/environment'],

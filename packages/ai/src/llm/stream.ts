@@ -1,4 +1,4 @@
-import { abortError, AiError, isAbortError } from '../core/errors.ts';
+import { abortError, AiError, annotateError, isAbortError, responseContext } from '../core/errors.ts';
 import {
   eventIsThinking,
   finishReasonOf,
@@ -57,7 +57,7 @@ export async function readAIStream(response: Response, opts: ReadStreamOptions =
     // 生成中途出错时服务端在流里发 error 事件（例如 Claude 的 overloaded_error）
     if (event.error) {
       const msg = typeof event.error === 'string' ? event.error : event.error.message || JSON.stringify(event.error);
-      throw new AiError('http', `生成途中出错：${msg}`, { retryable: true, detail: JSON.stringify(event.error).slice(0, 2000) });
+      throw new AiError('http', `生成途中出错：${msg}`, { retryable: true, detail: JSON.stringify(event) });
     }
     usage = mergeUsage(usage, usageOf(event));
     finishReason = finishReasonOf(event) ?? finishReason;
@@ -209,8 +209,8 @@ export async function readAIStream(response: Response, opts: ReadStreamOptions =
   } catch (e) {
     reader.cancel().catch(() => undefined);
     if (signal?.aborted || isAbortError(e)) throw abortError();
-    if (e instanceof AiError) throw e;
-    throw new AiError('network', `读取回复时连接断了：${e instanceof Error ? e.message : String(e)}`, { retryable: true, cause: e });
+    if (e instanceof AiError) throw annotateError(e, responseContext(response));
+    throw new AiError('network', `读取回复时连接断了：${e instanceof Error ? e.message : String(e)}`, { retryable: true, cause: e, context: responseContext(response) });
   }
 
   if (format === 'json' && values <= 1) {
@@ -240,14 +240,14 @@ export async function readWhole(response: Response, provider: string, opts: Read
     body = await response.text();
   } catch (e) {
     if (opts.signal?.aborted || isAbortError(e)) throw abortError();
-    throw new AiError('network', `读取 ${provider} 的回复时连接断了`, { retryable: true, cause: e });
+    throw new AiError('network', `读取 ${provider} 的回复时连接断了`, { retryable: true, cause: e, context: responseContext(response) });
   }
   if (/^\s*(?:data:|event:|:)/.test(body)) return readAIStream(new Response(body), { ...opts, onDelta: undefined, onState: undefined });
   let data: unknown;
   try {
     data = JSON.parse(body);
   } catch {
-    throw new AiError('bad_response', `${provider} 的回复不是 JSON：${body.replace(/\s+/g, ' ').slice(0, 200)}`, { retryable: true });
+    throw new AiError('bad_response', `${provider} 的回复不是 JSON：${body.replace(/\s+/g, ' ').slice(0, 200)}`, { retryable: true, detail: body, context: responseContext(response) });
   }
   const whole = opts.textOf?.(data) || responseText(data);
   const s = splitThinkTag(whole);

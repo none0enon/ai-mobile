@@ -635,7 +635,7 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 - **地点**：MapLocation（`locations.ts`，地图坐标、背景、在那里能做的事）。
 - **记忆**：Memory（带向量）、ChapterSummary、DiaryEntry。
 - **活动**：ActivityLog（运动 / 步数 / 吃饭 / 学习 / 睡眠 / 听歌 / 约会）。
-- **API**：ProviderConnection（`keyStorage`：device / hub / none）、AgentRoute。
+- **API**：按功能分。AgentRoute（每个功能一条：自己的 FeatureApi = 渠道 + 地址 + 模型，可选的备用 FeatureApi，文本功能可以跟随主对话）；Key 不在记录里，按 `api:{功能}` 存在本机。
 - **主动与设置**：ProactiveRule、Touchpoint、PushChannel、AppSettings（外观里有模式、白天 / 夜里配色、点缀色来源、通用聊天背景）。
 
 所有可同步记录都带 `id / createdAt / updatedAt / deleted / seq`。

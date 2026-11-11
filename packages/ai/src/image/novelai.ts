@@ -1,6 +1,6 @@
 import { readPngText } from '@app/shared';
 import { joinUrl, transportOf, trimUrl, type Endpoint } from '../core/endpoint.ts';
-import { AiError, httpError } from '../core/errors.ts';
+import { AiError, httpError, responseContext } from '../core/errors.ts';
 import { readBytes, readText, request, sleep } from '../core/http.ts';
 import { randomSeed } from '../core/util.ts';
 import { extractImage, sniffImageMime } from './extract.ts';
@@ -122,10 +122,10 @@ async function readImageResponse(ep: Endpoint, res: Response, signal?: AbortSign
     try {
       data = JSON.parse(new TextDecoder().decode(bytes));
     } catch {
-      throw new AiError('bad_response', `${ep.name} 的回复不是图片：${new TextDecoder().decode(bytes.subarray(0, 200))}`);
+      throw new AiError('bad_response', `${ep.name} 的回复不是图片：${new TextDecoder().decode(bytes.subarray(0, 200))}`, { detail: new TextDecoder().decode(bytes), context: responseContext(res) });
     }
     const found = extractImage(data);
-    if (!found) throw httpError(ep.name, 502, JSON.stringify(data).slice(0, 2000));
+    if (!found) throw httpError(ep.name, 502, JSON.stringify(data), res);
     if ('bytes' in found) return { bytes: found.bytes, mime: sniffImageMime(found.bytes, found.mime) };
     const r = await request(transportOf(ep), ep.name, found.url, { method: 'GET', signal });
     if (!r.ok) return { bytes: null, mime: 'image/png', url: found.url };
@@ -164,7 +164,7 @@ export async function novelaiGenerate(ep: Endpoint, req: ImageRequest): Promise<
     await sleep(NOVELAI_RETRY.delayMs * attempt, req.signal);
     res = await request(transportOf(ep), ep.name, url, init);
   }
-  if (!res.ok) throw httpError(ep.name, res.status, await readText(res));
+  if (!res.ok) throw httpError(ep.name, res.status, await readText(res), res);
   const image = await readImageResponse(ep, res, req.signal);
   return {
     images: [image],
@@ -198,7 +198,7 @@ export async function novelaiSubscription(ep: Endpoint, signal?: AbortSignal): P
     signal,
   });
   if (res.status === 404 && !/novelai\.net/i.test(base)) return null;
-  if (!res.ok) throw httpError(ep.name, res.status, await readText(res));
+  if (!res.ok) throw httpError(ep.name, res.status, await readText(res), res);
   const d = (await res.json()) as {
     tier?: number;
     active?: boolean;

@@ -1,6 +1,6 @@
 import { base64Decode, base64Encode } from '@app/shared';
 import { joinUrl, transportOf, trimUrl, type Endpoint } from '../core/endpoint.ts';
-import { AiError, httpError } from '../core/errors.ts';
+import { AiError, httpError, responseContext } from '../core/errors.ts';
 import { readText, request } from '../core/http.ts';
 import type { TtsCall, TtsOutput } from './providers.ts';
 
@@ -84,9 +84,9 @@ export async function volcengineSpeech(ep: Endpoint, call: TtsCall): Promise<Tts
   if (!res.ok) {
     const text = await readText(res);
     if (isClonedVoice(voice) && !/^seed-icl-/i.test(resourceId)) {
-      throw new AiError('http', `${ep.name}：复刻音色 ${voice} 要用 seed-icl-2.0 一类的 Resource ID（${res.status}）`, { status: res.status, detail: text });
+      throw new AiError('http', `${ep.name}：复刻音色 ${voice} 要用 seed-icl-2.0 一类的 Resource ID（${res.status}）`, { status: res.status, detail: text, context: responseContext(res) });
     }
-    throw httpError(ep.name, res.status, text);
+    throw httpError(ep.name, res.status, text, res);
   }
   const chunks: Uint8Array[] = [];
   for (const raw of (await readText(res)).split('\n')) {
@@ -101,7 +101,7 @@ export async function volcengineSpeech(ep: Endpoint, call: TtsCall): Promise<Tts
     const code = Number(data?.code ?? 0);
     if (code === 0 && data?.data) chunks.push(base64Decode(data.data));
     else if (code === 20000000) break;
-    else if (code > 0) throw new AiError('http', `${ep.name} 返回错误 ${code}：${data?.message ?? ''}`, { status: 400, detail: line.slice(0, 2000) });
+    else if (code > 0) throw new AiError('http', `${ep.name} 返回错误 ${code}：${data?.message ?? ''}`, { status: 400, detail: line, context: responseContext(res) });
   }
   const total = chunks.reduce((n, c) => n + c.length, 0);
   if (!total) throw new AiError('empty', `${ep.name} 没有返回音频`, { retryable: true });
@@ -150,7 +150,7 @@ export async function volcengineClone(
     }),
     signal: opts.signal,
   });
-  if (!res.ok) throw httpError(ep.name, res.status, await readText(res));
+  if (!res.ok) throw httpError(ep.name, res.status, await readText(res), res);
   const data = (await res.json()) as Record<string, any>;
   if (data?.BaseResp?.StatusCode !== 0) throw cloneError(data);
   return { speakerId: data.speaker_id || opts.speakerId.trim(), resourceId };
@@ -167,7 +167,7 @@ export async function volcengineCloneStatus(ep: Endpoint, speakerId: string, sig
     body: JSON.stringify({ appid: appId, speaker_id: speakerId.trim() }),
     signal,
   });
-  if (!res.ok) throw httpError(ep.name, res.status, await readText(res));
+  if (!res.ok) throw httpError(ep.name, res.status, await readText(res), res);
   const data = (await res.json()) as Record<string, any>;
   if (data?.BaseResp?.StatusCode !== 0) throw cloneError(data);
   const status = Number(data.status ?? 0);

@@ -14,6 +14,7 @@ import AppearancePage from '@/pages/me/AppearancePage.vue';
 import CharacterEditPage from '@/pages/me/CharacterEditPage.vue';
 import CharactersPage from '@/pages/me/CharactersPage.vue';
 import EnvironmentPage from '@/pages/me/EnvironmentPage.vue';
+import InstallPage from '@/pages/me/InstallPage.vue';
 import LorebookEditPage from '@/pages/me/LorebookEditPage.vue';
 import LorebooksPage from '@/pages/me/LorebooksPage.vue';
 import PersonasPage from '@/pages/me/PersonasPage.vue';
@@ -47,11 +48,12 @@ export const routes: RouteRecordRaw[] = [
   { path: '/me/lorebooks/:id', component: LorebookEditPage, meta: { title: '编辑世界书' } },
   { path: '/me/presets', component: PresetsPage, meta: { title: '预设' } },
   { path: '/me/presets/:id', component: PresetEditPage, meta: { title: '编辑预设' } },
-  { path: '/me/api', component: ApiPage, meta: { title: 'API 与智能体' } },
+  { path: '/me/api', component: ApiPage, meta: { title: 'API 设置' } },
   { path: '/me/voice', component: VoicePage, meta: { title: '语音' } },
   { path: '/me/proactive', component: ProactivePage, meta: { title: '主动消息' } },
   { path: '/me/environment', component: EnvironmentPage, meta: { title: '环境与作息' } },
   { path: '/me/sync', component: SyncPage, meta: { title: '同步与备份' } },
+  { path: '/me/install', component: InstallPage, meta: { title: '装成 App' } },
   { path: '/me/appearance', component: AppearancePage, meta: { title: '外观' } },
   { path: '/import', component: ImportPage, meta: { title: '导入' } },
   { path: '/:pathMatch(.*)*', redirect: '/chats' },

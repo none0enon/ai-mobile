@@ -61,7 +61,7 @@ export class MockSTT implements STTClient {
 
 /**
  * 假向量：字符二元组哈希到 256 维再归一化。只为"测试相似度"按钮有个像样的数字，
- * 真实版本调你在"智能体分配"里选的 Embedding 接口。
+ * 真实版本调你在"API 设置 → 向量化"里选的接口。
  */
 export class MockEmbedding implements EmbeddingClient {
   readonly live = false;

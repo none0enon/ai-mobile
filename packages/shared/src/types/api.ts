@@ -1,8 +1,6 @@
-import type { SyncMeta } from './common.ts';
-
-/** 连接的协议类型 */
+/** 请求协议（各家的写法）。设置页里选的是渠道（ApiChannel），渠道决定用哪种协议 */
 export type ConnectionKind =
-  | 'openai' // OpenAI 兼容（各家中转、DeepSeek、硅基流动、Ollama……）
+  | 'openai' // OpenAI 格式（各家中转、硅基流动、Ollama……）
   | 'anthropic'
   | 'gemini'
   | 'deepseek' // DeepSeek 官方（OpenAI 格式；思考开关、推理强度、前缀续写按官网）
@@ -18,33 +16,29 @@ export type ConnectionKind =
 export type Capability = 'chat' | 'vision' | 'embedding' | 'tts' | 'stt' | 'image' | 'maps';
 
 /**
- * 同 math-reader 的三套 AI API：主要 / 次要 / 备用。对话、番外、总结这些文字类智能体每个选用其中一套（默认主要）；
- * 所选的没设置就依次用主要、备用、次要；调用失败改用备用（所选的是备用时改用主要）。
+ * 渠道：API 设置里每个功能选的"哪一家"。渠道决定请求协议（ConnectionKind）、默认地址和常用模型：
+ * - 文本功能（主对话、番外、总结、生图提示词、主动消息、识图）：自定义、Claude、OpenAI 兼容、Gemini、Vertex Agent、DeepSeek；
+ * - 其他功能：自定义（OpenAI 格式，任意地址），以及能做这件事的几家（硅基流动、NovelAI、MiniMax……）。
  */
-export type ApiSlot = 'primary' | 'secondary' | 'backup';
+export type ApiChannel =
+  | 'custom' // 自定义：任意地址。文本功能可选请求格式（默认 Gemini 原生，同 math-reader 的自定义渠道）；其他功能是 OpenAI 格式
+  | 'anthropic' // Claude
+  | 'openai' // OpenAI 兼容
+  | 'gemini' // Gemini（AI Studio）
+  | 'vertex' // Vertex Agent
+  | 'deepseek'
+  | 'siliconflow' // 硅基流动（OpenAI 格式）：向量、语音合成、语音识别、生图
+  | 'novelai'
+  | 'minimax'
+  | 'volcengine'
+  | 'fish-audio'
+  | 'gpt-sovits';
 
-export const API_SLOTS: readonly ApiSlot[] = ['primary', 'secondary', 'backup'];
-
-export const API_SLOT_LABEL: Record<ApiSlot, string> = { primary: '主要 API', secondary: '次要 API', backup: '备用 API' };
-
-/** 一套 API 用哪个连接、哪个模型（math-reader 的渠道、URL、密钥在这里是连接） */
-export interface ApiSlotSetting {
-  /** null = 未选择（次要、备用 = 不使用） */
-  connectionId: string | null;
-  model: string;
-}
+/** 自定义渠道的请求格式（只有文本功能能选；其他功能固定是 OpenAI 格式） */
+export type CustomFormat = 'gemini' | 'openai' | 'anthropic';
 
 /**
- * Key 存在哪里（按连接设置，不按智能体）：
- * - device：只存本机（默认）。同步记录里永远没有 Key；可选用同步密码加密后在设备间传递
- * - hub：交给自己的 Worker 保管，只能写入、不能读回（用 Worker secret 加密）。
- *        后台智能体（主动消息、夜间总结、生图）只能用这一档；其他设备经 Worker 转发也能用，但看不到明文
- * - none：不需要 Key（本地 Ollama、Workers AI 等）
- */
-export type KeyStorage = 'device' | 'hub' | 'none';
-
-/**
- * 发给 OpenAI 兼容接口之前怎么整理消息（同 SillyTavern 的 Prompt Post-Processing）：
+ * 发给 OpenAI 格式接口之前怎么整理消息（同 SillyTavern 的 Prompt Post-Processing）：
  * - none：原样发；
  * - merge：名字写进正文，同一角色连续的消息合并；
  * - semi：再把中途的系统消息改成 user；
@@ -57,35 +51,42 @@ export type PromptProcessing = 'none' | 'merge' | 'semi' | 'strict' | 'single';
 /** 推理强度：auto 交给模型；none 尽量不思考（DeepSeek 关掉思考模式）；其余按各家映射成 reasoning_effort / 思考预算 / 思考等级 */
 export type ReasoningEffort = 'auto' | 'none' | 'min' | 'low' | 'medium' | 'high' | 'max';
 
-/** 一个 API 连接。同步数据里只有 keyStorage 和 hasKey，没有 Key 本身 */
-export interface ProviderConnection extends SyncMeta {
-  name: string;
-  kind: ConnectionKind;
-  /** 填 Base URL（如 https://api.example.com/v1），程序按协议拼路径 */
+/**
+ * 一个功能用的 API：渠道 + 地址 + 模型。
+ * Key 不在这里：单独存在这台设备的 secrets 表（键见 apiKeyId），永远不进同步数据。
+ */
+export interface FeatureApi {
+  channel: ApiChannel;
+  /** 仅自定义渠道的文本功能：请求格式，不写 = Gemini 原生（同 math-reader 的自定义渠道） */
+  format?: CustomFormat;
+  /** 填 Base URL（如 https://api.example.com/v1），程序按协议拼路径；也可以粘完整的 …/chat/completions */
   baseUrl: string;
-  keyStorage: KeyStorage;
-  hasKey: boolean;
-  capabilities: Capability[];
+  model: string;
+  /** 拉取到的、手动添加的模型（选模型用） */
   models: string[];
-  /** 对方不允许浏览器直连（没有 CORS）时，经自己的 Worker 转发 */
-  viaWorker: boolean;
-  extraHeaders?: Record<string, string>;
   /**
-   * 服务商专有的设置（不是 Key，可以同步）：
+   * 渠道专有的设置（不是 Key）：
    * - minimax：groupId（老账号的接口要带 GroupId）
    * - volcengine：appId、resourceId（默认 seed-tts-2.0；复刻的音色 S_… 自动用 seed-icl-2.0）
    * - vertex：location（默认 global）、projectId（服务账号 JSON 里有 project_id 时不用填）；只在用服务账号授权时用到
-   * - workers-ai：accountId（直连 Cloudflare 时用；经自己的 Worker 时不需要）
-   * - openai 语音合成：emotion = 'off' 时不给 CosyVoice 加情绪指令
+   * - 语音合成（OpenAI 格式）：emotion = 'off' 时不给 CosyVoice 加情绪指令
    */
   extra?: Record<string, string>;
-  /** 仅 OpenAI 兼容的对话：发出去之前怎么整理消息，默认 none */
+  /** 额外请求头 */
+  headers?: Record<string, string>;
+  /** 仅 OpenAI 格式的对话：发出去之前怎么整理消息，默认 none */
   promptProcessing?: PromptProcessing;
-  /** 仅 OpenAI 兼容的对话：额外并入请求体的字段（同 SillyTavern 的 Include Body Parameters） */
+  /** 仅 OpenAI 格式的对话：额外并入请求体的字段（同 SillyTavern 的 Include Body Parameters） */
   includeBody?: Record<string, unknown>;
-  /** 仅 OpenAI 兼容的对话：从请求体里去掉的字段（同 SillyTavern 的 Exclude Body Parameters） */
+  /** 仅 OpenAI 格式的对话：从请求体里去掉的字段（同 SillyTavern 的 Exclude Body Parameters） */
   excludeBody?: string[];
-  lastTest?: { ok: boolean; at: number; latencyMs?: number; message?: string };
+  /** 上次"测试连接"的结果；失败时 detail 是完整报错 */
+  lastTest?: { ok: boolean; at: number; latencyMs?: number; message: string; detail?: string };
+}
+
+/** 一个功能的 Key 在 secrets 表里的键：自己的 API 是 api:main，备用 API 是 api:main:backup */
+export function apiKeyId(role: AgentRole, backup = false): string {
+  return `api:${role}${backup ? ':backup' : ''}`;
 }
 
 /** 生图风格（生图智能体用）：固定的前后缀和负面词、采样器，同 SleepTogether / SillyTavern 的生图设置 */
@@ -122,7 +123,7 @@ export interface TtsTextOptions {
   regex?: string;
 }
 
-/** 智能体角色。每个角色单独选"连接 + 模型 + 备用连接" */
+/** 功能（智能体）。每个功能单独选渠道、填地址、Key 和模型 */
 export type AgentRole =
   | 'main'
   | 'sidestory'
@@ -135,17 +136,18 @@ export type AgentRole =
   | 'tts'
   | 'stt';
 
+/** 一个功能的设置：用哪个 API（渠道 + 地址 + 模型）、失败时改用哪个、调用参数 */
 export interface AgentRoute {
   role: AgentRole;
   /**
-   * 文字类智能体（对话、识图）用三套 API 中的哪一套（同 math-reader 的 AI 功能分配），不写 = 主要 API。
-   * 这类智能体不看下面的 connectionId / model / fallbackConnectionId
+   * 仅主对话以外的文本功能：用主对话的 API（连同它的备用 API），不用自己的 api / backup。
+   * 新装时默认打开：填好主对话，番外、总结这些就都能用
    */
-  slot?: ApiSlot;
-  connectionId: string | null;
-  model: string;
-  fallbackConnectionId: string | null;
-  fallbackModel?: string;
+  sameAsMain?: boolean;
+  /** 这个功能自己的 API；null = 还没设置 */
+  api: FeatureApi | null;
+  /** 调用失败时改用的 API；null = 不用 */
+  backup: FeatureApi | null;
   params?: Partial<{
     temperature: number;
     maxTokens: number;
@@ -156,7 +158,7 @@ export interface AgentRoute {
     includeReasoning: boolean;
   }>;
   /**
-   * 在哪里运行：device 本机、hub 自己的 Worker（App 关着也能跑，要求连接的 Key 存在 hub）、
+   * 在哪里运行：device 本机、hub 自己的 Worker（App 关着也能跑，M2）、
    * auto 本机在线时本机跑，否则 Worker 补上
    */
   runsOn: 'device' | 'hub' | 'auto';
@@ -202,7 +204,7 @@ export const AGENT_META: Record<
   },
   embedding: {
     label: '向量化',
-    desc: '把记忆变成向量，供本机检索。任意 OpenAI 兼容 /embeddings 都可以',
+    desc: '把记忆变成向量，供本机检索',
     capability: 'embedding',
     runsOn: 'both',
     icon: 'i-lucide-waypoints',
@@ -216,7 +218,7 @@ export const AGENT_META: Record<
   },
   image: {
     label: '生图',
-    desc: 'NovelAI 出图，结果进相册',
+    desc: '出图，结果进相册',
     capability: 'image',
     runsOn: 'worker',
     icon: 'i-lucide-image',
@@ -229,15 +231,15 @@ export const AGENT_META: Record<
     icon: 'i-lucide-bell-ring',
   },
   vision: {
-    label: '视觉',
-    desc: '看饭照、识别运动截图',
+    label: '识图',
+    desc: '看饭照、识别运动截图（模型要能看图）',
     capability: 'vision',
     runsOn: 'client',
     icon: 'i-lucide-scan-eye',
   },
   tts: {
     label: '语音合成',
-    desc: '角色说话的声音（按角色单独设置音色）',
+    desc: '她说话的声音（音色在"我的 → 语音"里按角色设置）',
     capability: 'tts',
     runsOn: 'client',
     icon: 'i-lucide-audio-lines',
@@ -250,3 +252,9 @@ export const AGENT_META: Record<
     icon: 'i-lucide-mic',
   },
 };
+
+/** 文本功能（对话、识图）：渠道是自定义、Claude、OpenAI 兼容、Gemini、Vertex Agent、DeepSeek */
+export function isTextRole(role: AgentRole): boolean {
+  const cap = AGENT_META[role].capability;
+  return cap === 'chat' || cap === 'vision';
+}

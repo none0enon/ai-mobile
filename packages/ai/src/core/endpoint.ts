@@ -3,20 +3,21 @@ import { defaultTransport, type Transport } from './http.ts';
 
 /**
  * 一次调用需要的全部信息：连接（协议、地址、Key、请求方式）+ 这次用的模型。
- * 由智能体路由（agents/router.ts）从"连接 + 智能体分配"解析出来；各家协议的代码只认它。
+ * 由功能路由（agents/router.ts）从"功能的 API 设置（渠道 + 地址 + 模型）+ Key"解析出来；各家协议的代码只认它。
  */
 export interface Endpoint {
+  /** 哪个功能的哪个 API（api:main、api:main:backup）；缓存和报错里区分用 */
   connectionId: string;
-  /** 连接名称，报错和降级提示里用（"中转站 A 返回 429…"） */
+  /** 渠道名称，报错和降级提示里用（"Claude 返回 429…"、"DeepSeek（备用）"） */
   name: string;
   kind: ConnectionKind;
   baseUrl: string;
   /** 不需要 Key 的连接（本地 Ollama、自建 GPT-SoVITS、经自己 Worker 的 Workers AI）为空 */
   key: string | null;
   model: string;
-  /** 连接里填的额外请求头 */
+  /** 额外请求头 */
   headers?: Record<string, string>;
-  /** 服务商专有设置（ProviderConnection.extra） */
+  /** 渠道专有设置（FeatureApi.extra） */
   extra?: Record<string, string>;
   /** 仅 OpenAI 兼容的对话：消息整理方式、额外 / 去掉的请求字段（同 SillyTavern 的自定义来源设置） */
   promptProcessing?: PromptProcessing;

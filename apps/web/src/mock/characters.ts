@@ -44,7 +44,6 @@ export const characters: Character[] = [
       '1girl, solo, long hair, dark brown hair, hair clip, brown eyes, beige cardigan, white blouse, soft smile, gentle eyes',
     negativeTags: 'lowres, bad anatomy, bad hands, text, watermark, extra fingers',
     voice: {
-      connectionId: 'conn-sf',
       voiceId: 'FunAudioLLM/CosyVoice2-0.5B:claire',
       voiceLabel: '温柔女声 · claire',
       speed: 0.95,
@@ -108,7 +107,6 @@ export const characters: Character[] = [
     appearanceTags: '1boy, solo, short hair, black hair, sharp eyes, sportswear, towel around neck',
     negativeTags: 'lowres, bad anatomy, text, watermark',
     voice: {
-      connectionId: 'conn-sf',
       voiceId: 'FunAudioLLM/CosyVoice2-0.5B:alex',
       voiceLabel: '低沉男声 · alex',
       speed: 1.05,

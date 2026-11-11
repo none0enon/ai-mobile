@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router';
 import Composer from '@/components/chat/Composer.vue';
 import MessageItem from '@/components/chat/MessageItem.vue';
 import Avatar from '@/components/common/Avatar.vue';
+import ErrorDetails from '@/components/common/ErrorDetails.vue';
 import GenImage from '@/components/figure/GenImage.vue';
 import DialogBox from '@/components/stage/DialogBox.vue';
 import Wallpaper from '@/components/common/Wallpaper.vue';
@@ -281,6 +282,7 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
         :streaming="!!stream"
         :thinking="!!stream?.thinking"
         :choices="lastAi?.meta.choices ?? []"
+        :error="!stream && lastAi?.meta.error ? (lastAi.meta.errorDetail ?? lastAi.meta.error) : ''"
         :voice-on="voiceOn"
         :auto-on="autoOn"
         @reply="(t) => chatStore.send(chatId, t)"
@@ -314,7 +316,7 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
       <div v-if="imagePart && imagePart.type === 'image'" class="p-3">
         <GenImage :part="imagePart" :character="character" class="rounded-[16px] overflow-hidden" />
         <div class="mt-3 text-[15px] font-600">{{ imagePart.caption }}</div>
-        <div v-if="imagePart.error" class="mt-1 text-[12px] text-bad break-all">没画出来：{{ imagePart.error }}</div>
+        <ErrorDetails v-if="imagePart.error" :detail="imagePart.errorDetail ?? imagePart.error" title="没画出来" max-height="30vh" />
         <div class="mt-1 text-[12px] text-ink-3 break-all max-h-[96px] overflow-y-auto">提示词：{{ imagePart.prompt ?? (imagePart.error ? '—' : '生成中…') }}</div>
         <div v-if="imagePart.seed" class="text-[12px] text-ink-3 num">种子：{{ imagePart.seed }}{{ imagePart.model ? ` · ${imagePart.model}` : '' }}</div>
         <div class="flex gap-2 mt-3">

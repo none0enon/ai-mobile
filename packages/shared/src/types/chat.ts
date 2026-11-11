@@ -25,6 +25,8 @@ export type MessagePart =
       generated: boolean;
       /** 生成失败的原因（界面显示，可以重画） */
       error?: string;
+      /** 完整报错 */
+      errorDetail?: string;
     }
   | { type: 'music'; songId: string; title: string; artist: string; cover?: string | null }
   /** 拍一拍："你拍了拍她的头" / "她拍了拍你" */
@@ -97,9 +99,11 @@ export interface Message extends SyncMeta {
     choices?: string[];
     /** 回复被打断（切后台、断网）时保留半截内容，界面显示"继续" */
     interrupted?: boolean;
-    /** 生成失败的原因（接口报错、Key 不对……），界面显示，可以重新生成 */
+    /** 生成失败的原因（接口报错、Key 不对……）一句话，界面显示，可以重新生成 */
     error?: string;
-    /** 主连接失败后用了备用连接 */
+    /** 完整报错：请求地址、状态码、服务商返回的原文……（界面完整显示，可以复制） */
+    errorDetail?: string;
+    /** 自己的 API 失败后用了备用 API */
     fellBack?: boolean;
   };
 }

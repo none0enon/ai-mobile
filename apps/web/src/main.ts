@@ -9,6 +9,7 @@ import './styles/base.css';
 import './styles/vant.css';
 import 'virtual:uno.css';
 import App from './App.vue';
+import { initPwa } from './pwa';
 import { router } from './router';
 import { unlockAudio } from './services/audio';
 import { useAiStore } from './stores/ai';
@@ -28,10 +29,8 @@ try {
   // 忽略
 }
 
-// 正式构建注册 Service Worker：可以"添加到主屏幕"当 App 用，断网也能打开（单文件预览版不注册）
-if (import.meta.env.PROD && import.meta.env.MODE !== 'preview' && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => void navigator.serviceWorker.register('./sw.js').catch(() => undefined));
-}
+// 装成 App：正式构建注册 Service Worker（断网也能打开），接住浏览器的"可以安装"事件（单文件预览版不注册）
+initPwa(import.meta.env.PROD && import.meta.env.MODE !== 'preview');
 
 const app = createApp(App).use(createPinia()).use(router);
 

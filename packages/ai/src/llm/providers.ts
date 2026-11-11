@@ -12,8 +12,8 @@ import type { ChatCallbacks, ChatRequest, ChatResult } from './types.ts';
 /**
  * 三家对话协议。底子移植自 math-reader 的 doAIRequest / doClaudeRequest / doGeminiRequest，
  * 参数规则对照 SillyTavern 的 chat-completions 后端（推理强度、Claude 采样限制和预填、Gemini 安全设置、
- * 自定义来源的消息整理和请求体增删），备用连接的"最简请求"和模型名后缀思考参考 SleepTogether 的 api-manager。
- * 每个函数只负责"按这家的写法发一次请求、读出结果"；流式失败改普通请求、换备用连接在 client.ts 和智能体路由里做。
+ * 自定义来源的消息整理和请求体增删），备用 API 的"最简请求"和模型名后缀思考参考 SleepTogether 的 api-manager。
+ * 每个函数只负责"按这家的写法发一次请求、读出结果"；流式失败改普通请求、换备用 API 在 client.ts 和功能路由里做。
  */
 
 export interface ProviderCall extends ChatCallbacks {
@@ -109,7 +109,7 @@ export async function openaiCompatible(ep: Endpoint, req: ChatRequest, call: Pro
     return request(transportOf(ep), ep.name, url, { method: 'POST', headers: d.headers, body: JSON.stringify(body), signal: call.signal });
   };
   const { response, errText } = await sendFixing(`${url}|${String(body.model)}`, maxTokens, call.onState, send, fixes);
-  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '');
+  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '', response);
   const textOf = (j: Json) => j.choices?.[0]?.message?.content ?? null;
   const opts = { onDelta: call.onDelta, onState: call.onState, signal: call.signal, textOf };
   if (call.stream) return readAIStream(response, { ...opts, deltaOf: (e: Json) => e.choices?.[0]?.delta?.content });
@@ -206,7 +206,7 @@ export const anthropicChat: ChatProvider = async (ep, req, call) => {
     });
   };
   const { response, errText } = await sendFixing(`${url}|${ep.model}`, requested, call.onState, send, fixes);
-  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '');
+  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '', response);
   const textOf = (d: Json) => (Array.isArray(d.content) ? d.content.filter((x: Json) => x.type === 'text').map((x: Json) => x.text).join('') : null);
   const opts = { onDelta: call.onDelta, onState: call.onState, signal: call.signal, textOf };
   if (call.stream) {
@@ -277,7 +277,7 @@ export async function geminiGenerate(ep: Endpoint, req: ChatRequest, call: Provi
     });
   };
   const { response, errText } = await sendFixing(t.cacheKey, req.maxTokens, call.onState, send, fixes);
-  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '');
+  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '', response);
   // 流式时每个事件也是这种结构，只含新增的一段正文。标着 thought 的片段是思考内容，不算正文
   const textOf = (j: Json) => {
     const parts = j.candidates?.[0]?.content?.parts;

@@ -1,4 +1,4 @@
-import { abortError, isAbortError, networkError } from './errors.ts';
+import { abortError, isAbortError, networkError, rememberRequest } from './errors.ts';
 
 /**
  * 发请求的函数。默认是全局 fetch；连接打开"经 Worker 转发"时换成转发到自己 Worker 的版本，
@@ -10,17 +10,22 @@ export type Transport = (url: string, init: RequestInit) => Promise<Response>;
 export const defaultTransport: Transport = (url, init) => fetch(url, init);
 
 /**
- * 发一个请求：网络层的失败（断网、CORS、DNS）统一成 AiError('network')，取消统一成 AiError('aborted')。
+ * 发一个请求：网络层的失败（断网、CORS、DNS）统一成 AiError('network')（带上请求地址），取消统一成 AiError('aborted')。
  * HTTP 错误状态码不在这里处理，交给调用方（有的要读正文判断能不能去掉某个参数重试）。
  */
 export async function request(transport: Transport, provider: string, url: string, init: RequestInit): Promise<Response> {
   if (init.signal?.aborted) throw abortError();
+  const method = init.method ?? 'GET';
+  let res: Response;
   try {
-    return await transport(url, init);
+    res = await transport(url, init);
   } catch (e) {
     if (isAbortError(e) || init.signal?.aborted) throw abortError();
-    throw networkError(provider, e);
+    throw networkError(provider, e, { method, url });
   }
+  // 记下这个响应是哪个请求的：出错时完整报错里列出请求地址
+  rememberRequest(res, method, url);
+  return res;
 }
 
 export async function readText(res: Response): Promise<string> {
