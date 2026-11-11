@@ -9,7 +9,7 @@ import { decodeFloat32Base64, l2normalize } from './vector.ts';
  * 向量化（设计文档 §4.1 / §6.2）：把记忆和查询变成单位向量，检索在本机做。
  * - OpenAI 兼容 …/embeddings：硅基流动（BAAI/bge-m3、Qwen3-Embedding）、OpenAI、Jina、Ollama、各家中转；
  * - Gemini：…/models/{model}:batchEmbedContents，按用途带 taskType；
- * - Workers AI：…/accounts/{id}/ai/run/@cf/baai/bge-m3（浏览器不能直连，要经自己的 Worker）。
+ * - Workers AI：…/accounts/{id}/ai/v1/embeddings（OpenAI 兼容，同 SillyTavern；浏览器不能直连，要经自己的 Worker）。
  * 记忆和查询的写法有的模型不同（e5 的 query: / passage:、Qwen3 的查询指令、Gemini 的 taskType），这里按模型自动加；
  * 智能体分配的 extra 里可以用 queryPrefix / documentPrefix 覆盖。
  */
@@ -73,16 +73,15 @@ const geminiBatch: Batch = async (ep, inputs, req) => {
   return { vectors: (data?.embeddings ?? []).map((e: any) => e?.values ?? []) };
 };
 
+/**
+ * Workers AI：用 Cloudflare 的 OpenAI 兼容接口 …/accounts/{id}/ai/v1/embeddings（同 SillyTavern）。
+ * Base URL 可以直接填这个地址；只填了账号 ID（extra.accountId）时程序拼出来。浏览器不能直连 Cloudflare，要经自己的 Worker
+ */
 const workersAiBatch: Batch = async (ep, inputs, req, extra) => {
   let base = trimUrl(ep.baseUrl);
-  if (!/^https?:/i.test(base) && ep.extra?.accountId) base = `https://api.cloudflare.com/client/v4/accounts/${ep.extra.accountId}/ai`;
-  base = base.replace(/\/run(?:\/.*)?$/i, '');
-  const url = `${base}/run/${ep.model}`;
-  const res = await request(transportOf(ep), ep.name, url, { method: 'POST', headers: bearerHeaders(ep), body: JSON.stringify({ text: inputs, ...extra }), signal: req.signal });
-  if (!res.ok) throw httpError(ep.name, res.status, await readText(res));
-  const data = await parseJson(res, ep.name);
-  // REST 接口包在 result 里；经自己的 Worker（绑定 AI）直接是 { data, shape }
-  return { vectors: (data?.result ?? data)?.data ?? [] };
+  if (!/^https?:/i.test(base) && ep.extra?.accountId) base = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(ep.extra.accountId)}/ai/v1`;
+  base = base.replace(/\/run(?:\/.*)?$/i, '').replace(/\/ai$/i, '/ai/v1');
+  return openaiBatch({ ...ep, baseUrl: base }, inputs, req, extra);
 };
 
 async function parseJson(res: Response, provider: string): Promise<any> {

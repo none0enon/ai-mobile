@@ -6,10 +6,12 @@ import { resolveEmotion } from './emotion.ts';
 import { fishSpeech, minimaxSpeech, openaiSpeech, sovitsSpeech, type TtsCall, type TtsOutput } from './providers.ts';
 import { prepareTtsText } from './text.ts';
 import type { TtsAudio, TtsRequest } from './types.ts';
+import { volcengineSpeech } from './volcengine.ts';
 
 const TTS_PROVIDERS: Partial<Record<ConnectionKind, (ep: Endpoint, call: TtsCall) => Promise<TtsOutput>>> = {
   openai: openaiSpeech,
   minimax: minimaxSpeech,
+  volcengine: volcengineSpeech,
   'fish-audio': fishSpeech,
   'gpt-sovits': sovitsSpeech,
 };
@@ -21,7 +23,7 @@ export function canSpeak(kind: ConnectionKind): boolean {
 /** 实际要读的文字和情绪（缓存的键、合成都用它） */
 export function ttsInput(req: TtsRequest): { text: string; emotion: string | null } {
   return {
-    text: req.raw ? req.text.trim() : prepareTtsText(req.text),
+    text: req.raw ? req.text.trim() : prepareTtsText(req.text, { ...req.textOptions, speakerName: req.speakerName }),
     emotion: resolveEmotion(req.expression, req.voice.emotionMap),
   };
 }

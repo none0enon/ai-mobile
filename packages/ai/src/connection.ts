@@ -16,6 +16,8 @@ import type { VoiceSpec } from './tts/types.ts';
 export const STATIC_MODELS: Partial<Record<Endpoint['kind'], string[]>> = {
   novelai: NOVELAI_MODELS,
   minimax: ['speech-02-hd', 'speech-02-turbo', 'speech-2.5-hd-preview', 'speech-2.5-turbo-preview'],
+  // 火山引擎的"模型"就是 Resource ID
+  volcengine: ['seed-tts-2.0', 'seed-tts-1.0', 'seed-icl-2.0', 'seed-icl-1.0'],
   'fish-audio': ['s1', 'speech-1.6', 'speech-1.5'],
   'gpt-sovits': ['gpt-sovits'],
   'workers-ai': ['@cf/baai/bge-m3', '@cf/baai/bge-large-en-v1.5', '@cf/baai/bge-base-en-v1.5'],
@@ -65,6 +67,7 @@ export interface TestResult {
 function defaultVoice(ep: Endpoint): VoiceSpec | null {
   if (ep.kind === 'openai') return { voiceId: ep.model.includes('/') ? 'anna' : 'alloy' };
   if (ep.kind === 'minimax') return { voiceId: 'female-shaonv' };
+  if (ep.kind === 'volcengine') return { voiceId: 'zh_female_vv_uranus_bigtts' };
   if (ep.kind === 'fish-audio') return { voiceId: '' };
   return null;
 }
@@ -102,8 +105,9 @@ export async function testConnection(ep: Endpoint, capability: Capability, opts:
       case 'image': {
         if (ep.kind === 'novelai') {
           const s = await novelaiSubscription(ep, opts.signal);
+          if (!s) return done(true, '站点能连上，但查不到订阅（公益站一般没有这个接口）');
           const tier = ['未订阅', 'Tablet', 'Scroll', 'Opus'][s.tier] ?? `等级 ${s.tier}`;
-          return done(s.active, `${tier}${s.active ? '' : '（未生效）'} · 剩 ${s.anlas} 点${s.tier >= 3 ? ' · 小图免点数' : ''}`);
+          return done(s.active, `${tier}${s.active ? '' : '（未生效）'} · 剩 ${s.anlas} 点${s.unlimited || s.tier >= 3 ? ' · 小图免点数' : ''}`);
         }
         const models = await listModels(ep, opts.signal);
         return done(true, `接口正常（${models.length} 个模型）；没有真的出图，免得花钱`);

@@ -1,4 +1,4 @@
-import { AgentSystem, MemoryAudioCache, type AgentConfig, type Endpoint, type RouteStatus } from '@app/ai';
+import { AgentSystem, DEFAULT_IMAGE_STYLE, DEFAULT_OUTPUT_FILTERS, DEFAULT_TTS_TEXT, MemoryAudioCache, type AgentConfig, type Endpoint, type RouteStatus } from '@app/ai';
 import { AGENT_META, type AgentRole, type AgentRoute, type ProviderConnection } from '@app/shared';
 import { defineStore } from 'pinia';
 import { showToast } from 'vant';
@@ -12,13 +12,19 @@ function clone<T>(x: T): T {
   return JSON.parse(JSON.stringify(x)) as T;
 }
 
-/** 补齐缺的智能体（以前存的设置里没有后来新加的，例如"番外"），按 AGENT_META 的顺序排 */
+/**
+ * 补齐缺的智能体（以前存的设置里没有后来新加的，例如"番外"），按 AGENT_META 的顺序排；
+ * 生图补上默认的生图风格、语音合成补上默认的朗读设置
+ */
 function completeRoutes(saved: AgentRoute[]): AgentRoute[] {
-  return ROLES.map(
-    (role) =>
-      saved.find((r) => r.role === role) ??
-      clone(seedRoutes.find((r) => r.role === role)) ?? { role, connectionId: null, model: '', fallbackConnectionId: null, runsOn: 'device' as const },
-  );
+  return ROLES.map((role) => {
+    const r: AgentRoute =
+      saved.find((x) => x.role === role) ??
+      clone(seedRoutes.find((x) => x.role === role)) ?? { role, connectionId: null, model: '', fallbackConnectionId: null, runsOn: 'device' as const };
+    if (role === 'image' && !r.imageStyle) r.imageStyle = clone(DEFAULT_IMAGE_STYLE);
+    if (role === 'tts' && !r.ttsText) r.ttsText = clone(DEFAULT_TTS_TEXT);
+    return r;
+  });
 }
 
 /**
@@ -31,14 +37,17 @@ export const useAiStore = defineStore('ai', () => {
   const connections = ref<ProviderConnection[]>(clone(seedConnections));
   const routes = ref<AgentRoute[]>(completeRoutes(clone(seedRoutes)));
   const keys = reactive<Record<string, string>>({});
+  /** 输出修剪规则（SleepTogether 的全局正则）：所有文本智能体的回复都过一遍 */
+  const outputFilters = ref<string[]>([...DEFAULT_OUTPUT_FILTERS]);
 
   const settingsSaver = autoSave(
     'settings',
     () => [
       { key: 'connections', value: connections.value },
       { key: 'routes', value: routes.value },
+      { key: 'outputFilters', value: outputFilters.value },
     ],
-    () => [connections.value, routes.value],
+    () => [connections.value, routes.value, outputFilters.value],
   );
   const secretSaver = autoSave(
     'secrets',
@@ -77,13 +86,15 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   async function hydrate() {
-    const [savedConns, savedRoutes, secrets] = await Promise.all([
+    const [savedConns, savedRoutes, savedFilters, secrets] = await Promise.all([
       getOne<ProviderConnection[]>('settings', 'connections'),
       getOne<AgentRoute[]>('settings', 'routes'),
+      getOne<string[]>('settings', 'outputFilters'),
       getEntries<string>('secrets'),
     ]);
     if (savedConns?.length) connections.value = savedConns;
     if (savedRoutes?.length) routes.value = completeRoutes(savedRoutes);
+    if (Array.isArray(savedFilters)) setOutputFilters(savedFilters);
     for (const { key, value } of secrets) if (typeof value === 'string' && value) keys[key] = value;
     syncHasKey();
     settingsSaver.start();
@@ -132,6 +143,11 @@ export const useAiStore = defineStore('ai', () => {
     if (i >= 0) routes.value[i] = { ...r };
   }
 
+  function setOutputFilters(patterns: string[]) {
+    outputFilters.value = patterns.map((x) => x.trim()).filter(Boolean);
+    system.setOutputFilters(outputFilters.value);
+  }
+
   function status(role: AgentRole): RouteStatus {
     return system.status(role);
   }
@@ -142,8 +158,37 @@ export const useAiStore = defineStore('ai', () => {
 
   /** 用连接 + Key 拼一个端点（测试连接、拉模型列表；连接可能还没保存） */
   function endpointOf(c: ProviderConnection, key: string | null, model = c.models[0] ?? ''): Endpoint {
-    return { connectionId: c.id, name: c.name, kind: c.kind, baseUrl: c.baseUrl, key, model, headers: c.extraHeaders, extra: c.extra };
+    return {
+      connectionId: c.id,
+      name: c.name,
+      kind: c.kind,
+      baseUrl: c.baseUrl,
+      key,
+      model,
+      headers: c.extraHeaders,
+      extra: c.extra,
+      promptProcessing: c.promptProcessing,
+      includeBody: c.includeBody,
+      excludeBody: c.excludeBody,
+    };
   }
 
-  return { connections, routes, system, hydrate, byId, routeOf, keyOf, setKey, saveConnection, removeConnection, saveRoute, status, isLive, endpointOf };
+  return {
+    connections,
+    routes,
+    outputFilters,
+    system,
+    hydrate,
+    byId,
+    routeOf,
+    keyOf,
+    setKey,
+    saveConnection,
+    removeConnection,
+    saveRoute,
+    setOutputFilters,
+    status,
+    isLive,
+    endpointOf,
+  };
 });

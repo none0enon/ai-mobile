@@ -20,6 +20,11 @@ export interface RankInput {
   topK?: number;
   /** 记忆部分最多多少 token */
   tokenBudget?: number;
+  /**
+   * 相似度下限（SillyTavern 向量存储的 score_threshold，默认 0.25）：有查询向量时，低于它的记忆不进 Top-K；
+   * 置顶和到期的待跟进照样必带。不给就不限
+   */
+  minSimilarity?: number;
   countTokens?: (text: string) => number;
 }
 
@@ -56,8 +61,10 @@ export function rankMemories(input: RankInput): RankedMemory[] {
     return { memory: m, score: scoreMemory(m, sim, input.now, w), similarity: sim, reason };
   });
   const must = scored.filter((r) => r.reason !== 'score').sort((a, b) => b.score - a.score);
+  const floor = input.minSimilarity;
   const rest = scored
     .filter((r) => r.reason === 'score')
+    .filter((r) => floor === undefined || r.similarity === null || r.similarity >= floor)
     .sort((a, b) => b.score - a.score)
     .slice(0, input.topK ?? 8);
   const out: RankedMemory[] = [...must];

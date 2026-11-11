@@ -1,4 +1,4 @@
-import type { ConnectionKind } from '@app/shared';
+import type { ConnectionKind, TtsTextOptions } from '@app/shared';
 import type { Bytes } from '../core/http.ts';
 
 /**
@@ -36,6 +36,10 @@ export interface TtsRequest {
   language?: string;
   /** 文字已经处理过（不再去掉动作描写、表情符号） */
   raw?: boolean;
+  /** 朗读前怎么处理文字（只读引号里的、动作读不读……），不给用默认 */
+  textOptions?: TtsTextOptions;
+  /** 说话人的名字：行首的"名字："不读 */
+  speakerName?: string;
   signal?: AbortSignal;
 }
 

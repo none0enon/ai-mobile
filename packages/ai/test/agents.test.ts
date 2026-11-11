@@ -74,22 +74,25 @@ test('router status explains why an agent cannot run', () => {
   void t;
 });
 
-test('chat failover: primary fails, fallback answers, meta and callbacks report it', async () => {
+test('chat failover: fallback gets a minimal request (SleepTogether), meta and callbacks report it, output is trimmed', async () => {
   const t = fakeTransport((req) =>
-    req.url.startsWith('https://a.example') ? json({ error: { message: 'upstream down' } }, 502) : json({ choices: [{ message: { content: '备用的回复' } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }),
+    req.url.startsWith('https://a.example')
+      ? json({ error: { message: 'upstream down' } }, 502)
+      : json({ choices: [{ message: { content: '我在想……</think>备用的回复' } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }),
   );
-  const routes = [route('main', { connectionId: 'a', model: 'big', fallbackConnectionId: 'b', fallbackModel: 'small', params: { temperature: 0.8 } })];
+  const routes = [route('main', { connectionId: 'a', model: 'big', fallbackConnectionId: 'b', fallbackModel: 'small', params: { temperature: 0.8, reasoningEffort: 'high' }, extra: { top_a: 0.2 } })];
   const seen: string[] = [];
   const sys = new AgentSystem({ config: setup([conn('a'), conn('b')], routes, t), onFailover: (role, from, to, e) => seen.push(`${role}:${from.connection.id}→${to.connection.id}:${(e as Error).message}`) });
-  const r = await withFetch(t, () => sys.chat('main', { messages: [{ role: 'user', content: '在吗' }] }));
+  const r = await withFetch(t, () => sys.chat('main', { messages: [{ role: 'user', content: '在吗' }], topP: 0.9 }));
+  // 只有结束标签的思考内容被修剪掉（SleepTogether 的默认规则）
   assert.equal(r.text, '备用的回复');
   assert.equal(r.fellBack, true);
-  assert.equal(r.connectionId, 'b');
   assert.equal(r.model, 'small');
-  assert.equal(t.calls[0]!.body.model, 'big');
-  assert.equal(t.calls[0]!.body.temperature, 0.8);
-  assert.equal(t.calls.at(-1)!.body.model, 'small');
-  assert.equal(seen.length, 1);
+  const first = t.calls[0]!.body;
+  assert.equal(first.temperature, 0.8);
+  assert.equal(first.reasoning_effort, 'high');
+  assert.equal(first.top_a, 0.2);
+  assert.deepEqual(Object.keys(t.calls.at(-1)!.body).sort(), ['messages', 'model', 'stream', 'temperature']);
   assert.match(seen[0]!, /^main:a→b:.*502/);
   assert.equal(sys.usedToday('main'), 15);
 });
@@ -137,6 +140,9 @@ test('speak: cached by sentence; character connection override; no cross-provide
     audioCache: new MemoryAudioCache(),
   });
   const voice = { voiceId: 'claire' };
+  const quoted = new AgentSystem({ config: setup(cs, [route('tts', { connectionId: 'sf', model: 'm', ttsText: { quotedOnly: true, asterisks: 'drop', parentheses: 'drop', skipCodeBlocks: true, skipTags: true } })], t) });
+  await withFetch(t, () => quoted.speak({ text: '她小声说：“晚安。”然后关了灯。', voice }));
+  assert.equal(t.calls.shift()!.body.input, '晚安。');
   const a = await withFetch(t, () => sys.speak({ text: '晚安', voice, expression: 'sleepy' }));
   const b = await withFetch(t, () => sys.speak({ text: '（打哈欠）晚安', voice, expression: 'sleepy' }));
   assert.equal(a.cached, false);
@@ -176,7 +182,8 @@ test('illustrate: image prompt agent writes tags, appearance tags go first, Nove
       : bytesResponse(png, 'image/png'),
   );
   const cs = [conn('ds'), conn('nai', { kind: 'novelai', capabilities: ['image'], baseUrl: 'https://image.novelai.net' })];
-  const sys = new AgentSystem({ config: setup(cs, [route('imagePrompt', { connectionId: 'ds', model: 'deepseek-chat' }), route('image', { connectionId: 'nai', model: 'nai-diffusion-4-5-full' })], t) });
+  const style = { prefix: 'best quality', suffix: '', negative: 'lowres', naiQuality: false, sampler: 'k_euler', schedule: 'native' };
+  const sys = new AgentSystem({ config: setup(cs, [route('imagePrompt', { connectionId: 'ds', model: 'deepseek-chat' }), route('image', { connectionId: 'nai', model: 'nai-diffusion-4-5-full', imageStyle: style })], t) });
   const stages: string[] = [];
   const input = { character: { name: '苏晚', appearanceTags: 'brown hair, long hair, brown eyes', negativeTags: 'extra fingers' }, caption: '雨夜的窗边，她抱着靠垫回头看' };
   const r = await withFetch(t, () => illustrate(sys, input, { seed: 7, onStage: (s) => stages.push(s) }));
@@ -187,7 +194,11 @@ test('illustrate: image prompt agent writes tags, appearance tags go first, Nove
   const draw = t.calls.at(-1)!;
   assert.equal(draw.url, 'https://image.novelai.net/ai/generate-image');
   assert.equal(draw.body.parameters.seed, 7);
-  assert.ok(draw.body.input.startsWith('brown hair, long hair, brown eyes, 1girl'));
+  // 生图风格：前缀在最前、负面词合并、采样器和调度器
+  assert.ok(draw.body.input.startsWith('best quality, brown hair, long hair, brown eyes, 1girl'));
+  assert.equal(draw.body.parameters.negative_prompt, 'lowres, extra fingers, bad hands');
+  assert.equal(draw.body.parameters.sampler, 'k_euler');
+  assert.equal(draw.body.parameters.noise_schedule, 'native');
   assert.equal(r.image.provider, 'novelai');
   // 没分配生图提示词智能体：外观 tags + 原文
   const sys2 = new AgentSystem({ config: setup(cs, [route('image', { connectionId: 'nai', model: 'nai-diffusion-4-5-full' })], t) });
@@ -196,7 +207,12 @@ test('illustrate: image prompt agent writes tags, appearance tags go first, Nove
   assert.equal(r2.request.prompt, 'brown hair, long hair, brown eyes, 雨夜的窗边, 她抱着靠垫回头看');
 });
 
-test('image prompt with two people becomes V4 character prompts', () => {
+test('image prompt modes: background draws no people (SillyTavern modes); two people become V4 character prompts', () => {
+  const bg = { mode: 'background' as const, character: { name: '苏晚', appearanceTags: 'brown hair' }, caption: '雨天的图书馆' };
+  assert.match(buildImagePromptMessages(bg)[0]!.content as string, /no humans, scenery/);
+  const bgReq = toImageRequest(parseImagePrompt({ caption: '图书馆', tags: 'library, rain, window', size: 'portrait' })!, bg);
+  assert.equal(bgReq.prompt, 'no humans, scenery, library, rain, window');
+  assert.equal(bgReq.size, 'landscape');
   const input = { character: { name: '苏晚', appearanceTags: 'brown hair' }, caption: '并排坐在江边', withUser: { name: '阿远', appearanceTags: 'black hair, glasses' } };
   const msgs = buildImagePromptMessages(input);
   assert.match(msgs[0]!.content as string, /"characters"/);
@@ -274,6 +290,10 @@ test('memory ranking: pinned and due always included, similarity only within the
   ];
   const ranked = rankMemories({ memories, query: { vector: l2normalize([1, 0.1, 0]), model: '@cf/baai/bge-m3', dims: 3 }, now, topK: 2 });
   assert.deepEqual(ranked.map((r) => r.memory.id).sort(), ['coriander', 'interview', 'pinned', 'thesis']);
+  // 相似度下限（SillyTavern 的 score_threshold）：不相关的不进 Top-K，必带的照样带
+  const strict = rankMemories({ memories, query: { vector: l2normalize([1, 0.1, 0]), model: 'BAAI/bge-m3', dims: 3 }, now, topK: 5, minSimilarity: 0.25 });
+  assert.ok(!strict.some((r) => r.memory.id === 'thesis'));
+  assert.ok(strict.some((r) => r.memory.id === 'pinned'));
   assert.equal(ranked.find((r) => r.memory.id === 'interview')!.reason, 'due');
   assert.ok(ranked.find((r) => r.memory.id === 'coriander')!.similarity! > 0.99);
   const scores = Object.fromEntries(ranked.map((r) => [r.memory.id, r.score]));

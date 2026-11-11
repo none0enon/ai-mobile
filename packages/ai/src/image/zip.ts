@@ -57,11 +57,20 @@ export function listZip(bytes: Uint8Array): ZipEntry[] {
   return entries;
 }
 
-async function inflateRaw(data: Uint8Array): Promise<Bytes> {
+async function inflate(data: Uint8Array, format: 'deflate-raw' | 'deflate'): Promise<Bytes> {
   const stream = new Response(new Uint8Array(data)).body;
   if (!stream) throw new Error('当前环境不支持流');
-  const out = stream.pipeThrough(new DecompressionStream('deflate-raw'));
+  const out = stream.pipeThrough(new DecompressionStream(format));
   return new Uint8Array(await new Response(out).arrayBuffer());
+}
+
+/** deflate 解不开时再按带 zlib 头的试一次（同 SleepTogether） */
+async function inflateRaw(data: Uint8Array): Promise<Bytes> {
+  try {
+    return await inflate(data, 'deflate-raw');
+  } catch {
+    return inflate(data, 'deflate');
+  }
 }
 
 export async function readZipEntry(bytes: Uint8Array, entry: ZipEntry): Promise<Bytes> {
@@ -79,9 +88,9 @@ export async function readZipEntry(bytes: Uint8Array, entry: ZipEntry): Promise<
   return data;
 }
 
-/** 解出第一个满足条件的文件（默认第一个 .png） */
-export async function unzipFirst(bytes: Uint8Array, match: (name: string) => boolean = (n) => /\.png$/i.test(n)): Promise<{ name: string; data: Bytes } | null> {
-  const entry = listZip(bytes).find((e) => match(e.name));
+/** 解出第一个满足条件的文件（默认第一张图片：png / jpg / webp） */
+export async function unzipFirst(bytes: Uint8Array, match: (name: string) => boolean = (n) => /\.(?:png|jpe?g|webp)$/i.test(n)): Promise<{ name: string; data: Bytes } | null> {
+  const entry = listZip(bytes).find((e) => match(e.name) && e.compressedSize > 0);
   if (!entry) return null;
   return { name: entry.name, data: await readZipEntry(bytes, entry) };
 }

@@ -21,10 +21,17 @@ export interface ImageRequest {
   /** CFG / guidance */
   scale?: number;
   sampler?: string;
+  /** NovelAI 的 noise_schedule：native / karras / exponential / polyexponential */
+  noiseSchedule?: string;
+  /** NovelAI 的 Variety Boost（按画面大小算 skip_cfg_above_sigma，同 SillyTavern） */
+  varietyBoost?: boolean;
   characters?: ImageCharacter[];
-  /** 追加这个模型的质量标签（NovelAI 网页版的"质量标签"开关；服务端不会替你加），默认加 */
+  /**
+   * 追加这个模型的质量标签（NovelAI 网页版的"质量标签"开关；服务端不会替你加）。默认不加：
+   * 同 SleepTogether / SillyTavern，质量词写在生图风格的前缀里，自己控制
+   */
   quality?: boolean;
-  /** 负面提示词预设（NovelAI 网页版的 UC 预设），默认 heavy */
+  /** 负面提示词预设（NovelAI 网页版的 UC 预设）；默认开了质量标签时用 heavy，否则不加 */
   ucPreset?: 'heavy' | 'light' | 'none';
   /** 原样并入请求参数（NovelAI 的 parameters、OpenAI 兼容接口的请求体） */
   extra?: Record<string, unknown>;

@@ -4,8 +4,10 @@ import { parseJsonLoose } from '../core/util.ts';
 import { embedTexts, type EmbedPurpose, type EmbedResult } from '../embedding/client.ts';
 import { modelFamily, vectorSpace } from '../embedding/vector.ts';
 import { generateImage } from '../image/client.ts';
+import { applyImageStyle } from '../image/style.ts';
 import type { ImageRequest, ImageResult } from '../image/types.ts';
 import { chatOnce } from '../llm/client.ts';
+import { applyFilters, compileFilters, DEFAULT_OUTPUT_FILTERS } from '../llm/filter.ts';
 import { textOf } from '../llm/messages.ts';
 import type { ChatOptions, ChatRequest, ChatResult } from '../llm/types.ts';
 import { synthesize, ttsCacheKey } from '../tts/client.ts';
@@ -17,7 +19,8 @@ import { dayKey, MemoryUsageMeter, type UsageMeter } from './usage.ts';
  * 多智能体的入口（设计文档 §4）：每个智能体按自己的分配调用不同的模型。
  * - 文本：主对话、番外、生图提示词、总结、主动消息……（chat / json）
  * - 语音合成（speak）、生图（draw）、向量化（embed）
- * 统一做的事：分配里的参数作为默认值、每日 token 上限、主连接失败换备用、记录用了哪个连接和模型。
+ * 统一做的事：分配里的参数作为默认值、每日 token 上限、主连接失败换备用（备用连接发最简请求，参考 SleepTogether）、
+ * 文本回复统一过输出修剪（SleepTogether 的全局正则）、记录用了哪个连接和模型。
  */
 
 export interface CallMeta {
@@ -66,6 +69,8 @@ export interface AgentSystemOptions {
   now?: () => Date;
   /** 换备用连接时通知（界面弹提示："主连接失败，改用…"） */
   onFailover?(role: AgentRole, from: Attempt, to: Attempt, error: unknown): void;
+  /** 输出修剪的规则（llm/filter.ts 的写法）；不给用默认的三条（去掉漏出来的思考内容） */
+  outputFilters?: string[];
 }
 
 export interface AgentCallOptions {
@@ -90,6 +95,7 @@ export class AgentSystem {
   private readonly opts: AgentSystemOptions;
   /** 查询向量的缓存：同一句话检索多次不用重复算 */
   private readonly queryCache = new Map<string, Float32Array>();
+  private filters: RegExp[];
 
   constructor(opts: AgentSystemOptions) {
     this.opts = opts;
@@ -97,6 +103,12 @@ export class AgentSystem {
     this.meter = opts.meter ?? new MemoryUsageMeter();
     this.audioCache = opts.audioCache;
     this.now = opts.now ?? (() => new Date());
+    this.filters = compileFilters(opts.outputFilters ?? DEFAULT_OUTPUT_FILTERS);
+  }
+
+  /** 换一套输出修剪规则（设置页改了之后） */
+  setOutputFilters(patterns: readonly string[]): void {
+    this.filters = compileFilters(patterns);
   }
 
   status(role: AgentRole): RouteStatus {
@@ -135,7 +147,11 @@ export class AgentSystem {
     return { model: attempt.endpoint.model, connectionId: attempt.connection.id, connectionName: attempt.connection.name, fellBack, latencyMs: Date.now() - started };
   }
 
-  /** 文本智能体：分配里的 temperature / maxTokens / topP 只在请求没写时补上（主对话以预设为准） */
+  /**
+   * 文本智能体：分配里的 temperature / maxTokens / topP / 推理强度只在请求没写时补上（主对话以预设为准）。
+   * 主连接失败换备用时发最简请求（只有模型、消息、temperature、输出上限），换取兼容性；
+   * 流式的每一段和最后的结果都过一遍输出修剪
+   */
   async chat(role: AgentRole, req: ChatRequest, opts: ChatOptions & AgentCallOptions = {}): Promise<AgentChatResult> {
     const route = this.router.route(role);
     const p = route?.params ?? {};
@@ -144,15 +160,27 @@ export class AgentSystem {
       temperature: req.temperature ?? p.temperature,
       topP: req.topP ?? p.topP,
       maxTokens: req.maxTokens ?? p.maxTokens ?? DEFAULT_MAX_TOKENS[role],
+      reasoningEffort: req.reasoningEffort ?? p.reasoningEffort,
+      includeReasoning: req.includeReasoning ?? p.includeReasoning,
       extraBody: route?.extra ? { ...route.extra, ...(req.extraBody ?? {}) } : req.extraBody,
     };
     const inputTokens = merged.messages.reduce((n, m) => n + estimateTokens(textOf(m.content)), 0);
     this.checkBudget(role, inputTokens);
     const attempts = this.router.attempts(role);
     const started = Date.now();
-    const { value, attempt, fellBack } = await this.router.run(attempts, (ep) => chatOnce(ep, merged, opts), this.failover(role, opts));
+    const filtered: ChatOptions = {
+      ...opts,
+      onDelta: opts.onDelta ? (text, thinking) => opts.onDelta?.(applyFilters(text, this.filters), thinking) : undefined,
+    };
+    const { value, attempt, fellBack } = await this.router.run(
+      attempts,
+      (ep, a) => chatOnce(ep, a.fallback ? { ...merged, minimal: true } : merged, filtered),
+      this.failover(role, opts),
+    );
     this.record(role, (value.usage?.inputTokens ?? inputTokens) + (value.usage?.outputTokens ?? estimateTokens(value.text + value.thinking)));
-    return { ...value, ...this.meta(attempt, fellBack, started) };
+    const text = applyFilters(value.text, this.filters);
+    if (!text.trim()) throw new AiError('empty', `${attempt.connection.name} 的回复修剪后是空的（只有思考内容）`, { retryable: true });
+    return { ...value, text, ...this.meta(attempt, fellBack, started) };
   }
 
   /**
@@ -193,22 +221,28 @@ export class AgentSystem {
     const kind = all[0]?.endpoint.kind;
     const attempts = all.filter((a, i) => i === 0 || a.endpoint.kind === kind);
     const first = attempts[0] as Attempt;
-    const key = ttsCacheKey(first.endpoint, req);
+    // 朗读前怎么处理文字：请求没写就用"语音合成"智能体的设置（只读引号里的、动作读不读……）
+    const withText: TtsRequest = { ...req, textOptions: req.textOptions ?? route?.ttsText };
+    const key = ttsCacheKey(first.endpoint, withText);
     const hit = await this.audioCache?.get(key);
     if (hit) return { ...hit, ...this.meta(first, false, Date.now()), cached: true };
     const started = Date.now();
     const signal = req.signal ?? opts.signal;
-    const { value, attempt, fellBack } = await this.router.run(attempts, (ep) => synthesize(ep, { ...req, signal }), this.failover('tts', opts));
+    const { value, attempt, fellBack } = await this.router.run(attempts, (ep) => synthesize(ep, { ...withText, signal }), this.failover('tts', opts));
     if (!fellBack) await this.audioCache?.put(key, value);
     this.record('tts', estimateTokens(value.text));
     // TTS 的模型以实际用的为准（角色可以单独选模型）
     return { ...this.meta(attempt, fellBack, started), ...value, cached: false };
   }
 
-  /** 生图。分配里的 extra 并进请求参数（例如固定 sampler、steps） */
+  /**
+   * 生图。先套生图风格（固定的前后缀、负面词、采样器，同 SleepTogether / SillyTavern 的生图设置），
+   * 分配里的 extra 再并进请求参数
+   */
   async draw(req: ImageRequest, opts: AgentCallOptions = {}): Promise<ImageResult & CallMeta> {
     const route = this.router.route('image');
-    const merged: ImageRequest = { ...req, signal: req.signal ?? opts.signal, extra: route?.extra ? { ...route.extra, ...(req.extra ?? {}) } : req.extra };
+    const styled = applyImageStyle(req, route?.imageStyle);
+    const merged: ImageRequest = { ...styled, signal: req.signal ?? opts.signal, extra: route?.extra ? { ...route.extra, ...(req.extra ?? {}) } : req.extra };
     const attempts = this.router.attempts('image');
     const started = Date.now();
     const { value, attempt, fellBack } = await this.router.run(attempts, (ep) => generateImage(ep, merged), this.failover('image', opts));

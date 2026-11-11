@@ -8,7 +8,25 @@ import type { ChatMessage } from '../llm/types.ts';
  * 程序把外观 tags 放在最前面，负面 tags 合并角色卡的。
  */
 
+/**
+ * 画什么（对照 SillyTavern 生图扩展的几种模式）：
+ * - scene：一个具体的画面（[cg:] 里的描述、番外里的一幕），默认；
+ * - portrait：她的全身像（ST 的 Character）；
+ * - face：脸部特写，比如自拍（ST 的 Face）；
+ * - background：只画场景、不画人（ST 的 Background），给地点做背景图
+ */
+export type ImagePromptMode = 'scene' | 'portrait' | 'face' | 'background';
+
+const MODE_RULES: Record<ImagePromptMode, string> = {
+  scene: '- 画面就是下面"要画的画面"描述的那一刻。',
+  portrait: '- 画她的全身像（full body）：站姿或坐姿、服装、表情；背景简单。tags 以 "full body" 开头。',
+  face: '- 画她的脸部特写（close-up / portrait，像自拍）：表情、发型和发饰、上半身的衣服；不要画脖子以下。tags 以 "close-up, portrait" 开头。',
+  background: '- 只画场景，不画任何人物：地点、时段、天气、光线和细节。tags 以 "no humans, scenery" 开头，不要写人数、表情、服装。',
+};
+
 export interface ImagePromptInput {
+  /** 画什么，默认 scene */
+  mode?: ImagePromptMode;
   character: {
     name: string;
     /** 角色卡的外观 tags（发色、瞳色、发型、体型……） */
@@ -46,15 +64,17 @@ export interface ImagePromptOutput {
 
 export function buildImagePromptMessages(input: ImagePromptInput): ChatMessage[] {
   const { character: c, scene = {}, withUser } = input;
+  const mode = input.mode ?? 'scene';
   const system = [
     '你是 NovelAI V4.5 的提示词写手，把一个画面写成 Danbooru 风格的英文 tags。',
     '规则：',
+    MODE_RULES[mode],
     '- tags 顺序：人数（1girl / 1boy / 1girl, 1boy）→ 构图与镜头（upper body, cowboy shot, from side, close-up…）→ 表情与动作 → 服装 → 场景与背景 → 光线、天气、时段 → 氛围。',
     '- 不要写角色的外观（发色、瞳色、发型、体型），程序会自动加在最前面。',
     '- 不要写画师名和质量词（masterpiece、best quality 之类程序会加）。',
     '- 人物特写、半身用 portrait；风景、两个人并排用 landscape。',
     '- 只输出一个 JSON 对象，不要任何其他文字：',
-    withUser
+    withUser && mode === 'scene'
       ? '{"caption": "中文短标题（12 字以内）", "tags": "整体画面的 tags（人数、构图、场景、光线）", "negative": "额外的负面 tags，可以为空字符串", "size": "portrait|landscape|square", "characters": [{"who": "char", "tags": "她的表情、动作、服装", "position": "left|right|center"}, {"who": "user", "tags": "他的表情、动作、服装", "position": "left|right|center"}]}'
       : '{"caption": "中文短标题（12 字以内）", "tags": "逗号分隔的英文 tags", "negative": "额外的负面 tags，可以为空字符串", "size": "portrait|landscape|square"}',
   ].join('\n');
@@ -121,8 +141,12 @@ const CENTERS = { left: { x: 0.3, y: 0.5 }, right: { x: 0.7, y: 0.5 }, center: {
  * 每个人的外观 + 动作做 V4 的人物提示词，按左右位置放
  */
 export function toImageRequest(out: ImagePromptOutput, input: ImagePromptInput, seed?: number): ImageRequest {
-  const negative = joinTags(input.character.negativeTags, out.negative);
   const size: ImageSize = out.size;
+  // 背景图不画人：不加外观 tags，确保有 no humans
+  if (input.mode === 'background') {
+    return { prompt: joinTags('no humans, scenery', out.tags), negative: joinTags('1girl, 1boy, people', out.negative), size: out.size === 'portrait' ? 'landscape' : size, seed };
+  }
+  const negative = joinTags(input.character.negativeTags, out.negative);
   if (out.characters?.length && input.withUser) {
     return {
       prompt: out.tags,
@@ -140,5 +164,6 @@ export function toImageRequest(out: ImagePromptOutput, input: ImagePromptInput, 
 
 /** 没有分配生图提示词智能体时的退路：外观 tags + 画面描述原文（V4 起能读懂一些自然语言） */
 export function fallbackImagePrompt(input: ImagePromptInput): ImagePromptOutput {
-  return { caption: input.caption.slice(0, 30), tags: input.caption, negative: '', size: 'portrait' };
+  const lead = { scene: '', portrait: 'full body', face: 'close-up, portrait', background: '' }[input.mode ?? 'scene'];
+  return { caption: input.caption.slice(0, 30), tags: joinTags(lead, input.caption), negative: '', size: input.mode === 'background' ? 'landscape' : 'portrait' };
 }

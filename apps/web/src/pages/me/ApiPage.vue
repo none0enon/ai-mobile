@@ -1,6 +1,16 @@
 <script setup lang="ts">
-import { encodeVector, errorText, kindCan, listModels, testConnection, type VoiceSpec } from '@app/ai';
-import { AGENT_META, type AgentRole, type AgentRoute, type Capability, type ConnectionKind, type KeyStorage, type ProviderConnection } from '@app/shared';
+import { compileFilter, DEFAULT_IMAGE_STYLE, DEFAULT_OUTPUT_FILTERS, encodeVector, errorText, kindCan, listModels, testConnection, type VoiceSpec } from '@app/ai';
+import {
+  AGENT_META,
+  type AgentRole,
+  type AgentRoute,
+  type Capability,
+  type ConnectionKind,
+  type KeyStorage,
+  type PromptProcessing,
+  type ProviderConnection,
+  type ReasoningEffort,
+} from '@app/shared';
 import { showConfirmDialog, showToast } from 'vant';
 import { computed, ref } from 'vue';
 import Segmented from '@/components/common/Segmented.vue';
@@ -26,6 +36,7 @@ const KIND_LABEL: Record<ConnectionKind, string> = {
   gemini: 'Gemini',
   novelai: 'NovelAI',
   minimax: 'MiniMax',
+  volcengine: '火山引擎',
   'fish-audio': 'Fish Audio',
   'gpt-sovits': 'GPT-SoVITS',
   'workers-ai': 'Workers AI',
@@ -37,6 +48,25 @@ const RUNS_LABEL = { device: '本机', hub: 'Worker', auto: '自动' } as const;
 const ROLES = Object.keys(AGENT_META) as AgentRole[];
 /** 后台跑的智能体可以设每日上限 */
 const BUDGETED = new Set<AgentRole>(['sidestory', 'summary', 'imagePrompt', 'proactive', 'embedding']);
+/** 发出去之前怎么整理消息（同 SillyTavern 的 Prompt Post-Processing） */
+const PROCESSING: { value: PromptProcessing; label: string; hint: string }[] = [
+  { value: 'none', label: '原样', hint: '消息原样发出' },
+  { value: 'merge', label: '合并', hint: '名字写进正文，同一角色连续的消息合成一条' },
+  { value: 'semi', label: '半严格', hint: '合并之后，把中途的系统消息改成 user（DeepSeek 推理模型这类要求角色交替的用）' },
+  { value: 'strict', label: '严格', hint: '半严格之后，保证系统消息后第一条是 user（转发到 Claude 的中转常要求）' },
+  { value: 'single', label: '单条', hint: '全部合成一条 user 消息（只认一条消息的接口用）' },
+];
+/** 推理强度：OpenAI 的 reasoning_effort、Claude 的思考预算 / effort、Gemini 的 thinkingBudget / thinkingLevel */
+const EFFORTS: { value: ReasoningEffort; label: string }[] = [
+  { value: 'auto', label: '自动' },
+  { value: 'min', label: '最低' },
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' },
+  { value: 'max', label: '最高' },
+];
+const NAI_SAMPLERS = ['k_euler_ancestral', 'k_euler', 'k_dpmpp_2s_ancestral', 'k_dpmpp_2m_sde', 'k_dpmpp_2m', 'k_dpmpp_sde'];
+const NAI_SCHEDULES = ['karras', 'native', 'exponential', 'polyexponential'];
 
 function clone<T>(x: T): T {
   return JSON.parse(JSON.stringify(x)) as T;
@@ -57,6 +87,44 @@ const keyDraft = ref('');
 const testing = ref(false);
 const fetching = ref(false);
 const modelDraft = ref('');
+/** 高级（仅 OpenAI 兼容的对话）：额外参数写 JSON，去掉的参数用逗号隔开 */
+const advancedOpen = ref(false);
+const includeDraft = ref('');
+const excludeDraft = ref('');
+const includeError = ref('');
+
+function resetAdvanced(c?: ProviderConnection) {
+  includeDraft.value = c?.includeBody ? JSON.stringify(c.includeBody, null, 2) : '';
+  excludeDraft.value = (c?.excludeBody ?? []).join(', ');
+  includeError.value = '';
+  advancedOpen.value = false;
+}
+/** 把高级里的草稿写回连接；额外参数不是 JSON 对象时不保存 */
+function applyAdvanced(c: ProviderConnection): boolean {
+  const text = includeDraft.value.trim();
+  let include: Record<string, unknown> | undefined;
+  if (text) {
+    try {
+      const v: unknown = JSON.parse(text);
+      if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('not an object');
+      include = v as Record<string, unknown>;
+    } catch {
+      includeError.value = '要写成 JSON 对象，例如 {"top_k": 40}';
+      advancedOpen.value = true;
+      return false;
+    }
+  }
+  includeError.value = '';
+  c.includeBody = include && Object.keys(include).length ? include : undefined;
+  const exclude = excludeDraft.value
+    .split(/[,，\s]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  c.excludeBody = exclude.length ? exclude : undefined;
+  if (c.promptProcessing === 'none') c.promptProcessing = undefined;
+  return true;
+}
+const processingHint = computed(() => PROCESSING.find((p) => p.value === (editing.value?.promptProcessing ?? 'none'))?.hint ?? '');
 
 function fromTemplate(t: ConnectionTemplate): ProviderConnection {
   const now = Date.now();
@@ -80,11 +148,13 @@ function openConn(c?: ProviderConnection) {
   editing.value = c ? clone(c) : fromTemplate(CONNECTION_TEMPLATES[0] as ConnectionTemplate);
   keyDraft.value = c && ai.keyOf(c.id) ? KEY_MASK : '';
   modelDraft.value = '';
+  resetAdvanced(c);
 }
 function applyTemplate(t: ConnectionTemplate) {
   if (!editing.value) return;
   const id = editing.value.id;
   editing.value = { ...fromTemplate(t), id };
+  resetAdvanced();
 }
 /** 输入框里的 Key：没改过（还是掩码）就用存着的 */
 function currentKey(): string | null {
@@ -153,6 +223,7 @@ async function testConn() {
     showToast('这个连接还没有能测试的功能');
     return;
   }
+  if (!applyAdvanced(c)) return;
   testing.value = true;
   const key = currentKey();
   const lines: string[] = [];
@@ -169,7 +240,7 @@ async function testConn() {
 }
 function saveConn() {
   const c = editing.value;
-  if (!c) return;
+  if (!c || !applyAdvanced(c)) return;
   if (!c.name.trim()) c.name = KIND_LABEL[c.kind];
   if (keyDraft.value !== KEY_MASK) ai.setKey(c.id, keyDraft.value.trim() || null);
   ai.saveConnection(c);
@@ -223,8 +294,39 @@ const temperature = computed({
     if (r) r.params = { ...(r.params ?? {}), temperature: Math.round(t * 100) / 100 };
   },
 });
+type RouteParams = NonNullable<AgentRoute['params']>;
+function setParam<K extends keyof RouteParams>(k: K, v: RouteParams[K] | undefined) {
+  const r = routeEditing.value;
+  if (!r) return;
+  const params: RouteParams = { ...(r.params ?? {}) };
+  if (v === undefined) delete params[k];
+  else params[k] = v;
+  r.params = Object.keys(params).length ? params : undefined;
+}
+const effort = computed({
+  get: (): ReasoningEffort => routeEditing.value?.params?.reasoningEffort ?? 'auto',
+  set: (v: ReasoningEffort) => setParam('reasoningEffort', v === 'auto' ? undefined : v),
+});
+/** 默认跟着流式走（流式时返回思考过程）；关掉就不要 */
+const includeReasoning = computed({
+  get: () => routeEditing.value?.params?.includeReasoning !== false,
+  set: (on: boolean) => setParam('includeReasoning', on ? undefined : false),
+});
+/** 生图的步数、引导系数：空着用服务商的默认值 */
+function setStyleNumber(field: 'steps' | 'scale', value: string) {
+  const s = routeEditing.value?.imageStyle;
+  if (!s) return;
+  const n = Number(value);
+  s[field] = value.trim() && Number.isFinite(n) && n > 0 ? n : undefined;
+}
+function resetStyle() {
+  const r = routeEditing.value;
+  if (r) r.imageStyle = clone(DEFAULT_IMAGE_STYLE);
+}
 function openRoute(role: AgentRole) {
-  routeEditing.value = clone(routeOf(role));
+  const r = clone(routeOf(role));
+  if (role === 'image' && !r.imageStyle) r.imageStyle = clone(DEFAULT_IMAGE_STYLE);
+  routeEditing.value = r;
 }
 function pickConn(c: ProviderConnection) {
   const r = routeEditing.value;
@@ -238,6 +340,29 @@ function saveRoute() {
   r.model = r.model.trim();
   ai.saveRoute(r);
   routeEditing.value = null;
+}
+
+// —— 回复修剪（SleepTogether 的全局正则）——
+const filterOpen = ref(false);
+const filterDraft = ref('');
+const badFilters = computed(() =>
+  filterDraft.value
+    .split('\n')
+    .map((x) => x.trim())
+    .filter((x) => x && !compileFilter(x)),
+);
+function openFilters() {
+  filterDraft.value = ai.outputFilters.join('\n');
+  filterOpen.value = true;
+}
+function saveFilters() {
+  if (badFilters.value.length) {
+    showToast(`有 ${badFilters.value.length} 条写错了，改好再保存`);
+    return;
+  }
+  ai.setOutputFilters(filterDraft.value.split('\n'));
+  filterOpen.value = false;
+  showToast('已保存');
 }
 
 // —— 向量化：测试相似度 / 重算 ——
@@ -345,6 +470,19 @@ async function runReindex() {
         </div>
       </div>
       <p class="note">每个智能体单独选连接和模型，并设一个备用连接（主连接失败时自动改用，同 math-reader）。向量化只会换到同一个模型的备用连接：不同模型的向量不能互相比较，换了模型要重算向量。</p>
+
+      <div class="group-title">回复修剪</div>
+      <div class="px-4">
+        <button class="agent flex items-center gap-3 w-full text-left press" @click="openFilters">
+          <span class="agent-icon"><span class="i-lucide-scissors" /></span>
+          <div class="flex-1 min-w-0">
+            <div class="text-[14.5px] font-600">{{ ai.outputFilters.length ? `${ai.outputFilters.length} 条规则` : '不修剪' }}</div>
+            <div class="text-[12.5px] text-ink-2 truncate">所有文本智能体的回复先过一遍这些正则</div>
+          </div>
+          <span class="i-lucide-chevron-right text-ink-3" />
+        </button>
+      </div>
+      <p class="note">默认去掉漏出来的思考内容：&lt;think&gt;…&lt;/think&gt;、只剩结束标签的半截思考、&lt;!-- consider: … --&gt; 注释（同 SleepTogether）。</p>
     </div>
 
     <!-- 连接编辑 -->
@@ -365,9 +503,10 @@ async function runReindex() {
         <input id="conn-name" v-model="editing.name" class="input" />
         <label class="field-label" for="conn-url">Base URL（中转站填它给你的地址）</label>
         <input id="conn-url" v-model="editing.baseUrl" class="input" inputmode="url" autocomplete="off" />
+        <p v-if="editing.kind === 'novelai'" class="text-[12px] text-ink-3 mt-1.5 mb-0">官方填 https://image.novelai.net；公益站、反代填它给的地址，Key 填它给的 Token。</p>
         <template v-if="editing.keyStorage !== 'none'">
-          <label class="field-label" for="conn-key">Key{{ editing.kind === 'novelai' ? '（持久 API Token，pst- 开头）' : '' }}</label>
-          <input id="conn-key" v-model="keyDraft" class="input" type="password" placeholder="sk-…" autocomplete="off" @focus="keyDraft === KEY_MASK && (keyDraft = '')" />
+          <label class="field-label" for="conn-key">Key{{ editing.kind === 'novelai' ? '（持久 API Token，pst- 开头）' : editing.kind === 'volcengine' ? '（Access Token）' : '' }}</label>
+          <input id="conn-key" v-model="keyDraft" class="input" type="password" :placeholder="editing.kind === 'novelai' ? 'pst-…' : editing.kind === 'volcengine' ? 'Access Token' : 'sk-…'" autocomplete="off" @focus="keyDraft === KEY_MASK && (keyDraft = '')" />
         </template>
         <label class="field-label">Key 存在哪里</label>
         <Segmented
@@ -382,6 +521,19 @@ async function runReindex() {
           <label class="field-label" for="conn-group">GroupId（老账号需要，新账号可以不填）</label>
           <input id="conn-group" :value="editing.extra?.groupId ?? ''" class="input" @input="setExtra('groupId', ($event.target as HTMLInputElement).value)" />
         </template>
+        <template v-if="editing.kind === 'volcengine'">
+          <label class="field-label" for="conn-appid">APP ID（火山引擎控制台 → 豆包语音 → 应用管理）</label>
+          <input id="conn-appid" :value="editing.extra?.appId ?? ''" class="input" inputmode="numeric" autocomplete="off" @input="setExtra('appId', ($event.target as HTMLInputElement).value)" />
+          <label class="field-label" for="conn-resource">Resource ID（空着用 seed-tts-2.0；复刻的 S_ 音色自动用 seed-icl-2.0）</label>
+          <input
+            id="conn-resource"
+            :value="editing.extra?.resourceId ?? ''"
+            class="input"
+            placeholder="seed-tts-2.0"
+            autocomplete="off"
+            @input="setExtra('resourceId', ($event.target as HTMLInputElement).value)"
+          />
+        </template>
         <template v-if="editing.kind === 'workers-ai'">
           <label class="field-label" for="conn-account">Cloudflare 账号 ID（直连 REST 时用；经自己的 Worker 时不需要）</label>
           <input id="conn-account" :value="editing.extra?.accountId ?? ''" class="input" @input="setExtra('accountId', ($event.target as HTMLInputElement).value)" />
@@ -395,14 +547,14 @@ async function runReindex() {
             <div class="text-[14px]">CosyVoice 情绪指令</div>
             <div class="text-[12px] text-ink-3">按她的表情加"请用害羞的语气说"；指令被读出来时关掉</div>
           </div>
-          <van-switch v-model="cosyEmotion" size="22px" />
+          <van-switch class="shrink-0" v-model="cosyEmotion" size="22px" />
         </div>
-        <div class="flex items-center justify-between mt-3">
+        <div class="flex items-center justify-between gap-3 mt-3">
           <div>
             <div class="text-[14px]">经 Worker 转发</div>
             <div class="text-[12px] text-ink-3">对方不允许浏览器直连（CORS）时打开；要先连上自己的 Worker</div>
           </div>
-          <van-switch v-model="editing.viaWorker" size="22px" />
+          <van-switch class="shrink-0" v-model="editing.viaWorker" size="22px" />
         </div>
         <label class="field-label">模型 <button class="text-accent-ink ml-2" @click="fetchModels">{{ fetching ? '拉取中…' : '拉取模型列表' }}</button></label>
         <div class="flex flex-wrap gap-1.5 max-h-[120px] overflow-y-auto">
@@ -413,6 +565,32 @@ async function runReindex() {
           <input v-model="modelDraft" class="input flex-1" placeholder="手动添加模型名" autocomplete="off" @keydown.enter="addModel" />
           <van-button size="small" round @click="addModel">添加</van-button>
         </div>
+        <template v-if="editing.kind === 'openai' && editing.capabilities.includes('chat')">
+          <button class="adv-toggle" @click="advancedOpen = !advancedOpen">
+            <span>高级：消息整理、请求参数</span>
+            <span :class="advancedOpen ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" />
+          </button>
+          <template v-if="advancedOpen">
+            <label class="field-label">发出去之前怎么整理消息</label>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="p in PROCESSING"
+                :key="p.value"
+                class="opt"
+                :class="{ on: (editing.promptProcessing ?? 'none') === p.value }"
+                @click="editing.promptProcessing = p.value === 'none' ? undefined : p.value"
+              >
+                {{ p.label }}
+              </button>
+            </div>
+            <p class="text-[12px] text-ink-3 mt-1.5 mb-0">{{ processingHint }}</p>
+            <label class="field-label" for="conn-include">额外请求参数（JSON，并进每次的请求体）</label>
+            <textarea id="conn-include" v-model="includeDraft" class="textarea mono" rows="3" placeholder='{"top_k": 40}' spellcheck="false" />
+            <p v-if="includeError" class="text-[12px] text-bad mt-1 mb-0">{{ includeError }}</p>
+            <label class="field-label" for="conn-exclude">去掉的请求参数（逗号隔开，例如中转不认的字段）</label>
+            <input id="conn-exclude" v-model="excludeDraft" class="input" placeholder="presence_penalty, frequency_penalty" autocomplete="off" spellcheck="false" />
+          </template>
+        </template>
         <div v-if="editing.lastTest" class="test-result" :class="editing.lastTest.ok ? 'ok' : 'bad'">{{ editing.lastTest.message }}</div>
         <div class="flex gap-2.5 mt-4">
           <van-button round block :loading="testing" loading-text="测试中" @click="testConn">
@@ -447,6 +625,76 @@ async function runReindex() {
           <van-slider v-model="temperature" :min="0" :max="1.5" :step="0.05" bar-height="4px" button-size="16px" />
         </template>
         <p v-if="routeEditing.role === 'main'" class="text-[12px] text-ink-3 mt-2 mb-0">主对话的温度、回复长度等参数以聊天用的预设为准。</p>
+        <template v-if="AGENT_META[routeEditing.role].capability === 'chat'">
+          <label class="field-label">推理强度（模型支持思考时）</label>
+          <div class="flex flex-wrap gap-1.5">
+            <button v-for="e in EFFORTS" :key="e.value" class="opt" :class="{ on: effort === e.value }" @click="effort = e.value">{{ e.label }}</button>
+          </div>
+          <p class="text-[12px] text-ink-3 mt-1.5 mb-0">
+            按各家换算：OpenAI 的 reasoning_effort、Claude 的思考预算、Gemini 的思考预算或等级。{{ routeEditing.role === 'main' ? '预设里设了推理强度时以预设为准。' : '' }}
+          </p>
+          <div class="flex items-center justify-between gap-3 mt-3">
+            <div>
+              <div class="text-[14px]">返回思考过程</div>
+              <div class="text-[12px] text-ink-3">流式时一起返回，消息上可以展开看；关掉省流量</div>
+            </div>
+            <van-switch class="shrink-0" v-model="includeReasoning" size="22px" />
+          </div>
+        </template>
+        <template v-if="routeEditing.role === 'image' && routeEditing.imageStyle">
+          <label class="field-label" for="style-prefix">固定前缀（画风、质量词；写 {prompt} 可以指定提示词放在哪）</label>
+          <textarea id="style-prefix" v-model="routeEditing.imageStyle.prefix" class="textarea" rows="2" spellcheck="false" />
+          <label class="field-label" for="style-suffix">固定后缀</label>
+          <input id="style-suffix" v-model="routeEditing.imageStyle.suffix" class="input" autocomplete="off" spellcheck="false" />
+          <label class="field-label" for="style-negative">固定负面词</label>
+          <textarea id="style-negative" v-model="routeEditing.imageStyle.negative" class="textarea" rows="3" spellcheck="false" />
+          <template v-if="routeConn?.kind === 'novelai'">
+            <div class="flex items-center justify-between gap-3 mt-3">
+              <div>
+                <div class="text-[14px]">追加官网的质量词</div>
+                <div class="text-[12px] text-ink-3">同 NovelAI 网页版的 Add Quality Tags 和负面预设；前缀里写了质量词就关着</div>
+              </div>
+              <van-switch class="shrink-0" v-model="routeEditing.imageStyle.naiQuality" size="22px" />
+            </div>
+            <div class="flex items-center justify-between gap-3 mt-3">
+              <div>
+                <div class="text-[14px]">Variety Boost</div>
+                <div class="text-[12px] text-ink-3">构图、姿势更多样，不容易每张都一样</div>
+              </div>
+              <van-switch class="shrink-0" :model-value="!!routeEditing.imageStyle.varietyBoost" size="22px" @update:model-value="routeEditing.imageStyle.varietyBoost = $event ? true : undefined" />
+            </div>
+            <label class="field-label">采样器</label>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="s in NAI_SAMPLERS"
+                :key="s"
+                class="opt"
+                :class="{ on: (routeEditing.imageStyle.sampler ?? NAI_SAMPLERS[0]) === s }"
+                @click="routeEditing.imageStyle.sampler = s === NAI_SAMPLERS[0] ? undefined : s"
+              >
+                {{ s }}
+              </button>
+            </div>
+            <label class="field-label">噪声调度</label>
+            <div class="flex flex-wrap gap-1.5">
+              <button v-for="s in NAI_SCHEDULES" :key="s" class="opt" :class="{ on: routeEditing.imageStyle.schedule === s }" @click="routeEditing.imageStyle.schedule = routeEditing.imageStyle.schedule === s ? undefined : s">
+                {{ s }}
+              </button>
+            </div>
+            <p class="text-[12px] text-ink-3 mt-1.5 mb-0">不选时 V4 用 karras、V3 用 native。</p>
+          </template>
+          <div v-if="routeConn?.kind === 'novelai' || routeConn?.kind === 'openai'" class="flex gap-2.5">
+            <div class="flex-1">
+              <label class="field-label" for="style-steps">步数</label>
+              <input id="style-steps" class="input" inputmode="numeric" :value="routeEditing.imageStyle.steps ?? ''" :placeholder="routeConn?.kind === 'novelai' ? '28' : '默认'" @input="setStyleNumber('steps', ($event.target as HTMLInputElement).value)" />
+            </div>
+            <div class="flex-1">
+              <label class="field-label" for="style-scale">引导系数</label>
+              <input id="style-scale" class="input" inputmode="decimal" :value="routeEditing.imageStyle.scale ?? ''" :placeholder="routeConn?.kind === 'novelai' ? '5' : '默认'" @input="setStyleNumber('scale', ($event.target as HTMLInputElement).value)" />
+            </div>
+          </div>
+          <button class="text-[13px] text-accent-ink mt-2.5" @click="resetStyle">恢复默认风格</button>
+        </template>
         <label class="field-label">失败时改用</label>
         <div class="flex flex-wrap gap-1.5">
           <button class="opt" :class="{ on: !routeEditing.fallbackConnectionId }" @click="routeEditing.fallbackConnectionId = null">不用备用</button>
@@ -481,6 +729,18 @@ async function runReindex() {
         />
         <p class="text-[12px] text-ink-3 mt-2 mb-0">选"Worker"或"自动"时，App 关着也能跑，但这个连接的 Key 要交给 Worker（M2 做好同步后可用）。</p>
         <van-button round block type="primary" class="!mt-4" @click="saveRoute">保存</van-button>
+      </div>
+    </van-popup>
+
+    <!-- 回复修剪 -->
+    <van-popup v-model:show="filterOpen" position="bottom" round :style="{ maxHeight: '90%' }">
+      <div class="sheet">
+        <div class="sheet-title">回复修剪</div>
+        <div class="text-[12.5px] text-ink-3 mt-0.5">一行一条：/正则/标志，或者 &lt;标签&gt;&lt;/标签&gt;（去掉整段这个标签）。命中的内容从回复里删掉。</div>
+        <textarea v-model="filterDraft" class="textarea mono mt-3" rows="6" spellcheck="false" aria-label="修剪规则" />
+        <p v-for="b in badFilters" :key="b" class="text-[12px] text-bad mt-1 mb-0 break-all">写错了：{{ b }}</p>
+        <button class="text-[13px] text-accent-ink mt-2.5" @click="filterDraft = DEFAULT_OUTPUT_FILTERS.join('\n')">恢复默认规则</button>
+        <van-button round block type="primary" class="!mt-4" @click="saveFilters">保存</van-button>
       </div>
     </van-popup>
 
@@ -602,6 +862,21 @@ async function runReindex() {
 .pick.on {
   outline: 1.5px solid var(--accent);
   background: var(--accent-soft);
+}
+.adv-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px 0 2px;
+  border-top: 1px dashed var(--border);
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
 }
 .test-result {
   margin-top: 12px;

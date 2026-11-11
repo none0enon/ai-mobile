@@ -8,10 +8,20 @@ import type { Usage } from './types.ts';
 
 type Json = Record<string, any>;
 
-/** 流式事件里新增的一段正文（不含思考内容） */
+/** 文字可能是字符串，也可能是 [{ type: 'text', text }] 数组（Mistral 等） */
+function flatText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) return content.map((c: Json) => (typeof c?.text === 'string' ? c.text : '')).join('');
+  return '';
+}
+
+/**
+ * 流式事件里新增的一段正文（不含思考内容）。OpenAI 兼容的写法同 SillyTavern 的 getStreamingReply：
+ * delta.content，没有时看 message.content（有的中转流里每段都是完整 message）和 text（补全接口的写法）
+ */
 export function streamDeltaText(event: Json): string {
   const choice = event.choices?.[0];
-  if (choice) return typeof choice.delta?.content === 'string' ? choice.delta.content : '';
+  if (choice) return flatText(choice.delta?.content ?? choice.message?.content ?? choice.text);
   if (event.type === 'content_block_delta') {
     return event.delta?.type === 'text_delta' ? event.delta.text || '' : '';
   }
@@ -26,7 +36,7 @@ export function streamDeltaText(event: Json): string {
 export function streamDeltaThinking(event: Json): string {
   const choice = event.choices?.[0];
   if (choice) {
-    const delta = choice.delta || {};
+    const delta = choice.delta || choice.message || {};
     // 有的中转服务两个字段发同一段内容，只取一个
     if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) return delta.reasoning_content;
     return typeof delta.reasoning === 'string' ? delta.reasoning : '';
@@ -40,7 +50,7 @@ export function streamDeltaThinking(event: Json): string {
 
 /** 这个事件表明模型正在思考（即使这一段没有思考内容，例如 Claude 的 thinking 块开始） */
 export function eventIsThinking(event: Json): boolean {
-  const delta = event.choices?.[0]?.delta;
+  const delta = event.choices?.[0]?.delta ?? event.choices?.[0]?.message;
   if (delta) return !!(delta.reasoning_content || delta.reasoning);
   if (event.type === 'content_block_start') return event.content_block?.type === 'thinking';
   if (event.type === 'content_block_delta') return event.delta?.type === 'thinking_delta';

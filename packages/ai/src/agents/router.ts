@@ -97,6 +97,9 @@ export class AgentRouter {
         model,
         headers: conn.extraHeaders,
         extra: conn.extra,
+        promptProcessing: conn.promptProcessing,
+        includeBody: conn.includeBody,
+        excludeBody: conn.excludeBody,
         transport,
       },
     };

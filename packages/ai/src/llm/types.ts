@@ -1,3 +1,5 @@
+import type { PromptProcessing, ReasoningEffort } from '@app/shared';
+
 /**
  * 文本对话的统一请求 / 结果。各家协议（OpenAI 兼容、Claude、Gemini）在各自的文件里转换。
  */
@@ -35,6 +37,22 @@ export interface ChatRequest {
   names?: { user?: string; char?: string };
   /** 只对 OpenAI 兼容接口：原样并入请求体（预设里的其他参数、中转专有参数） */
   extraBody?: Record<string, unknown>;
+  /**
+   * 推理强度（同 SillyTavern）：OpenAI 兼容发 reasoning_effort，Claude 换成思考预算或自适应思考的 effort，
+   * Gemini 换成 thinkingBudget / thinkingLevel。auto 或不写时交给模型
+   */
+  reasoningEffort?: ReasoningEffort;
+  /** 要不要模型返回思考内容；默认流式时要（只决定返回不返回，不改变思考多少） */
+  includeReasoning?: boolean;
+  /** Claude 的助手预填（SillyTavern 预设的 assistant_prefill）：回复从这段文字接着写 */
+  prefill?: string;
+  /** 覆盖连接里的消息整理方式（OpenAI 兼容） */
+  processing?: PromptProcessing;
+  /**
+   * 最简请求（参考 SleepTogether 的副 API）：只发模型、消息、temperature、输出上限，不带思考、惩罚、种子等参数。
+   * 换到备用连接时用，换取最大的兼容性
+   */
+  minimal?: boolean;
 }
 
 /**

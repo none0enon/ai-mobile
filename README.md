@@ -17,13 +17,13 @@ apps/web/            前端（Vue 3 + Vite + TypeScript + Pinia + Vue Router + V
   src/components/    聊天气泡与卡片、剧场立绘与对话框、场景外壳、小地图、占位立绘 / 背景……
   src/services/      服务接口 + 假实现（假的流式模型会吐 [expr:] 等控制标签）
   src/mock/          演示数据（两个原创角色：苏晚、江屿）
-  scripts/           shots.cjs（逐页截图检查）、import-e2e.cjs（导入 + 发送的端到端检查）、ai-e2e.cjs + fake-ai.cjs（接假 AI 服务端的端到端检查）、make-artifact.mjs（生成预览页）
+  scripts/           shots.cjs（逐页截图检查）、import-e2e.cjs（导入 + 发送的端到端检查）、make-artifact.mjs（生成预览页）
 packages/shared/     前端和以后的 Worker 共用：领域类型、场景注册表、地图地点、控制标签解析、环境描述、LRC 解析
   src/st/            SillyTavern 兼容：PNG 文本块、角色卡 / 世界书 / 预设的导入导出、宏、世界书扫描、提示词拼装
   test/fixtures/     测试用的 ST 预设、JSON 角色卡、PNG 角色卡
 packages/ai/         AI 调用层，前端和以后的 Worker 共用（只用 Web 标准接口），说明见 packages/ai/README.md
   src/llm/           文本对话：OpenAI 兼容 / Claude / Gemini（流式、思考内容、流式失败改普通请求、按报错调整参数）
-  src/tts/ image/ embedding/   语音合成、生图（NovelAI）、向量化
+  src/tts/ image/ embedding/   语音合成（含火山引擎声音复刻）、生图（NovelAI、OpenAI 兼容）、向量化
   src/agents/        多智能体：路由与备用连接、每日上限、番外 / 生图提示词 / 总结的提示词与解析、配图流水线、记忆检索
 docs/DESIGN.md       完整设计
 ```
@@ -50,7 +50,6 @@ cd apps/web && npx vite preview --port 4173 &
 node scripts/shots.cjs            # 全部页面，深色
 node scripts/shots.cjs chat --light   # 只看名字含 chat 的页面，浅色
 node scripts/import-e2e.cjs       # 导入测试用的预设和两张角色卡，发一条消息，核对"查看提示词"
-node scripts/ai-e2e.cjs           # 起一个假的 AI 服务端，在页面里填地址和 Key：测试连接、流式聊天、配图、向量、试听、番外、备用连接、出错提示、刷新后设置还在
 ```
 
 ## 可以在骨架里试的

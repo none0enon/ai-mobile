@@ -114,6 +114,7 @@ export class RoutedTTS implements TTSClient {
       const audio = await useAiStore().system.speak({
         text,
         voice: voiceSpec(c),
+        speakerName: c.name,
         expression: opts.expression ?? chars.expression[c.id] ?? null,
         connectionId: c.voice.connectionId,
         signal: ctrl.signal,

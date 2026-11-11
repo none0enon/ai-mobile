@@ -1,4 +1,4 @@
-import type { ConnectionKind } from '@app/shared';
+import type { ConnectionKind, PromptProcessing } from '@app/shared';
 import { defaultTransport, type Transport } from './http.ts';
 
 /**
@@ -18,6 +18,10 @@ export interface Endpoint {
   headers?: Record<string, string>;
   /** 服务商专有设置（ProviderConnection.extra） */
   extra?: Record<string, string>;
+  /** 仅 OpenAI 兼容的对话：消息整理方式、额外 / 去掉的请求字段（同 SillyTavern 的自定义来源设置） */
+  promptProcessing?: PromptProcessing;
+  includeBody?: Record<string, unknown>;
+  excludeBody?: string[];
   /** 默认全局 fetch；经 Worker 转发时换掉 */
   transport?: Transport;
 }
