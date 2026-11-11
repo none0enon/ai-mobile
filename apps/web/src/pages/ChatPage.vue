@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { getLocation, isRealPlace, worldOf, type MapLocation, type MessagePart } from '@app/shared';
 import { isAbortError } from '@app/ai';
-import { showToast } from 'vant';
+import { showConfirmDialog, showToast } from 'vant';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Composer from '@/components/chat/Composer.vue';
@@ -28,7 +28,7 @@ import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 import { dividerTime, hhmm } from '@/utils/time';
-import { showErrorDialog } from '@/utils/errors';
+import { copyWithToast, showErrorDialog } from '@/utils/errors';
 
 const route = useRoute();
 const router = useRouter();
@@ -174,6 +174,55 @@ function redrawImage() {
   if (imagePart.value) chatStore.redraw(chatId.value, imagePart.value);
 }
 
+// —— 消息操作：平时藏着，点头像展开（重试 / 编辑 / 复制 / 删除）；点别处收起 ——
+const toolsFor = ref<string | null>(null);
+const editingId = ref<string | null>(null);
+watch(chatId, () => {
+  toolsFor.value = null;
+  editingId.value = null;
+});
+function toggleTools(id: string) {
+  const el = scroller.value;
+  const atBottom = !!el && el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  toolsFor.value = toolsFor.value === id ? null : id;
+  // 展开的一排会把最后一条往下顶：本来在底部就跟着滚到底，别让它躲到输入框后面
+  if (toolsFor.value && atBottom) void scrollToBottom(true);
+}
+/** 重试：她的回复再出一个备选（展开的一排留着，好左右对比）；最后一条是你的消息时让她回一条 */
+function retry(id: string) {
+  const m = byId.value.get(id);
+  if (!m || stream.value) return;
+  if (m.role === 'user') {
+    toolsFor.value = null;
+    void chatStore.generate(chatId.value);
+  } else void chatStore.regenerate(chatId.value, id);
+}
+function startEdit(id: string) {
+  toolsFor.value = null;
+  editingId.value = id;
+}
+function saveEdit(id: string, text: string) {
+  chatStore.editMessage(chatId.value, id, text);
+  editingId.value = null;
+}
+function copyMessage(text: string) {
+  toolsFor.value = null;
+  void copyWithToast(text);
+}
+async function removeMessage(id: string) {
+  toolsFor.value = null;
+  const ok = await showConfirmDialog({
+    title: '删除这条消息？',
+    message: '删了以后，发给模型的聊天记录里也不会再有它。',
+    confirmButtonText: '删除',
+    confirmButtonColor: 'var(--bad)',
+  }).then(
+    () => true,
+    () => false,
+  );
+  if (ok) chatStore.deleteMessage(chatId.value, id);
+}
+
 const moreOpen = ref(false);
 // —— 聊天背景：这个聊天单独设的 → 外观里的通用背景 ——
 const looks = useAppearanceStore();
@@ -273,7 +322,7 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
         </template>
       </PageHeader>
 
-      <div ref="scroller" class="page-scroll" :class="{ 'chat-bg': !hasWall }">
+      <div ref="scroller" class="page-scroll" :class="{ 'chat-bg': !hasWall }" @click="toolsFor = null">
         <div class="py-3">
           <template v-for="r in rows" :key="r.id">
             <div v-if="r.kind === 'divider'" class="divider num">{{ dividerTime(r.ts) }}</div>
@@ -284,8 +333,16 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
               :is-last="r.id === messages.at(-1)?.id"
               :streaming="stream?.messageId === r.id"
               :thinking="!!stream?.thinking"
+              :tools-open="toolsFor === r.id"
+              :editing="editingId === r.id"
+              @toggle-tools="toggleTools(r.id)"
               @swipe="(d) => chatStore.swipe(chatId, r.id, d)"
-              @regenerate="chatStore.regenerate(chatId, r.id)"
+              @regenerate="retry(r.id)"
+              @edit="startEdit(r.id)"
+              @copy="copyMessage"
+              @delete="removeMessage(r.id)"
+              @save-edit="(t) => saveEdit(r.id, t)"
+              @cancel-edit="editingId = null"
               @choose="(t) => chatStore.send(chatId, t)"
               @open-music="router.push('/scene/music')"
               @open-image="openImage"

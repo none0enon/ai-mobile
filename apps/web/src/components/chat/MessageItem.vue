@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Character, Message, MessagePart } from '@app/shared';
 import { computed } from 'vue';
+import MessageEditor from './MessageEditor.vue';
 import PartCard from './PartCard.vue';
 import Avatar from '@/components/common/Avatar.vue';
 import ErrorDetails from '@/components/common/ErrorDetails.vue';
@@ -15,10 +16,20 @@ const props = defineProps<{
   isLast: boolean;
   streaming: boolean;
   thinking: boolean;
+  /** 点了头像：在头像旁边展开重试 / 编辑 / 复制 / 删除 */
+  toolsOpen?: boolean;
+  /** 正在就地改这条 */
+  editing?: boolean;
 }>();
 const emit = defineEmits<{
+  (e: 'toggle-tools'): void;
   (e: 'swipe', dir: 1 | -1): void;
   (e: 'regenerate'): void;
+  (e: 'edit'): void;
+  (e: 'copy', text: string): void;
+  (e: 'delete'): void;
+  (e: 'save-edit', text: string): void;
+  (e: 'cancel-edit'): void;
   (e: 'choose', text: string): void;
   (e: 'open-music'): void;
   (e: 'open-image', part: MessagePart): void;
@@ -36,6 +47,31 @@ const narrator = computed(() => props.message.role === 'narrator' || props.messa
 const textParts = computed(() => props.message.parts.filter((p) => p.type === 'text' && p.text));
 const pokeParts = computed(() => props.message.parts.filter((p) => p.type === 'poke'));
 const cardParts = computed(() => props.message.parts.filter((p) => p.type !== 'text' && p.type !== 'poke'));
+const editText = computed(() => textParts.value.map((p) => (p.type === 'text' ? p.text : '')).join('\n'));
+/** 复制用的文字：文字部分；只有语音时是转出来的文字 */
+const copyText = computed(
+  () =>
+    editText.value.trim() ||
+    props.message.parts
+      .map((p) => (p.type === 'voice' ? p.transcript : ''))
+      .filter(Boolean)
+      .join('\n'),
+);
+
+// —— 消息操作平时藏着（沉浸），点头像在头像旁边展开 ——
+/** 只有最后一条能重试：她的回复是再出一个备选；你的消息（她还没回）是让她回一条 */
+const canRetry = computed(() => props.isLast);
+/** 回复失败、被打断时自动展开，好直接点重试 */
+const open = computed(() => !props.editing && (!!props.toolsOpen || (!mine.value && props.isLast && !props.streaming && !!(props.message.meta.error || props.message.meta.interrupted))));
+
+/** 你没设头像时，点你的消息展开（点到卡片里的按钮、选了文字时不算） */
+function onColClick(e: MouseEvent) {
+  if (!mine.value || showMyAvatar.value || props.editing) return;
+  if ((e.target as Element).closest('button, a, input, textarea')) return;
+  if (window.getSelection()?.toString()) return;
+  e.stopPropagation();
+  emit('toggle-tools');
+}
 
 /** 把（动作描写）和 *动作* 拆出来，用淡一点的字显示 */
 function segments(text: string) {
@@ -64,19 +100,40 @@ function segments(text: string) {
     </template>
 
     <div v-else-if="textParts.length || cardParts.length || streaming || message.meta.error || message.meta.interrupted" class="row">
-      <Avatar v-if="!mine" :character="character" :size="34" class="mt-0.5" />
-      <div class="col">
+      <button v-if="!mine" type="button" class="ava-btn mt-0.5" :aria-label="`${character.name}这条消息的操作`" :aria-expanded="open" @click.stop="emit('toggle-tools')">
+        <Avatar :character="character" :size="34" />
+      </button>
+      <div class="col" :class="{ editing }" @click="onColClick">
+        <Transition name="tools">
+          <div v-if="open" class="tools" role="toolbar" aria-label="消息操作" @click.stop>
+            <template v-if="canRetry && !mine && message.swipes.length > 1">
+              <button type="button" class="tool" aria-label="上一个回复" :disabled="streaming" @click="emit('swipe', -1)"><span class="i-lucide-chevron-left" /></button>
+              <span class="num count">{{ message.swipeIndex + 1 }}/{{ message.swipes.length }}</span>
+              <button type="button" class="tool" aria-label="下一个回复" :disabled="streaming" @click="emit('swipe', 1)"><span class="i-lucide-chevron-right" /></button>
+              <span class="sep" />
+            </template>
+            <button v-if="canRetry" type="button" class="tool" :aria-label="mine ? `让${character.pronoun}回复` : '重新生成'" :disabled="streaming" @click="emit('regenerate')">
+              <span class="i-lucide-refresh-cw" />
+            </button>
+            <button v-if="textParts.length" type="button" class="tool" aria-label="编辑" :disabled="streaming" @click="emit('edit')"><span class="i-lucide-pencil" /></button>
+            <button v-if="copyText" type="button" class="tool" aria-label="复制" @click="emit('copy', copyText)"><span class="i-lucide-copy" /></button>
+            <button type="button" class="tool danger" aria-label="删除" :disabled="streaming" @click="emit('delete')"><span class="i-lucide-trash-2" /></button>
+          </div>
+        </Transition>
         <span v-if="message.proactive" class="proactive">
           <span class="i-lucide-bell-ring text-[11px]" />她主动找你
         </span>
         <div v-if="streaming && thinking && !message.text" class="bubble ai">
           <span class="typing-dot" /> <span class="typing-dot" /> <span class="typing-dot" />
         </div>
-        <div v-for="(p, i) in textParts" :key="i" class="bubble" :class="[mine ? 'me' : 'ai', { 'stream-caret': streaming && i === textParts.length - 1 }]">
-          <template v-for="(s, j) in segments(p.type === 'text' ? p.text : '')" :key="j">
-            <span :class="{ action: s.action }">{{ s.text }}</span>
-          </template>
-        </div>
+        <MessageEditor v-if="editing" :text="editText" :mine="mine" :allow-empty="cardParts.length > 0" @save="(t) => emit('save-edit', t)" @cancel="emit('cancel-edit')" />
+        <template v-else>
+          <div v-for="(p, i) in textParts" :key="i" class="bubble" :class="[mine ? 'me' : 'ai', { 'stream-caret': streaming && i === textParts.length - 1 }]">
+            <template v-for="(s, j) in segments(p.type === 'text' ? p.text : '')" :key="j">
+              <span :class="{ action: s.action }">{{ s.text }}</span>
+            </template>
+          </div>
+        </template>
         <PartCard
           v-for="(p, i) in cardParts"
           :key="`card-${i}`"
@@ -87,21 +144,15 @@ function segments(text: string) {
           @open-image="emit('open-image', p)"
           @answer-date="(ok) => emit('answer-date', ok)"
         />
-        <div v-if="!mine && isLast && !streaming && (message.swipes.length > 0 || message.meta.error || message.meta.interrupted)" class="tools">
-          <template v-if="message.swipes.length > 1">
-            <button class="tool" aria-label="上一个回复" @click="emit('swipe', -1)"><span class="i-lucide-chevron-left" /></button>
-            <span class="num text-[12px] text-ink-3">{{ message.swipeIndex + 1 }}/{{ message.swipes.length }}</span>
-            <button class="tool" aria-label="下一个回复" @click="emit('swipe', 1)"><span class="i-lucide-chevron-right" /></button>
-          </template>
-          <button class="tool" aria-label="重新生成" @click="emit('regenerate')"><span class="i-lucide-refresh-cw text-[14px]" /></button>
-        </div>
-        <div v-if="!mine && isLast && message.meta.choices?.length" class="choices">
+        <div v-if="!mine && isLast && !editing && message.meta.choices?.length" class="choices">
           <button v-for="c in message.meta.choices" :key="c" class="choice press" @click="emit('choose', c)">{{ c }}</button>
         </div>
-        <span v-if="message.meta.interrupted" class="text-[12px] text-warn">回复被打断了 · 点重新生成继续</span>
+        <span v-if="message.meta.interrupted" class="text-[12px] text-warn">回复被打断了 · 点上面的 ↻ 重新生成</span>
         <ErrorDetails v-if="message.meta.error" class="err-details" :detail="message.meta.errorDetail ?? message.meta.error" title="回复失败（点上面的 ↻ 重新生成）" max-height="220px" />
       </div>
-      <PersonaAvatar v-if="mine && showMyAvatar && me" :persona="me" :size="34" class="mt-0.5" />
+      <button v-if="mine && showMyAvatar && me" type="button" class="ava-btn mt-0.5" aria-label="这条消息的操作" :aria-expanded="open" @click.stop="emit('toggle-tools')">
+        <PersonaAvatar :persona="me" :size="34" />
+      </button>
     </div>
   </div>
 </template>
@@ -131,6 +182,11 @@ function segments(text: string) {
 .mine .row {
   justify-content: flex-end;
 }
+.ava-btn {
+  display: inline-flex;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
 .col {
   display: flex;
   flex-direction: column;
@@ -141,6 +197,11 @@ function segments(text: string) {
 }
 .mine .col {
   align-items: flex-end;
+}
+/* 改消息时编辑框占满一行 */
+.col.editing {
+  flex: 1;
+  max-width: 100%;
 }
 .bubble {
   padding: 9px 13px;
@@ -172,23 +233,64 @@ function segments(text: string) {
   font-size: 11px;
   color: var(--accent-ink);
 }
+/* 头像旁边展开的一排操作：和头像一样高，排在气泡上面 */
 .tools {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 2px;
-  margin-top: -2px;
+  width: max-content;
+  height: 34px;
+  padding: 0 3px;
+  border-radius: 99px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
 }
 .tool {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  color: var(--ink-3);
+  color: var(--ink-2);
+  font-size: 15px;
 }
 .tool:active {
   background: var(--panel);
+}
+.tool:disabled {
+  opacity: 0.35;
+}
+.tool.danger {
+  color: var(--bad);
+}
+.count {
+  padding: 0 1px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--border);
+}
+.tools-enter-active,
+.tools-leave-active {
+  transition:
+    opacity 0.16s,
+    transform 0.16s var(--ease);
+}
+.tools-enter-from,
+.tools-leave-to {
+  opacity: 0;
+  transform: translateX(-6px);
+}
+.mine .tools-enter-from,
+.mine .tools-leave-to {
+  transform: translateX(6px);
 }
 .choices {
   display: flex;

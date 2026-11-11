@@ -387,6 +387,31 @@ export const useChatStore = defineStore('chat', () => {
     if (s.expression) msg.expression = s.expression;
   }
 
+  /**
+   * 改一条消息的文字（你的、她的都能改），卡片（图片、歌曲……）不动。
+   * 她的回复同时改当前这个备选回复：左右切换再回来还是改过的
+   */
+  function editMessage(chatId: string, id: string, text: string) {
+    const msg = find(chatId, id);
+    if (!msg) return;
+    const t = text.replace(/\r/g, '').trim();
+    const cards = msg.parts.filter((p) => p.type !== 'text');
+    if (!t && !cards.length) return;
+    const parts: MessagePart[] = t ? [{ type: 'text', text: t }, ...cards] : cards;
+    Object.assign(msg, { text: t, parts, updatedAt: Date.now() });
+    const current = msg.swipes[msg.swipeIndex];
+    if (current) Object.assign(current, { text: t, parts });
+    // 改过就是你认可的内容了，"被打断""回复失败"的提示不再显示
+    Object.assign(msg.meta, { interrupted: undefined, error: undefined, errorDetail: undefined });
+  }
+
+  /** 删一条消息；正在生成的那条不删 */
+  function deleteMessage(chatId: string, id: string) {
+    if (streams[chatId]?.messageId === id) return;
+    const msgs = messages.value[chatId];
+    if (msgs) messages.value[chatId] = msgs.filter((m) => m.id !== id);
+  }
+
   async function regenerate(chatId: string, messageId: string) {
     const msg = find(chatId, messageId);
     if (!msg) return;
@@ -567,6 +592,8 @@ export const useChatStore = defineStore('chat', () => {
     generate,
     swipe,
     regenerate,
+    editMessage,
+    deleteMessage,
     redraw,
     recentLines,
     poke,
