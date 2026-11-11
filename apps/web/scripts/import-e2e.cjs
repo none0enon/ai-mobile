@@ -1,5 +1,5 @@
 /**
- * 端到端检查：在真实页面里导入 SillyTavern 预设 + 角色卡（JSON 和 PNG），发一条消息，核对"查看提示词"。
+ * 端到端检查：导入 SillyTavern 预设 + 角色卡，切换已有聊天的预设，核对实际请求和刷新后的保存结果。
  * 用的是 packages/shared/test/fixtures 里的三个文件。
  *
  *   cd apps/web && npx vite preview --port 4173 &
@@ -27,6 +27,18 @@ async function shot(page, name) {
 async function importFile(page, kind, file) {
   await page.setInputFiles(`[data-kind="${kind}"] input[type=file]`, path.join(FX, file));
   await page.waitForSelector('[data-testid="import-result"]');
+}
+
+async function openPresets(page) {
+  await page.getByRole('button', { name: '更多', exact: true }).first().click();
+  await page.locator('.van-action-sheet__item').filter({ hasText: /^预设/ }).click();
+  await page.getByTestId('chat-preset-picker').waitFor();
+}
+
+async function closePresets(page) {
+  await page.locator('.van-action-sheet').filter({ has: page.getByTestId('chat-preset-picker') })
+    .getByRole('button', { name: '取消', exact: true }).click();
+  await page.getByTestId('chat-preset-picker').waitFor({ state: 'hidden' });
 }
 
 async function main() {
@@ -60,6 +72,7 @@ async function main() {
   await shot(page, '2-card-json-read');
   await page.click('[data-testid="import-result"] .van-button');
   await page.waitForSelector('[data-testid="import-done"]');
+  const otherChatPath = await page.locator('[data-testid="import-done"] a').filter({ hasText: '去聊天' }).getAttribute('href');
 
   // 3. 角色卡 PNG
   await importFile(page, 'card', 'card-claude.png');
@@ -113,7 +126,82 @@ async function main() {
   assert.equal(body.messages[5].content, '帮我写一个快速排序');
   await shot(page, '9-inspect-request');
 
-  // 6. 刷新：导入的东西和聊天都还在
+  // 6. 导入另一套预设不会自动修改已有聊天；从聊天菜单选择后才生效。
+  const alternative = JSON.parse(fs.readFileSync(path.join(FX, 'preset-code.json'), 'utf8'));
+  alternative.temperature = 0.25;
+  alternative.openai_max_tokens = 1536;
+  alternative.new_chat_prompt = '[Switched preset]';
+  alternative.stream_openai = false;
+  await page.goto(`${BASE}#/import`);
+  await page.setInputFiles('[data-kind="preset"] input[type=file]', {
+    name: 'preset-alternative.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(alternative)),
+  });
+  await page.click('[data-testid="import-result"] .van-button');
+  await page.waitForSelector('[data-testid="import-done"]');
+  await page.goto(chatUrl);
+  await openPresets(page);
+  const originalRadio = page.getByRole('radio', { name: 'preset-code', exact: true });
+  const alternativeRadio = page.getByRole('radio', { name: 'preset-alternative', exact: true });
+  assert.equal(await originalRadio.isChecked(), true);
+  const originalId = await originalRadio.inputValue();
+  const alternativeId = await alternativeRadio.inputValue();
+  // 取消不能改绑定。
+  await closePresets(page);
+  await openPresets(page);
+  assert.equal(await originalRadio.isChecked(), true);
+  await alternativeRadio.check();
+  await page.getByTestId('chat-preset-picker').waitFor({ state: 'hidden' });
+  assert.equal(page.url(), chatUrl);
+  assert.match(await page.textContent('.page'), /帮我写一个快速排序/);
+
+  // 使用自动保存的真实 IndexedDB 记录核对绑定，再刷新。
+  const chatId = new URL(chatUrl).hash.split('/')[2].split('?')[0];
+  await page.waitForFunction(async ({ chatId, alternativeId }) => new Promise((resolve, reject) => {
+    const open = indexedDB.open('ai-mobile');
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      const get = db.transaction('chats').objectStore('chats').get(chatId);
+      get.onsuccess = () => { db.close(); resolve(get.result?.presetId === alternativeId); };
+      get.onerror = () => { db.close(); reject(get.error); };
+    };
+  }), { chatId, alternativeId });
+  await page.reload();
+  await openPresets(page);
+  assert.equal(await alternativeRadio.isChecked(), true);
+  assert.equal(await page.getByRole('link', { name: '编辑当前预设', exact: true }).getAttribute('href'), `#/me/presets/${alternativeId}`);
+  await shot(page, '10-switched-preset');
+  // 保留当前预设的编辑入口，并且返回聊天仍使用所选预设。
+  await page.getByRole('link', { name: '编辑当前预设', exact: true }).click();
+  await page.waitForSelector('[data-page="preset-edit"]');
+  assert.match(await page.textContent('.page'), /preset-alternative/);
+  await page.goto(chatUrl);
+  await page.fill('textarea', '继续使用新预设');
+  await page.click('[aria-label="发送"]');
+  await page.locator('[aria-label="停止生成"]').waitFor({ state: 'hidden', timeout: 15000 });
+  await page.goto(chatUrl.replace(/\?.*$/, '') + '/inspect');
+  await page.waitForSelector('[data-testid="inspect-messages"]');
+  assert.match(await page.textContent('.page'), /预设「preset-alternative」/);
+  assert.match(await page.textContent('.page'), /这是上一次实际发给模型的内容/);
+  await page.click('[role="tab"]:has-text("请求体")');
+  const switchedBody = JSON.parse(await page.textContent('[data-testid="inspect-request"]'));
+  assert.equal(switchedBody.temperature, 0.25);
+  assert.equal(switchedBody.max_tokens, 1536);
+  assert.equal(switchedBody.stream, false);
+  assert.ok(switchedBody.messages.some((m) => m.content === '[Switched preset]'));
+  assert.ok(switchedBody.messages.some((m) => m.content === '帮我写一个快速排序'));
+  assert.ok(switchedBody.messages.some((m) => m.content === '继续使用新预设'));
+  assert.ok(!switchedBody.messages.some((m) => m.content === '[Analysis and start coding]'));
+  await shot(page, '11-switched-request');
+
+  // 同一套旧预设绑定的另一条聊天不受影响，且仍然只有原来的两个角色和聊天。
+  await page.goto(new URL(otherChatPath, BASE).href);
+  await openPresets(page);
+  assert.equal(await originalRadio.isChecked(), true);
+  assert.equal(await originalRadio.inputValue(), originalId);
+  await closePresets(page);
+
+  // 7. 刷新：导入的东西和聊天都还在
   await page.goto(chatUrl);
   await page.reload();
   await page.waitForSelector('textarea');
@@ -123,7 +211,7 @@ async function main() {
   await page.waitForTimeout(500);
   const names = await page.$$eval('.card-c .text-\\[17px\\]', (els) => els.map((e) => e.textContent.trim()));
   assert.deepEqual(names.filter((n) => n === 'Claude').length, 2);
-  await shot(page, '10-characters-after-reload');
+  await shot(page, '12-characters-after-reload');
   await page.goto(`${BASE}#/me/presets`);
   await page.waitForTimeout(400);
   assert.match(await page.textContent('.page'), /preset-code/);
@@ -133,7 +221,7 @@ async function main() {
     console.error('页面报错：\n' + errors.join('\n'));
     process.exit(1);
   }
-  console.log('通过：预设、JSON 角色卡、PNG 角色卡都导入了；发送时拼出 7 条消息；刷新后数据还在。');
+  console.log('通过：JSON / PNG 角色卡导入；已有聊天切换预设并保存；下一次实际请求采用新提示词和参数，旧消息保留，其他聊天不受影响。');
 }
 
 main().catch((e) => {

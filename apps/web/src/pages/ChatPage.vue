@@ -26,6 +26,7 @@ import { useAppStore } from '@/stores/app';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { useLibraryStore } from '@/stores/library';
 import { dividerTime, hhmm } from '@/utils/time';
 import { showErrorDialog } from '@/utils/errors';
 
@@ -33,6 +34,7 @@ const route = useRoute();
 const router = useRouter();
 const chatStore = useChatStore();
 const chars = useCharacterStore();
+const lib = useLibraryStore();
 const app = useAppStore();
 
 const chatId = computed(() => route.params.id as string);
@@ -174,6 +176,16 @@ function redrawImage() {
 }
 
 const moreOpen = ref(false);
+const presetOpen = ref(false);
+function selectPreset(id: string) {
+  const c = chat.value;
+  const selected = lib.presetById(id);
+  if (!c || !selected) return;
+  c.presetId = selected.id;
+  c.updatedAt = Date.now();
+  presetOpen.value = false;
+  showToast(`已切换为「${selected.name}」`);
+}
 // —— 聊天背景：这个聊天单独设的 → 外观里的通用背景 ——
 const looks = useAppearanceStore();
 const wall = computed(() => looks.backgroundOf(chatId.value));
@@ -197,9 +209,9 @@ function onMore(a: { key: string }) {
     character: `/me/characters/${c?.id}`,
     memory: '/memories?tab=book',
     lore: `/me/lorebooks/${c?.lorebookIds[0] ?? ''}`,
-    preset: `/me/presets/${preset.value?.id ?? 'preset-daily'}`,
   };
   if (a.key === 'background') wallOpen.value = true;
+  else if (a.key === 'preset') presetOpen.value = true;
   else if (target[a.key]) void router.push(target[a.key] as string);
   else showToast('M1 实现');
 }
@@ -323,6 +335,25 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
 
     <van-action-sheet v-model:show="moreOpen" :actions="moreActions" cancel-text="取消" close-on-click-action @select="onMore" />
 
+    <van-action-sheet v-model:show="presetOpen" title="切换预设" cancel-text="取消">
+      <div class="sheet" data-testid="chat-preset-picker">
+        <p class="text-[13px] text-ink-3 mt-0 mb-3">仅用于当前聊天，从下一次回复开始生效。</p>
+        <div class="grid gap-2" role="radiogroup" aria-label="聊天预设">
+          <label v-for="p in lib.presets" :key="p.id" class="preset-choice" :class="{ on: preset?.id === p.id }">
+            <input type="radio" name="chat-preset" :value="p.id" :checked="preset?.id === p.id" :aria-label="p.name" @change="selectPreset(p.id)" />
+            <span class="min-w-0 flex-1">
+              <span class="block text-[14px] font-600 break-words">{{ p.name }}<span v-if="preset?.id === p.id" class="tag accent ml-2">当前使用</span></span>
+              <span v-if="p.description" class="block text-[12px] text-ink-3 mt-1 break-words">{{ p.description }}</span>
+            </span>
+          </label>
+        </div>
+        <div class="flex flex-wrap gap-x-4 gap-y-2 mt-4 text-[13px] text-accent-ink">
+          <RouterLink v-if="preset" :to="`/me/presets/${preset.id}`" @click="presetOpen = false">编辑当前预设</RouterLink>
+          <RouterLink to="/me/presets" @click="presetOpen = false">管理 / 导入预设</RouterLink>
+        </div>
+      </div>
+    </van-action-sheet>
+
     <van-popup v-model:show="wallOpen" position="bottom" round :style="{ maxHeight: '86%' }">
       <div class="sheet">
         <div class="sheet-title mb-3">聊天背景 · {{ character.name }}</div>
@@ -358,6 +389,27 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
 </template>
 
 <style scoped>
+.preset-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.preset-choice.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.preset-choice input {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent-ink);
+}
 /* 背景图层（Wallpaper，z-index -1）只在这一页里垫在底下 */
 .chat-page {
   isolation: isolate;
