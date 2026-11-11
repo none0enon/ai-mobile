@@ -20,6 +20,7 @@ interface SavedHub {
 export const useHubStore = defineStore('hub', () => {
   const config = reactive<SavedHub>({ url: '', cursor: 0, deviceId: '', active: false, preview: 'name-only', revisions: {}, hashes: {}, apiHash: '' });
   const token = ref('');
+  const savedPassword = ref('');
   const connected = computed(() => !!config.url && !!token.value);
   const status = ref<HubStatus | null>(null);
   const points = ref<HubTouchpoint[]>([]);
@@ -27,23 +28,27 @@ export const useHubStore = defineStore('hub', () => {
   const error = ref('');
   const syncing = ref(false);
   let started = false;
+  let connectionVersion = 0;
   const uploading = new Set<string>();
   const save = () => write('settings', [{ key: 'hub', value: clone(config) }]);
 
   async function request<T>(path: string, method = 'GET', data?: unknown): Promise<T> {
+    const version = connectionVersion;
     const response = await fetch(`${config.url}${path}`, {
       method, headers: { Authorization: `Bearer ${token.value}`, ...(data === undefined ? {} : { 'Content-Type': 'application/json' }) },
       body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(30_000), cache: 'no-store',
     });
     const result = await response.json() as T & { error?: string };
+    if (version !== connectionVersion) throw new Error('连接已切换');
     if (!response.ok) throw new Error(result.error || `Worker HTTP ${response.status}`);
     return result;
   }
 
   async function hydrate() {
-    const [saved, secret] = await Promise.all([getOne<SavedHub>('settings', 'hub'), getOne<string>('secrets', 'hub:token')]);
+    const [saved, secret, password] = await Promise.all([getOne<SavedHub>('settings', 'hub'), getOne<string>('secrets', 'hub:token'), getOne<string>('secrets', 'hub:password')]);
     if (saved) Object.assign(config, saved);
     token.value = secret ?? '';
+    savedPassword.value = password ?? '';
   }
 
   async function connect(url: string, password: string) {
@@ -53,18 +58,30 @@ export const useHubStore = defineStore('hub', () => {
     const response = await fetch(`${base}/v1/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }), signal: AbortSignal.timeout(30_000) });
     const result = await response.json() as { token: string; deviceId: string; error?: string };
     if (!response.ok) throw new Error(result.error || `登录失败 HTTP ${response.status}`);
+    connectionVersion++;
     if (config.url !== base) Object.assign(config, { cursor: 0, active: false, revisions: {}, hashes: {}, apiHash: '' });
     config.url = base;
     config.deviceId = result.deviceId;
     token.value = result.token;
-    if (!await write('secrets', [{ key: 'hub:token', value: result.token }])) throw new Error('无法保存登录令牌，请允许浏览器存储');
+    if (!await write('secrets', [{ key: 'hub:token', value: result.token }, { key: 'hub:password', value: password }])) throw new Error('无法保存登录信息，请允许浏览器存储');
+    savedPassword.value = password;
     const remote = await request<{ contexts: { id: string; revision: number }[] }>('/v1/proactive/contexts');
     // Reconnect is an explicit choice of this device as the source of context updates.
     config.revisions = Object.fromEntries(remote.contexts.map((c) => [c.id, c.revision]));
     config.hashes = {};
     await refreshStatus();
-    await save();
+    if (!await save()) throw new Error('无法保存连接地址，请允许浏览器存储');
     await pull();
+  }
+
+  async function disconnect() {
+    // Disconnect this device; the separate cloud switch controls scheduled generation.
+    try { await request('/v1/auth/session', 'DELETE'); } catch { /* Local disconnect also works offline. */ }
+    connectionVersion++;
+    token.value = ''; status.value = null; points.value = []; lastSyncAt.value = null;
+    config.active = false; config.deviceId = ''; error.value = ''; syncing.value = false;
+    const [saved, removed] = await Promise.all([save(), write('secrets', [], ['hub:token'])]);
+    if (!saved || !removed) throw new Error('已断开，但本机未能保存状态，请允许浏览器存储');
   }
 
   async function refreshStatus() {
@@ -178,6 +195,7 @@ export const useHubStore = defineStore('hub', () => {
 
   async function syncNow() {
     if (!connected.value || syncing.value) return;
+    const version = connectionVersion;
     syncing.value = true;
     try {
       await refreshStatus();
@@ -186,8 +204,8 @@ export const useHubStore = defineStore('hub', () => {
       const failure = jobs.find((r) => r.status === 'rejected');
       if (failure?.status === 'rejected') throw failure.reason;
       lastSyncAt.value = Date.now(); error.value = '';
-    } catch (e) { error.value = e instanceof Error ? e.message : String(e); }
-    finally { syncing.value = false; }
+    } catch (e) { if (version === connectionVersion) error.value = e instanceof Error ? e.message : String(e); }
+    finally { if (version === connectionVersion) syncing.value = false; }
   }
 
   async function enable() {
@@ -236,5 +254,5 @@ export const useHubStore = defineStore('hub', () => {
       clearTimeout(debounce); debounce = setTimeout(() => void syncNow(), 500);
     }, { deep: true });
   }
-  return { config, connected, status, points, error, syncing, lastSyncAt, hydrate, connect, syncNow, enable, disable, subscribe, addWebhook, removeChannel, testChannel, start };
+  return { config, savedPassword, connected, status, points, error, syncing, lastSyncAt, hydrate, connect, disconnect, syncNow, enable, disable, subscribe, addWebhook, removeChannel, testChannel, start };
 });
