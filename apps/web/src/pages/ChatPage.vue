@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { getLocation, isRealPlace, worldOf, type MapLocation, type MessagePart } from '@app/shared';
 import { isAbortError } from '@app/ai';
-import { showToast } from 'vant';
+import { showConfirmDialog, showToast } from 'vant';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Composer from '@/components/chat/Composer.vue';
@@ -13,6 +13,7 @@ import DialogBox from '@/components/stage/DialogBox.vue';
 import Wallpaper from '@/components/common/Wallpaper.vue';
 import { backdropAt } from '@/components/scene/location';
 import BackgroundEditor from '@/components/settings/BackgroundEditor.vue';
+import PresetPicker from '@/components/settings/PresetPicker.vue';
 import StageView from '@/components/stage/StageView.vue';
 import { usePoke } from '@/composables/usePoke';
 import PageHeader from '@/layouts/PageHeader.vue';
@@ -27,7 +28,7 @@ import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 import { dividerTime, hhmm } from '@/utils/time';
-import { showErrorDialog } from '@/utils/errors';
+import { copyWithToast, showErrorDialog } from '@/utils/errors';
 
 const route = useRoute();
 const router = useRouter();
@@ -47,7 +48,7 @@ const messages = computed(() => chatStore.list(chatId.value));
 const stream = computed(() => chatStore.streams[chatId.value]);
 const expression = computed(() => chars.expression[character.value?.id ?? ''] ?? 'neutral');
 const lastAi = computed(() => [...messages.value].reverse().find((m) => m.role === 'assistant'));
-const preset = computed(() => presetFor(chat.value, character.value));
+const preset = computed(() => presetFor(character.value));
 
 function setMode(m: 'im' | 'stage') {
   if (chat.value) chat.value.mode = m;
@@ -173,6 +174,55 @@ function redrawImage() {
   if (imagePart.value) chatStore.redraw(chatId.value, imagePart.value);
 }
 
+// —— 消息操作：平时藏着，点头像展开（重试 / 编辑 / 复制 / 删除）；点别处收起 ——
+const toolsFor = ref<string | null>(null);
+const editingId = ref<string | null>(null);
+watch(chatId, () => {
+  toolsFor.value = null;
+  editingId.value = null;
+});
+function toggleTools(id: string) {
+  const el = scroller.value;
+  const atBottom = !!el && el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  toolsFor.value = toolsFor.value === id ? null : id;
+  // 展开的一排会把最后一条往下顶：本来在底部就跟着滚到底，别让它躲到输入框后面
+  if (toolsFor.value && atBottom) void scrollToBottom(true);
+}
+/** 重试：她的回复再出一个备选（展开的一排留着，好左右对比）；最后一条是你的消息时让她回一条 */
+function retry(id: string) {
+  const m = byId.value.get(id);
+  if (!m || stream.value) return;
+  if (m.role === 'user') {
+    toolsFor.value = null;
+    void chatStore.generate(chatId.value);
+  } else void chatStore.regenerate(chatId.value, id);
+}
+function startEdit(id: string) {
+  toolsFor.value = null;
+  editingId.value = id;
+}
+function saveEdit(id: string, text: string) {
+  chatStore.editMessage(chatId.value, id, text);
+  editingId.value = null;
+}
+function copyMessage(text: string) {
+  toolsFor.value = null;
+  void copyWithToast(text);
+}
+async function removeMessage(id: string) {
+  toolsFor.value = null;
+  const ok = await showConfirmDialog({
+    title: '删除这条消息？',
+    message: '删了以后，发给模型的聊天记录里也不会再有它。',
+    confirmButtonText: '删除',
+    confirmButtonColor: 'var(--bad)',
+  }).then(
+    () => true,
+    () => false,
+  );
+  if (ok) chatStore.deleteMessage(chatId.value, id);
+}
+
 const moreOpen = ref(false);
 // —— 聊天背景：这个聊天单独设的 → 外观里的通用背景 ——
 const looks = useAppearanceStore();
@@ -186,7 +236,7 @@ const moreActions = computed(() => [
   { name: '角色设定', subname: character.value?.name, key: 'character' },
   { name: '记忆本', subname: '她记得的事，可以改', key: 'memory' },
   { name: '世界书', key: 'lore' },
-  { name: '预设', subname: preset.value?.name, key: 'preset' },
+  { name: '预设', subname: `正在用「${preset.value?.name ?? ''}」，点这里换`, key: 'preset' },
   { name: '导出聊天', subname: 'SillyTavern .jsonl（M1）', key: 'export' },
 ]);
 function onMore(a: { key: string }) {
@@ -197,11 +247,21 @@ function onMore(a: { key: string }) {
     character: `/me/characters/${c?.id}`,
     memory: '/memories?tab=book',
     lore: `/me/lorebooks/${c?.lorebookIds[0] ?? ''}`,
-    preset: `/me/presets/${preset.value?.id ?? 'preset-daily'}`,
   };
   if (a.key === 'background') wallOpen.value = true;
+  else if (a.key === 'preset') presetOpen.value = true;
   else if (target[a.key]) void router.push(target[a.key] as string);
   else showToast('M1 实现');
+}
+
+// —— 换预设 ——
+const presetOpen = ref(false);
+function pickPreset(id: string) {
+  presetOpen.value = false;
+  const c = character.value;
+  if (!c || id === preset.value.id) return;
+  chars.setPreset(c.id, id);
+  showToast(`换成「${preset.value.name}」了，下一条回复起生效`);
 }
 
 // —— 剧场模式 ——
@@ -262,7 +322,7 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
         </template>
       </PageHeader>
 
-      <div ref="scroller" class="page-scroll" :class="{ 'chat-bg': !hasWall }">
+      <div ref="scroller" class="page-scroll" :class="{ 'chat-bg': !hasWall }" @click="toolsFor = null">
         <div class="py-3">
           <template v-for="r in rows" :key="r.id">
             <div v-if="r.kind === 'divider'" class="divider num">{{ dividerTime(r.ts) }}</div>
@@ -273,8 +333,16 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
               :is-last="r.id === messages.at(-1)?.id"
               :streaming="stream?.messageId === r.id"
               :thinking="!!stream?.thinking"
+              :tools-open="toolsFor === r.id"
+              :editing="editingId === r.id"
+              @toggle-tools="toggleTools(r.id)"
               @swipe="(d) => chatStore.swipe(chatId, r.id, d)"
-              @regenerate="chatStore.regenerate(chatId, r.id)"
+              @regenerate="retry(r.id)"
+              @edit="startEdit(r.id)"
+              @copy="copyMessage"
+              @delete="removeMessage(r.id)"
+              @save-edit="(t) => saveEdit(r.id, t)"
+              @cancel-edit="editingId = null"
               @choose="(t) => chatStore.send(chatId, t)"
               @open-music="router.push('/scene/music')"
               @open-image="openImage"
@@ -330,6 +398,15 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
       </div>
     </van-popup>
 
+    <van-popup v-model:show="presetOpen" position="bottom" round :style="{ maxHeight: '80%' }">
+      <div class="sheet" data-testid="preset-sheet">
+        <div class="sheet-title">预设 · {{ character.name }}</div>
+        <p class="text-[12.5px] text-ink-3 mt-1 mb-3 leading-relaxed">换了以后，下一条回复起按新预设拼提示词，聊天记录不变。在角色设定 → 预设 里也能换。</p>
+        <PresetPicker :model-value="preset.id" @update:model-value="pickPreset" @edit="presetOpen = false" />
+        <RouterLink to="/import" class="import-link" @click="presetOpen = false"><span class="i-lucide-file-down" />导入 SillyTavern 预设</RouterLink>
+      </div>
+    </van-popup>
+
     <van-popup v-model:show="logOpen" position="bottom" round :style="{ maxHeight: '72%' }">
       <div class="p-4">
         <div class="text-[15px] font-600 mb-2">对话记录</div>
@@ -366,6 +443,19 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
   background:
     radial-gradient(120% 60% at 50% -10%, var(--accent-soft), transparent 60%),
     var(--bg);
+}
+.import-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 44px;
+  margin-top: 10px;
+  border-radius: 14px;
+  border: 1.5px dashed var(--border);
+  color: var(--ink-2);
+  font-size: 13.5px;
+  text-decoration: none;
 }
 .divider {
   margin: 10px auto 6px;

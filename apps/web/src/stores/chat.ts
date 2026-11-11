@@ -55,7 +55,11 @@ export const useChatStore = defineStore('chat', () => {
 
   async function hydrate() {
     const [cs, ms] = await Promise.all([getAll<Chat>('chats'), getAll<Message[]>('messages')]);
-    for (const c of cs.sort((a, b) => a.createdAt - b.createdAt)) if (!chats.value.some((x) => x.id === c.id)) chats.value.push(c);
+    for (const c of cs.sort((a, b) => a.createdAt - b.createdAt)) {
+      if (chats.value.some((x) => x.id === c.id)) continue;
+      delete (c as Chat & { presetId?: unknown }).presetId; // 旧数据里聊天上也存了一份预设，现在只看角色上的
+      chats.value.push(c);
+    }
     for (const list of ms) {
       const chatId = list[0]?.chatId;
       if (chatId && !DEMO_CHATS.has(chatId)) messages.value[chatId] = list;
@@ -68,7 +72,7 @@ export const useChatStore = defineStore('chat', () => {
    * 给新角色开一条聊天：第一条是角色卡的开场白（宏替换后），备选开场白可以左右切换（同 ST）。
    * 已经有聊天就直接返回那条（消息按人分）。
    */
-  function startChat(character: Character, presetId: string | null = null): Chat {
+  function startChat(character: Character): Chat {
     const existing = chatOfCharacter(character.id);
     if (existing) return existing;
     const now = Date.now();
@@ -79,7 +83,6 @@ export const useChatStore = defineStore('chat', () => {
       characterId: character.id,
       personaId: null,
       title: character.name,
-      presetId: presetId ?? character.presetId,
       mode: 'im',
       currentScene: null,
       togetherAt: null,
@@ -384,6 +387,31 @@ export const useChatStore = defineStore('chat', () => {
     if (s.expression) msg.expression = s.expression;
   }
 
+  /**
+   * 改一条消息的文字（你的、她的都能改），卡片（图片、歌曲……）不动。
+   * 她的回复同时改当前这个备选回复：左右切换再回来还是改过的
+   */
+  function editMessage(chatId: string, id: string, text: string) {
+    const msg = find(chatId, id);
+    if (!msg) return;
+    const t = text.replace(/\r/g, '').trim();
+    const cards = msg.parts.filter((p) => p.type !== 'text');
+    if (!t && !cards.length) return;
+    const parts: MessagePart[] = t ? [{ type: 'text', text: t }, ...cards] : cards;
+    Object.assign(msg, { text: t, parts, updatedAt: Date.now() });
+    const current = msg.swipes[msg.swipeIndex];
+    if (current) Object.assign(current, { text: t, parts });
+    // 改过就是你认可的内容了，"被打断""回复失败"的提示不再显示
+    Object.assign(msg.meta, { interrupted: undefined, error: undefined, errorDetail: undefined });
+  }
+
+  /** 删一条消息；正在生成的那条不删 */
+  function deleteMessage(chatId: string, id: string) {
+    if (streams[chatId]?.messageId === id) return;
+    const msgs = messages.value[chatId];
+    if (msgs) messages.value[chatId] = msgs.filter((m) => m.id !== id);
+  }
+
   async function regenerate(chatId: string, messageId: string) {
     const msg = find(chatId, messageId);
     if (!msg) return;
@@ -564,6 +592,8 @@ export const useChatStore = defineStore('chat', () => {
     generate,
     swipe,
     regenerate,
+    editMessage,
+    deleteMessage,
     redraw,
     recentLines,
     poke,

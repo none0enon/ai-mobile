@@ -97,7 +97,7 @@ const TITLE: Record<PendingImport['kind'], string> = { card: '角色卡', preset
           <li v-for="w in pending.warnings" :key="w">{{ w }}</li>
         </ul>
         <template v-if="pending.kind === 'card'">
-          <div class="text-[12.5px] text-ink-3 mt-3 mb-1.5">聊天用哪个预设（之后在聊天里也能换）</div>
+          <div class="text-[12.5px] text-ink-3 mt-3 mb-1.5">聊天用哪个预设（之后在聊天右上角 ⋯ → 预设，或角色设定 → 预设 里都能换）</div>
           <div class="flex flex-wrap gap-1.5">
             <button v-for="p in lib.presets" :key="p.id" type="button" class="chip-btn" :class="{ on: presetId === p.id }" @click="presetId = p.id">
               {{ p.name }}

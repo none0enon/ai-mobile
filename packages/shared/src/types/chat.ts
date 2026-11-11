@@ -112,12 +112,12 @@ export interface Message extends SyncMeta {
  * 一个角色只有一条聊天（消息按人分）。IM 和剧场只是同一条聊天的两种看法；
  * 约会、学习等场景是这条聊天里的一段，用 scene 分隔提示标出进出。
  * 导入的 SillyTavern 聊天记录作为这个角色的"存档"，不在消息列表里单独出现。
+ * 用哪个预设看角色（Character.presetId），聊天上不另存。
  */
 export interface Chat extends SyncMeta {
   characterId: string;
   personaId: string | null;
   title: string;
-  presetId: string | null;
   /** 上次用的看法：聊天气泡 / 剧场立绘 */
   mode: 'im' | 'stage';
   currentScene: string | null;

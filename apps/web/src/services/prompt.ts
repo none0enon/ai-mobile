@@ -137,9 +137,10 @@ function appFills(chat: Chat, character: Character, history: Message[]): Record<
   };
 }
 
-export function presetFor(chat: Chat | undefined, character: Character | undefined): Preset {
+/** 这个角色用的预设；没选、或选的那个被删了时用第一个 */
+export function presetFor(character: Character | undefined): Preset {
   const lib = useLibraryStore();
-  return lib.presetById(chat?.presetId) ?? lib.presetById(character?.presetId) ?? (lib.presets[0] as Preset);
+  return lib.presetById(character?.presetId) ?? (lib.presets[0] as Preset);
 }
 
 /** 主对话智能体用的模型名（请求体里的 model）；还没分配时显示"演示模型" */
@@ -160,7 +161,7 @@ export interface ChatPrompt extends AssembleResult {
  */
 export function assembleForChat(chat: Chat, character: Character, history: Message[], opts: { dryRun?: boolean; type?: GenerationType } = {}): ChatPrompt {
   const lib = useLibraryStore();
-  const preset = presetFor(chat, character);
+  const preset = presetFor(character);
   const persona = personaOf(chat);
   const books = character.lorebookIds.map((id) => lib.lorebookById(id)).filter((b) => !!b);
   const lastUser = [...history].reverse().find((m) => m.role === 'user');
