@@ -48,7 +48,7 @@ const messages = computed(() => chatStore.list(chatId.value));
 const stream = computed(() => chatStore.streams[chatId.value]);
 const expression = computed(() => chars.expression[character.value?.id ?? ''] ?? 'neutral');
 const lastAi = computed(() => [...messages.value].reverse().find((m) => m.role === 'assistant'));
-const preset = computed(() => presetFor(chat.value, character.value));
+const preset = computed(() => presetFor(character.value));
 
 function setMode(m: 'im' | 'stage') {
   if (chat.value) chat.value.mode = m;
@@ -205,13 +205,13 @@ function onMore(a: { key: string }) {
   else showToast('M1 实现');
 }
 
-// —— 换预设（角色和这条聊天一起换） ——
+// —— 换预设 ——
 const presetOpen = ref(false);
 function pickPreset(id: string) {
   presetOpen.value = false;
   const c = character.value;
   if (!c || id === preset.value.id) return;
-  chatStore.setPreset(c.id, id);
+  chars.setPreset(c.id, id);
   showToast(`换成「${preset.value.name}」了，下一条回复起生效`);
 }
 

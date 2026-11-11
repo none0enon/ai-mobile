@@ -166,7 +166,7 @@ export function buildMessages(): Record<string, Message[]> {
 /** 消息按人分：每个角色只有一条聊天 */
 export function buildChats(messages: Record<string, Message[]>): Chat[] {
   const last = (id: string) => messages[id]?.at(-1)?.createdAt ?? 0;
-  const base = { personaId: 'me', presetId: 'preset-daily', currentScene: null, togetherAt: null, togetherMode: null, summaryUntilMessageId: null, pinned: false, mode: 'im' as const, background: null };
+  const base = { personaId: 'me', currentScene: null, togetherAt: null, togetherMode: null, summaryUntilMessageId: null, pinned: false, mode: 'im' as const, background: null };
   return [
     { ...base, id: 'chat-suwan', characterId: 'suwan', title: '苏晚', pinned: true, createdAt: at(-30, '20:00'), updatedAt: last('chat-suwan'), lastMessageAt: last('chat-suwan') },
     { ...base, id: 'chat-jiangyu', characterId: 'jiangyu', title: '江屿', createdAt: at(-9, '18:00'), updatedAt: last('chat-jiangyu'), lastMessageAt: last('chat-jiangyu') },

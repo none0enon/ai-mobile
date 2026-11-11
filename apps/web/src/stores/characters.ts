@@ -47,6 +47,12 @@ export const useCharacterStore = defineStore('characters', () => {
     list.value = list.value.filter((c) => c.id !== id);
   }
 
+  /** 换预设：下一条回复起按新预设拼提示词，聊天记录不动 */
+  function setPreset(id: string, presetId: string) {
+    const c = byId(id);
+    if (c) Object.assign(c, { presetId, updatedAt: Date.now() });
+  }
+
   function setExpression(id: string, value: string) {
     expression[id] = value;
   }
@@ -56,5 +62,5 @@ export const useCharacterStore = defineStore('characters', () => {
     if (c) c.relationship.affection = Math.max(0, Math.min(100, c.relationship.affection + delta));
   }
 
-  return { list, expression, hydrate, byId, isDemo, add, remove, setExpression, bumpAffection };
+  return { list, expression, hydrate, byId, isDemo, add, remove, setPreset, setExpression, bumpAffection };
 });

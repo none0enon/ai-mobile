@@ -55,7 +55,11 @@ export const useChatStore = defineStore('chat', () => {
 
   async function hydrate() {
     const [cs, ms] = await Promise.all([getAll<Chat>('chats'), getAll<Message[]>('messages')]);
-    for (const c of cs.sort((a, b) => a.createdAt - b.createdAt)) if (!chats.value.some((x) => x.id === c.id)) chats.value.push(c);
+    for (const c of cs.sort((a, b) => a.createdAt - b.createdAt)) {
+      if (chats.value.some((x) => x.id === c.id)) continue;
+      delete (c as Chat & { presetId?: unknown }).presetId; // 旧数据里聊天上也存了一份预设，现在只看角色上的
+      chats.value.push(c);
+    }
     for (const list of ms) {
       const chatId = list[0]?.chatId;
       if (chatId && !DEMO_CHATS.has(chatId)) messages.value[chatId] = list;
@@ -68,7 +72,7 @@ export const useChatStore = defineStore('chat', () => {
    * 给新角色开一条聊天：第一条是角色卡的开场白（宏替换后），备选开场白可以左右切换（同 ST）。
    * 已经有聊天就直接返回那条（消息按人分）。
    */
-  function startChat(character: Character, presetId: string | null = null): Chat {
+  function startChat(character: Character): Chat {
     const existing = chatOfCharacter(character.id);
     if (existing) return existing;
     const now = Date.now();
@@ -79,7 +83,6 @@ export const useChatStore = defineStore('chat', () => {
       characterId: character.id,
       personaId: null,
       title: character.name,
-      presetId: presetId ?? character.presetId,
       mode: 'im',
       currentScene: null,
       togetherAt: null,
@@ -109,18 +112,6 @@ export const useChatStore = defineStore('chat', () => {
   function removeChat(chatId: string) {
     chats.value = chats.value.filter((c) => c.id !== chatId);
     delete messages.value[chatId];
-  }
-
-  /**
-   * 换预设：角色和它那条聊天一起换。拼提示词时先看聊天上的预设，只改角色的话聊天里不生效。
-   * 下一条回复起按新预设拼，聊天记录不动
-   */
-  function setPreset(characterId: string, presetId: string) {
-    const now = Date.now();
-    const character = useCharacterStore().byId(characterId);
-    if (character) Object.assign(character, { presetId, updatedAt: now });
-    const chat = chatOfCharacter(characterId);
-    if (chat) Object.assign(chat, { presetId, updatedAt: now });
   }
 
   const sortedChats = computed(() =>
@@ -563,7 +554,6 @@ export const useChatStore = defineStore('chat', () => {
     hydrate,
     startChat,
     removeChat,
-    setPreset,
     sortedChats,
     totalUnread,
     chatById,

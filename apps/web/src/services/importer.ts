@@ -145,7 +145,7 @@ export async function commitImport(p: PendingImport, opts: { presetId?: string |
       // 头像做不出来不影响导入
     }
   }
-  const c = chat.startChat(character, presetId);
+  const c = chat.startChat(character);
   const preset = lib.presetById(presetId);
   return {
     message: `「${character.name}」导入好了${preset ? `，用预设「${preset.name}」` : ''}`,

@@ -16,11 +16,9 @@ import { presetFor } from '@/services/prompt';
 import { useLibraryStore } from '@/stores/library';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
-import { useChatStore } from '@/stores/chat';
 
 const route = useRoute();
 const chars = useCharacterStore();
-const chatStore = useChatStore();
 const lib = useLibraryStore();
 const looks = useAppearanceStore();
 async function pickAvatar(file: File) {
@@ -32,11 +30,11 @@ async function pickAvatar(file: File) {
 }
 const character = computed(() => chars.byId(route.params.id as string) ?? chars.list[0]!);
 const figure = computed(() => FIGURE[character.value.id] ?? { hairStyle: 'long' as const, eye: '#3b2531' });
-/** 和她聊天时实际用的预设（聊天上的优先，同拼提示词） */
-const presetId = computed(() => presetFor(chatStore.chatOfCharacter(character.value.id), character.value).id);
+/** 和她聊天时实际用的预设（同拼提示词） */
+const presetId = computed(() => presetFor(character.value).id);
 function pickPreset(id: string) {
   if (id === presetId.value) return;
-  chatStore.setPreset(character.value.id, id);
+  chars.setPreset(character.value.id, id);
   showToast(`换成「${lib.presetById(id)?.name ?? ''}」了`);
 }
 const TABS = ['basic', 'persona', 'greeting', 'example', 'lore', 'preset', 'sprite', 'voice', 'proactive', 'look'] as const;
