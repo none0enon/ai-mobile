@@ -120,13 +120,44 @@ export function httpError(provider: string, status: number, body: string): AiErr
   });
 }
 
-export function networkError(provider: string, cause: unknown): AiError {
+export function networkError(provider: string, cause: unknown, url = ''): AiError {
   const msg = cause instanceof Error ? cause.message : String(cause);
-  return new AiError(
-    'network',
-    `连不上 ${provider}（${msg || '网络错误'}）。可能是断网、地址写错，或对方不允许浏览器直连——可以换中转，或在连接里打开"经 Worker 转发"`,
-    { retryable: true, cause },
-  );
+  return new AiError('network', `连不上 ${provider}（${msg || '网络错误'}）。${networkHint(url)}`, { retryable: true, cause });
+}
+
+/**
+ * 请求没发出去时最可能的原因。浏览器只给一句 "Failed to fetch"，所以按地址猜：
+ * - 本机（127.0.0.1 / localhost，Termux 里跑的服务）：服务没在跑、没开跨域、浏览器没允许访问本地网络；
+ * - 局域网的 http 地址：https 的网页（GitHub Pages、装好的 App）不让连 http 的局域网地址；
+ * - 公网：断网、地址写错，或对方不允许浏览器直连。
+ */
+function networkHint(url: string): string {
+  let u: URL | null = null;
+  try {
+    u = new URL(url);
+  } catch {
+    // 地址写得不对
+  }
+  if (!u) return '检查一下地址是不是完整的 http(s)://…';
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  const port = u.port ? `:${u.port}` : '';
+  const loopback = host === 'localhost' || host === '::1' || host === '0.0.0.0' || /^127\./.test(host);
+  const local = /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host.endsWith('.local');
+  const pageHttps = typeof location !== 'undefined' && location.protocol === 'https:';
+  if (loopback) {
+    return [
+      `这是本机地址 ${host}${port}：`,
+      '① Termux 里的服务还在跑吗（切到后台可能被系统杀掉，可以先 termux-wake-lock）；',
+      '② 服务要允许跨域：OPTIONS 预检要回 Access-Control-Allow-Origin 和 Access-Control-Allow-Headers（含 Authorization、Content-Type）；',
+      '③ Chrome 问"允许访问本地网络上的设备"时选允许（拒绝过的在 网站设置 → 本地网络访问 里改回来）。',
+    ].join('');
+  }
+  if (local && u.protocol === 'http:' && pageHttps) {
+    return `这是局域网的 http 地址：https 的网页不让连。服务在这台手机上的话改填 http://127.0.0.1${port}；在别的设备上要给它配 https。`;
+  }
+  if (local) return '这是局域网地址：确认那台设备上的服务在跑、两边在同一个网络，并且服务允许跨域（CORS）。';
+  if (u.protocol === 'http:' && pageHttps) return 'https 的网页不让连 http 的地址，换成 https 的地址。';
+  return '可能是断网、地址写错，或对方不允许浏览器直连——可以换中转，或在连接里打开"经 Worker 转发"';
 }
 
 export function errorText(e: unknown): string {

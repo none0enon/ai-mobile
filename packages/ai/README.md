@@ -37,6 +37,13 @@ src/connection.ts  拉取模型列表、测试连接
 - **回复修剪**（`llm/filter.ts`，SleepTogether 的全局正则）：所有文本智能体的回复过一遍正则，默认去掉 `<think>…</think>`、只剩结束标签的半截思考、`<!-- consider: … -->`；流式时每次更新都修剪。修剪完是空的算失败。
 - **流式兼容**：有的中转在流里给 `message.content` 或 `text` 而不是 `delta.content`，都认。
 
+## 本机服务（Termux 等）
+
+- `127.0.0.1` / `localhost` 和局域网地址（`core/endpoint.ts` 的 `addressSpace`）不填 Key 也能用：路由不会因为没 Key 改用演示模型，请求不带鉴权头。
+- 粘的完整地址照原样用（同 math-reader 的 `fetch(config.url)`）：`http://127.0.0.1:8787/chat/completions` 不会被补成 `/v1/chat/completions`；只填域名时才补 `/v1`。
+- 连不上时（浏览器只给 "Failed to fetch"），按地址说明要查什么：本机服务在不在跑、跨域、Chrome 的"本地网络访问"；https 网页连局域网 http 地址时带 `targetAddressSpace: 'local'`。
+- OpenAI 官方（api.openai.com）一开始就用 `max_completion_tokens`。
+
 ## DeepSeek（按官网文档，2026-11）
 
 - 地址 `https://api.deepseek.com/chat/completions`，模型 `deepseek-flash`（V4.1 Flash，能看图）/ `deepseek-v4-pro`。

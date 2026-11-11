@@ -47,12 +47,14 @@ const OPENAI_SUFFIX = /\/(?:chat\/completions|completions|embeddings|audio\/spee
 
 /**
  * OpenAI 兼容接口的 Base URL。设置里填 Base URL（如 https://api.example.com/v1），程序按用途拼路径；
- * 也容忍从 math-reader 习惯粘过来的完整地址（…/v1/chat/completions）。
+ * 也收 math-reader 习惯粘的完整地址（…/v1/chat/completions），这时照原样用，不再补 /v1
+ * （同 math-reader：Termux 上的 http://127.0.0.1:8787/chat/completions 这种不带 /v1 的也能连）。
  * 只填了域名时补 /v1：各家中转（one-api / new-api）、DeepSeek、硅基流动、Ollama 都是这个约定。
  */
 export function openaiBase(url: string): string {
-  let u = trimUrl(url).replace(OPENAI_SUFFIX, '');
-  u = trimUrl(u);
+  const raw = trimUrl(url);
+  const u = trimUrl(raw.replace(OPENAI_SUFFIX, ''));
+  if (u !== raw) return u;
   return originOnly(u) ? `${u}/v1` : u;
 }
 
@@ -87,10 +89,43 @@ export function vertexBase(url: string): string {
   return originOnly(u) ? `${u}/v1/publishers/google` : u;
 }
 
-/** Anthropic Messages 接口的 Base URL（https://api.anthropic.com/v1） */
+/** Anthropic Messages 接口的 Base URL（https://api.anthropic.com/v1）；粘的完整地址（…/messages）照原样用 */
 export function anthropicBase(url: string): string {
-  const u = trimUrl(trimUrl(url).replace(/\/(?:messages|models)$/i, ''));
+  const raw = trimUrl(url);
+  const u = trimUrl(raw.replace(/\/(?:messages|models)$/i, ''));
+  if (u !== raw) return u;
   return originOnly(u) ? `${u}/v1` : u;
+}
+
+/** OpenAI 官方接口（api.openai.com）：输出上限直接用 max_completion_tokens */
+export function isOpenAIOfficial(url: string): boolean {
+  return hostOf(url) === 'api.openai.com';
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(trimUrl(url)).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 地址在哪：loopback 是这台设备自己（127.0.0.1、localhost，Termux 里跑的服务就是这种），
+ * local 是局域网（192.168.x.x、10.x.x.x、172.16–31.x.x、*.local），public 是公网。
+ * 本机和局域网的服务一般不要 Key；浏览器连它们时规则也不一样（见 core/errors.ts 的提示）。
+ */
+export function addressSpace(url: string): 'loopback' | 'local' | 'public' {
+  const h = hostOf(url);
+  if (!h) return 'public';
+  if (h === 'localhost' || h.endsWith('.localhost') || h === '::1' || h === '0.0.0.0' || /^127\./.test(h)) return 'loopback';
+  if (/^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || /^169\.254\./.test(h) || h.endsWith('.local') || /^f[cd][0-9a-f]{2}:/.test(h)) return 'local';
+  return 'public';
+}
+
+/** 本机或局域网地址（Termux、Ollama、LM Studio、自建 GPT-SoVITS…）：不填 Key 也能用 */
+export function isLocalUrl(url: string): boolean {
+  return addressSpace(url) !== 'public';
 }
 
 /**
