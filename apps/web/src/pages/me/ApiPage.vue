@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { addressSpace, compileFilter, DEFAULT_IMAGE_STYLE, DEFAULT_OUTPUT_FILTERS, encodeVector, errorText, isLocalUrl, kindCan, listModels, testConnection, type VoiceSpec } from '@app/ai';
+import { compileFilter, DEFAULT_IMAGE_STYLE, DEFAULT_OUTPUT_FILTERS, encodeVector, errorText, kindCan, listModels, testConnection, type VoiceSpec } from '@app/ai';
 import {
   AGENT_META,
   type AgentRole,
@@ -85,13 +85,6 @@ const NAI_SCHEDULES = ['karras', 'native', 'exponential', 'polyexponential'];
 function clone<T>(x: T): T {
   return JSON.parse(JSON.stringify(x)) as T;
 }
-/** 连接卡片上的 Key 状态 */
-function keyTag(c: ProviderConnection): { text: string; tone: '' | 'good' | 'warn' } {
-  if (c.keyStorage === 'none') return { text: '无需 Key', tone: '' };
-  if (c.hasKey) return { text: 'Key 在本机', tone: 'good' };
-  if (isLocalUrl(c.baseUrl)) return { text: '本机地址，不填 Key 也能用', tone: '' };
-  return { text: '未填 Key', tone: 'warn' };
-}
 function connName(id: string | null | undefined) {
   return ai.byId(id)?.name ?? '未选择';
 }
@@ -156,7 +149,7 @@ function fromTemplate(t: ConnectionTemplate): ProviderConnection {
     name: t.name,
     kind: t.kind,
     baseUrl: t.baseUrl,
-    keyStorage: t.keyStorage ?? (isLocalUrl(t.baseUrl) ? 'none' : 'device'),
+    keyStorage: t.keyStorage ?? 'device',
     hasKey: false,
     capabilities: [...t.capabilities],
     models: [...t.models],
@@ -206,15 +199,13 @@ function voiceFor(c: ProviderConnection): VoiceSpec | undefined {
   return who?.voice.voiceId ? voiceSpec(who) : undefined;
 }
 
-async function fetchModels(silent = false) {
+async function fetchModels() {
   const c = editing.value;
   if (!c) return;
   fetching.value = true;
   try {
     const list = await listModels(ai.endpointOf(c, currentKey()));
-    if (!list.length) {
-      if (!silent) showToast('没有拉到模型，可以在下面手动填');
-    } else if (silent) c.models = [...new Set([...c.models, ...list])];
+    if (!list.length) showToast('没有拉到模型，可以在下面手动填');
     else if (c.kind === 'vertex') {
       // 同 math-reader：Vertex 的 API Key 拉不到模型列表（要 OAuth），列出常用的，保留已经填的
       c.models = [...new Set([...c.models, ...list])];
@@ -224,7 +215,7 @@ async function fetchModels(silent = false) {
       showToast(`拉取到 ${list.length} 个模型`);
     }
   } catch (e) {
-    if (!silent) showToast({ message: `拉取失败：${errorText(e)}`.slice(0, 140), duration: 3500 });
+    showToast({ message: `拉取失败：${errorText(e)}`.slice(0, 140), duration: 3500 });
   } finally {
     fetching.value = false;
   }
@@ -241,11 +232,7 @@ function removeModel(m: string) {
   if (c) c.models = c.models.filter((x) => x !== m);
 }
 
-/**
- * 按这个连接能做的事逐项测：对话发一句话、向量算一句、语音读"你好"、NovelAI 查订阅。
- * 还没有模型时先拉一次模型列表；对话测出 404 / 405 时换另一种格式（OpenAI ↔ Claude）再试，通了就把协议改过来
- * （Termux 上的服务可能是两种里的任意一种）
- */
+/** 按这个连接能做的事逐项测：对话发一句话、向量算一句、语音读"你好"、NovelAI 查订阅 */
 async function testConn() {
   const c = editing.value;
   if (!c) return;
@@ -256,38 +243,19 @@ async function testConn() {
   }
   if (!applyAdvanced(c)) return;
   testing.value = true;
-  if (caps.includes('chat') && !c.models.length) await fetchModels(true);
   const key = currentKey();
   const lines: string[] = [];
   let ok = true;
   let latency: number | undefined;
   for (const cap of caps) {
-    let r = await testConnection(ai.endpointOf(c, key, modelFor(c, cap)), cap, { voice: cap === 'tts' ? voiceFor(c) : undefined });
-    if (cap === 'chat' && !r.ok && (r.status === 404 || r.status === 405) && (c.kind === 'openai' || c.kind === 'anthropic')) {
-      const other: ConnectionKind = c.kind === 'openai' ? 'anthropic' : 'openai';
-      const retry = await testConnection(ai.endpointOf({ ...c, kind: other }, key, modelFor(c, cap)), cap);
-      if (retry.ok) {
-        c.kind = other;
-        r = { ...retry, message: `${retry.message}（这个地址是 ${KIND_LABEL[other]} 格式，协议已改过来）` };
-      }
-    }
+    const r = await testConnection(ai.endpointOf(c, key, modelFor(c, cap)), cap, { voice: cap === 'tts' ? voiceFor(c) : undefined });
     latency ??= r.latencyMs;
     ok &&= r.ok;
     lines.push(`${CAP_LABEL[cap]}：${r.message}`);
   }
-  if (caps.includes('chat') && !modelFor(c, 'chat')) lines.push('还没有对话模型：点"拉取模型列表"，或在下面手动填一个');
   c.lastTest = { ok, at: Date.now(), latencyMs: latency, message: lines.join('\n') };
   testing.value = false;
 }
-/** 能对话的连接：这个连接能直接调用（有 Key、不需要 Key 或本机地址），并且有对话模型 */
-function chatReady(c: ProviderConnection): string | null {
-  if (!c.capabilities.includes('chat') || !kindCan(c.kind, 'chat') || !ai.usable(c)) return null;
-  return modelFor(c, 'chat') || null;
-}
-/**
- * 保存。能对话的连接保存后，还在用演示模型的对话智能体（主对话等）自动改用它——
- * 同 math-reader"所选的 API 没配置时改用配置好的那个"，填好就能聊，不用再去下面一个个分配
- */
 function saveConn() {
   const c = editing.value;
   if (!c || !applyAdvanced(c)) return;
@@ -295,31 +263,7 @@ function saveConn() {
   if (keyDraft.value !== KEY_MASK) ai.setKey(c.id, keyDraft.value.trim() || null);
   ai.saveConnection(c);
   editing.value = null;
-  const saved = ai.byId(c.id);
-  const model = saved ? chatReady(saved) : null;
-  const changed = saved && model ? ai.useForText(saved.id, model, true) : [];
-  showToast(changed.length ? `已保存，${switchedText(changed)}改用"${c.name}"` : '已保存');
-}
-/** 对话类的智能体全部改用这个连接（已经接通别的连接的也改） */
-function useForAllText() {
-  const c = editing.value;
-  if (!c || !applyAdvanced(c)) return;
-  if (keyDraft.value !== KEY_MASK) ai.setKey(c.id, keyDraft.value.trim() || null);
-  ai.saveConnection(c);
-  const saved = ai.byId(c.id);
-  const model = saved ? chatReady(saved) : null;
-  if (!saved || !model) {
-    showToast(saved && !ai.usable(saved) ? '先填 Key' : '先拉取模型列表，或手动填一个对话模型');
-    return;
-  }
-  const changed = ai.useForText(saved.id, model);
-  editing.value = null;
-  showToast(changed.length ? `${switchedText(changed)}改用"${saved.name}"（${model}）` : `对话已经都在用"${saved.name}"了`);
-}
-/** "主对话等 6 个智能体" */
-function switchedText(roles: AgentRole[]): string {
-  const first = AGENT_META[roles.includes('main') ? 'main' : (roles[0] as AgentRole)].label;
-  return roles.length > 1 ? `${first}等 ${roles.length} 个智能体` : first;
+  showToast('已保存');
 }
 async function removeConn() {
   const c = editing.value;
@@ -501,12 +445,14 @@ async function runReindex() {
           <div class="text-[12px] text-ink-3 truncate mt-1 text-left">{{ c.baseUrl }}</div>
           <div class="flex flex-wrap gap-1.5 mt-2">
             <span v-for="cap in c.capabilities" :key="cap" class="tag">{{ CAP_LABEL[cap] }}</span>
-            <span class="tag" :class="keyTag(c).tone"><span class="i-lucide-key-round" />{{ keyTag(c).text }}</span>
+            <span v-if="c.keyStorage === 'none'" class="tag"><span class="i-lucide-key-round" />无需 Key</span>
+            <span v-else-if="c.hasKey" class="tag good"><span class="i-lucide-key-round" />Key 在本机</span>
+            <span v-else class="tag warn"><span class="i-lucide-key-round" />未填 Key</span>
           </div>
           <div v-if="c.lastTest && !c.lastTest.ok" class="text-[12px] text-bad mt-1.5 text-left whitespace-pre-wrap break-all">{{ c.lastTest.message }}</div>
         </button>
       </div>
-      <p class="note">Key 只存在这台设备的本机数据库里，不进同步数据。没填 Key 的连接不会被调用（本机和局域网地址除外，例如 Termux 里的服务），用它的智能体继续用演示模型。填好一个连接保存后，还在用演示模型的主对话等会自动改用它。</p>
+      <p class="note">Key 只存在这台设备的本机数据库里，不进同步数据。没填 Key 的连接不会被调用，用它的智能体继续用演示模型。</p>
 
       <div class="group-title">智能体分配</div>
       <div class="px-4 grid gap-2">
@@ -576,14 +522,8 @@ async function runReindex() {
         <label class="field-label" for="conn-url">Base URL（中转站填它给你的地址）</label>
         <input id="conn-url" v-model="editing.baseUrl" class="input" inputmode="url" autocomplete="off" />
         <p v-if="editing.kind === 'novelai'" class="text-[12px] text-ink-3 mt-1.5 mb-0">官方填 https://image.novelai.net；公益站、反代填它给的地址，Key 填它给的 Token。</p>
-        <p v-else-if="addressSpace(editing.baseUrl) === 'loopback'" class="text-[12px] text-ink-3 mt-1.5 mb-0">
-          本机地址（Termux 里的服务）：填 http://127.0.0.1:端口/v1，或 math-reader 里那种完整地址（…/chat/completions）照原样用。服务要允许跨域（CORS）；Chrome 问"允许访问本地网络上的设备"时选允许。Claude 格式（/v1/messages）的服务把协议选成 Claude；测试时选错了会自动改过来。
-        </p>
-        <p v-else-if="addressSpace(editing.baseUrl) === 'local'" class="text-[12px] text-ink-3 mt-1.5 mb-0">
-          局域网地址：网页是 https 时，Chrome 会问"允许访问本地网络上的设备"，选允许；不行的话服务在这台手机上就改填 http://127.0.0.1:端口。
-        </p>
         <template v-if="editing.keyStorage !== 'none'">
-          <label class="field-label" for="conn-key">Key{{ isLocalUrl(editing.baseUrl) ? '（本机服务一般不用填）' : (KEY_HINT[editing.kind] ?? '') }}</label>
+          <label class="field-label" for="conn-key">Key{{ KEY_HINT[editing.kind] ?? '' }}</label>
           <input id="conn-key" v-model="keyDraft" class="input" type="password" :placeholder="KEY_PLACEHOLDER[editing.kind] ?? 'sk-…'" autocomplete="off" @focus="keyDraft === KEY_MASK && (keyDraft = '')" />
           <p v-if="editing.kind === 'vertex'" class="text-[12px] text-ink-3 mt-1.5 mb-0">
             API Key（express 模式或绑定服务账号的 Key，同 math-reader）只能调 Gemini；要调 DeepSeek 等开源模型，粘贴整个服务账号 JSON（官方的 OpenAI 兼容接口只认 Google Cloud 授权）。
@@ -643,7 +583,7 @@ async function runReindex() {
           </div>
           <van-switch class="shrink-0" v-model="editing.viaWorker" size="22px" />
         </div>
-        <label class="field-label">模型 <button class="text-accent-ink ml-2" @click="fetchModels()">{{ fetching ? '拉取中…' : '拉取模型列表' }}</button></label>
+        <label class="field-label">模型 <button class="text-accent-ink ml-2" @click="fetchModels">{{ fetching ? '拉取中…' : '拉取模型列表' }}</button></label>
         <div class="flex flex-wrap gap-1.5 max-h-[120px] overflow-y-auto">
           <button v-for="m in editing.models" :key="m" class="tag model" @click="removeModel(m)">{{ m }}<span class="i-lucide-x text-[11px]" /></button>
           <span v-if="!editing.models.length" class="text-[12px] text-ink-3">还没有，点"拉取模型列表"，或在下面手动填</span>
@@ -685,9 +625,6 @@ async function runReindex() {
           </van-button>
           <van-button round block type="primary" @click="saveConn">保存</van-button>
         </div>
-        <van-button v-if="editing.capabilities.includes('chat') && kindCan(editing.kind, 'chat')" round block plain class="!mt-2.5" @click="useForAllText">
-          保存，并让主对话等全部用它
-        </van-button>
         <van-button v-if="!isNew" round block plain type="danger" class="!mt-2.5" @click="removeConn">删除这个连接</van-button>
       </div>
     </van-popup>
@@ -701,7 +638,7 @@ async function runReindex() {
         <div class="grid gap-1.5">
           <button v-for="c in candidates" :key="c.id" class="pick" :class="{ on: routeEditing.connectionId === c.id }" @click="pickConn(c)">
             <span class="flex-1 text-left truncate">{{ c.name }}</span>
-            <span class="text-[12px] shrink-0" :class="ai.usable(c) ? 'text-ink-3' : 'text-warn'">{{ ai.usable(c) ? KIND_LABEL[c.kind] : '未填 Key' }}</span>
+            <span class="text-[12px] shrink-0" :class="c.hasKey || c.keyStorage === 'none' ? 'text-ink-3' : 'text-warn'">{{ c.hasKey || c.keyStorage === 'none' ? KIND_LABEL[c.kind] : '未填 Key' }}</span>
           </button>
           <span v-if="!candidates.length" class="text-[12px] text-ink-3">还没有能做这件事的连接：先在上面添加一个，并勾上"{{ CAP_LABEL[AGENT_META[routeEditing.role].capability] }}"</span>
         </div>

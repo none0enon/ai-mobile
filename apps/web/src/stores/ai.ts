@@ -4,7 +4,6 @@ import {
   DEFAULT_OUTPUT_FILTERS,
   DEFAULT_TTS_TEXT,
   isDeepSeekOfficial,
-  isLocalUrl,
   MemoryAudioCache,
   type AgentConfig,
   type Endpoint,
@@ -15,15 +14,9 @@ import { defineStore } from 'pinia';
 import { showToast } from 'vant';
 import { markRaw, reactive, ref } from 'vue';
 import { autoSave, getEntries, getOne } from '@/db/idb';
-import { agentRoutes as seedRoutes, CLAUDE_DEFAULT, OPENAI_DEFAULT, RETIRED_SEEDS, connections as seedConnections } from '@/mock/api';
+import { agentRoutes as seedRoutes, connections as seedConnections } from '@/mock/api';
 
 const ROLES = Object.keys(AGENT_META) as AgentRole[];
-/** 用对话能力的智能体（主对话、番外、总结、生图提示词、主动消息、视觉） */
-const TEXT_ROLES = ROLES.filter((r) => AGENT_META[r].capability === 'chat' || AGENT_META[r].capability === 'vision');
-
-/** 自带连接的版本：2 起有 Claude、OpenAI、本机（Termux），去掉了示例中转和 Workers AI */
-const SEED_VERSION = 2;
-const NEW_SEEDS = ['conn-claude', 'conn-openai', 'conn-local'];
 
 function clone<T>(x: T): T {
   return JSON.parse(JSON.stringify(x)) as T;
@@ -69,35 +62,6 @@ function migrateDeepSeek(conns: ProviderConnection[], routes: AgentRoute[]) {
 }
 
 /**
- * 以前存的设置升级到这一版的自带连接（只做一次，删掉的不会再加回来）：
- * - 加上 Claude、OpenAI、本机（Termux 8787），排在最前面；
- * - 去掉地址没改过的示例中转和 Workers AI；用它们的对话智能体改用 Claude（失败时 OpenAI），其余改成"未选择"。
- * 你自己加的连接、已经分配好的智能体不动
- */
-function migrateSeeds(conns: ProviderConnection[], routes: AgentRoute[]): ProviderConnection[] {
-  const removed = new Set(RETIRED_SEEDS.filter((r) => conns.some((c) => c.id === r.id && c.baseUrl === r.baseUrl)).map((r) => r.id));
-  const kept = conns.filter((c) => !removed.has(c.id));
-  const added = NEW_SEEDS.filter((id) => !kept.some((c) => c.id === id))
-    .map((id) => seedConnections.find((c) => c.id === id))
-    .filter((c): c is ProviderConnection => !!c)
-    .map((c) => ({ ...clone(c), createdAt: Date.now(), updatedAt: Date.now() }));
-  const result = [...added, ...kept];
-  const has = (id: string) => result.some((c) => c.id === id);
-  for (const r of routes) {
-    const text = TEXT_ROLES.includes(r.role);
-    if (r.connectionId && removed.has(r.connectionId)) {
-      r.connectionId = text && has('conn-claude') ? 'conn-claude' : null;
-      r.model = r.connectionId ? CLAUDE_DEFAULT : '';
-    }
-    if (r.fallbackConnectionId && removed.has(r.fallbackConnectionId)) {
-      r.fallbackConnectionId = text && has('conn-openai') && r.connectionId !== 'conn-openai' ? 'conn-openai' : null;
-      r.fallbackModel = r.fallbackConnectionId ? OPENAI_DEFAULT : undefined;
-    }
-  }
-  return result;
-}
-
-/**
  * API 连接、智能体分配和 Key（参考 math-reader 的"三套 API + 按功能分配"，扩展成任意个连接 + 每个智能体单独分配）。
  * - 连接和分配存在 settings 表（以后随同步走）；
  * - Key 单独存在 secrets 表，只在这台设备上，永远不进同步数据；
@@ -116,7 +80,6 @@ export const useAiStore = defineStore('ai', () => {
       { key: 'connections', value: connections.value },
       { key: 'routes', value: routes.value },
       { key: 'outputFilters', value: outputFilters.value },
-      { key: 'seedVersion', value: SEED_VERSION },
     ],
     () => [connections.value, routes.value, outputFilters.value],
   );
@@ -157,16 +120,14 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   async function hydrate() {
-    const [savedConns, savedRoutes, savedFilters, savedVersion, secrets] = await Promise.all([
+    const [savedConns, savedRoutes, savedFilters, secrets] = await Promise.all([
       getOne<ProviderConnection[]>('settings', 'connections'),
       getOne<AgentRoute[]>('settings', 'routes'),
       getOne<string[]>('settings', 'outputFilters'),
-      getOne<number>('settings', 'seedVersion'),
       getEntries<string>('secrets'),
     ]);
     if (savedConns?.length) connections.value = savedConns;
     if (savedRoutes?.length) routes.value = completeRoutes(savedRoutes);
-    if (savedConns?.length && (savedVersion ?? 1) < SEED_VERSION) connections.value = migrateSeeds(connections.value, routes.value);
     migrateDeepSeek(connections.value, routes.value);
     if (Array.isArray(savedFilters)) setOutputFilters(savedFilters);
     for (const { key, value } of secrets) if (typeof value === 'string' && value) keys[key] = value;
@@ -210,31 +171,6 @@ export const useAiStore = defineStore('ai', () => {
       if (r.connectionId === id) r.connectionId = null;
       if (r.fallbackConnectionId === id) r.fallbackConnectionId = null;
     }
-  }
-
-  /** 这个连接能直接调用：有 Key、不需要 Key，或者是本机 / 局域网地址（Termux 等，不填 Key 也能连） */
-  function usable(c: ProviderConnection): boolean {
-    return !c.viaWorker && (c.keyStorage === 'none' || !!keys[c.id] || isLocalUrl(c.baseUrl));
-  }
-
-  /**
-   * 让对话类的智能体（主对话、番外、总结、生图提示词、主动消息、视觉）改用这个连接和模型。
-   * onlyIdle：只改还没接通（在用演示模型）的。返回改了的智能体
-   */
-  function useForText(id: string, model: string, onlyIdle = false): AgentRole[] {
-    const c = byId(id);
-    if (!c || !model) return [];
-    const changed: AgentRole[] = [];
-    for (const r of routes.value) {
-      if (!TEXT_ROLES.includes(r.role) || !c.capabilities.includes(AGENT_META[r.role].capability)) continue;
-      if (onlyIdle && system.status(r.role).live) continue;
-      if (r.connectionId === id && r.model === model) continue;
-      r.connectionId = id;
-      r.model = model;
-      if (r.fallbackConnectionId === id) r.fallbackConnectionId = null;
-      changed.push(r.role);
-    }
-    return changed;
   }
 
   function saveRoute(r: AgentRoute) {
@@ -285,8 +221,6 @@ export const useAiStore = defineStore('ai', () => {
     saveConnection,
     removeConnection,
     saveRoute,
-    usable,
-    useForText,
     setOutputFilters,
     status,
     isLive,
