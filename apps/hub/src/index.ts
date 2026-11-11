@@ -2,7 +2,7 @@ import { AgentSystem } from '@app/ai';
 import { zonedParts, type ProactiveContext, type ProactiveCredentials, type Touchpoint } from '@app/shared';
 import { digest, equalSecret, seal } from './crypto.ts';
 import type { Env } from './env.ts';
-import { PushDeliveryError, sendChannel, type Channel, type Webhook } from './push.ts';
+import { sendChannel, type Channel, type Webhook } from './push.ts';
 import { getMeta, runScheduled, setMeta } from './scheduler.ts';
 
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -61,11 +61,6 @@ async function api(request: Request, env: Env): Promise<Response> {
   if (!token) throw new HttpError(401, '需要登录');
   const device = await env.DB.prepare('SELECT id FROM devices WHERE token_hash = ? AND expires_at > ?').bind(await digest(token), Date.now()).first<{ id: string }>();
   if (!device) throw new HttpError(401, '登录已过期');
-
-  if (path === '/v1/auth/session' && request.method === 'DELETE') {
-    await env.DB.prepare('DELETE FROM devices WHERE id = ?').bind(device.id).run();
-    return json({ ok: true });
-  }
 
   if (path === '/v1/status' && request.method === 'GET') {
     const [enabled, lastCronAt, lastError, configured, channels] = await Promise.all([
@@ -172,9 +167,7 @@ export default {
     try {
       response = request.method === 'OPTIONS' ? new Response(null, { status: 204 }) : await api(request, env);
     } catch (e) {
-      response = e instanceof HttpError ? json({ error: e.message }, e.status)
-        : e instanceof PushDeliveryError ? json({ error: e.message }, 502)
-        : json({ error: 'Worker 操作失败，请检查云端配置和日志' }, 500);
+      response = e instanceof HttpError ? json({ error: e.message }, e.status) : json({ error: 'Worker 操作失败，请检查云端配置和日志' }, 500);
     }
     if (origin) response.headers.set('Access-Control-Allow-Origin', origin);
     response.headers.set('Vary', 'Origin');

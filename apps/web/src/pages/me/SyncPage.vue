@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { showToast } from 'vant';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { useHubStore } from '@/stores/hub';
@@ -7,9 +7,7 @@ import { useHubStore } from '@/stores/hub';
 const cloud = useHubStore();
 const state = computed(() => cloud);
 const workerUrl = ref(cloud.config.url);
-const password = ref(cloud.savedPassword);
-watch(() => cloud.savedPassword, (value) => { password.value = value; });
-const changed = computed(() => workerUrl.value.trim() !== cloud.config.url || (!!password.value && password.value !== cloud.savedPassword));
+const password = ref('');
 const working = ref(false);
 const failure = ref('');
 async function run(task: () => Promise<void>) {
@@ -19,10 +17,9 @@ async function run(task: () => Promise<void>) {
 }
 async function connect() {
   await cloud.connect(workerUrl.value.trim(), password.value);
-  workerUrl.value = cloud.config.url;
-  showToast('连接成功，登录信息已保存');
+  password.value = '';
+  showToast('已连接自己的 Worker');
 }
-async function disconnect() { await cloud.disconnect(); showToast('已断开连接'); }
 const time = (value: number | null | undefined) => value ? new Date(value).toLocaleString() : '尚未';
 </script>
 
@@ -32,15 +29,12 @@ const time = (value: number | null | undefined) => value ? new Date(value).toLoc
     <div class="page-scroll pb-10">
       <div class="group-title">我的 Cloudflare Worker</div>
       <van-cell-group inset>
-        <van-cell v-if="state.connected" title="连接成功" value="已连接" label="登录信息已保存，重新打开无需再次填写。" class="hub-connected" />
         <van-field v-model="workerUrl" label="Worker 地址" placeholder="https://你的域名" autocomplete="url" />
-        <van-field v-model="password" label="登录密码" type="password" :placeholder="state.connected ? '••••••••••••' : '输入登录密码'" autocomplete="current-password" />
+        <van-field v-model="password" label="登录密码" type="password" placeholder="部署时设置的密码" autocomplete="current-password" />
       </van-cell-group>
-      <div class="px-4 mt-3 grid gap-2">
-        <van-button v-if="state.connected" round block :loading="working" @click="run(disconnect)">断开连接</van-button>
-        <van-button v-if="!state.connected || changed" type="primary" round block :loading="working" :disabled="!workerUrl || !password" @click="run(connect)">{{ state.connected ? '保存修改并重新连接' : '连接 Worker' }}</van-button>
+      <div class="px-4 mt-3">
+        <van-button round block :loading="working" :disabled="!workerUrl || !password" @click="run(connect)">连接 Worker</van-button>
       </div>
-      <p v-if="state.connected" class="note">断开连接会停止这台设备的同步。云端主动消息可用下方的开关单独停止。</p>
       <p class="note">输入自己部署的 Worker 地址和密码。部署步骤见仓库 docs/CLOUDFLARE.md；国内网络可使用绑定的自定义域名。</p>
       <template v-if="state.connected">
         <van-cell-group inset>
