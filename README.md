@@ -35,6 +35,7 @@ docs/DESIGN.md       完整设计
 部署在 GitHub Pages：https://none0enon.github.io/ai-mobile/ （`.github/workflows/pages.yml`：推到 main 时检查、测试、构建并部署；PR 只做检查）。
 
 - 第一次部署前，在仓库 **Settings → Pages → Build and deployment → Source** 选 **GitHub Actions**。
+- 可以装成 App（PWA）：iPhone 用 Safari 打开 → 分享 → 添加到主屏幕；安卓用 Chrome 打开 → 菜单 → 安装应用。装好后全屏打开，断网也能进（AI 请求仍要联网）。
 - 在「我的 → API 与智能体」添加连接、填 Key、点「测试连接」，再把智能体分配给它。Key 只存在这台设备的浏览器里，请求从浏览器直接发给服务商。
 
 ## 本地运行
