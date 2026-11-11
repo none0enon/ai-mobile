@@ -111,6 +111,18 @@ export const useChatStore = defineStore('chat', () => {
     delete messages.value[chatId];
   }
 
+  /**
+   * 换预设：角色和它那条聊天一起换。拼提示词时先看聊天上的预设，只改角色的话聊天里不生效。
+   * 下一条回复起按新预设拼，聊天记录不动
+   */
+  function setPreset(characterId: string, presetId: string) {
+    const now = Date.now();
+    const character = useCharacterStore().byId(characterId);
+    if (character) Object.assign(character, { presetId, updatedAt: now });
+    const chat = chatOfCharacter(characterId);
+    if (chat) Object.assign(chat, { presetId, updatedAt: now });
+  }
+
   const sortedChats = computed(() =>
     [...chats.value].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.lastMessageAt - a.lastMessageAt),
   );
@@ -551,6 +563,7 @@ export const useChatStore = defineStore('chat', () => {
     hydrate,
     startChat,
     removeChat,
+    setPreset,
     sortedChats,
     totalUnread,
     chatById,

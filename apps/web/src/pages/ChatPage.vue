@@ -13,6 +13,7 @@ import DialogBox from '@/components/stage/DialogBox.vue';
 import Wallpaper from '@/components/common/Wallpaper.vue';
 import { backdropAt } from '@/components/scene/location';
 import BackgroundEditor from '@/components/settings/BackgroundEditor.vue';
+import PresetPicker from '@/components/settings/PresetPicker.vue';
 import StageView from '@/components/stage/StageView.vue';
 import { usePoke } from '@/composables/usePoke';
 import PageHeader from '@/layouts/PageHeader.vue';
@@ -186,7 +187,7 @@ const moreActions = computed(() => [
   { name: '角色设定', subname: character.value?.name, key: 'character' },
   { name: '记忆本', subname: '她记得的事，可以改', key: 'memory' },
   { name: '世界书', key: 'lore' },
-  { name: '预设', subname: preset.value?.name, key: 'preset' },
+  { name: '预设', subname: `正在用「${preset.value?.name ?? ''}」，点这里换`, key: 'preset' },
   { name: '导出聊天', subname: 'SillyTavern .jsonl（M1）', key: 'export' },
 ]);
 function onMore(a: { key: string }) {
@@ -197,11 +198,21 @@ function onMore(a: { key: string }) {
     character: `/me/characters/${c?.id}`,
     memory: '/memories?tab=book',
     lore: `/me/lorebooks/${c?.lorebookIds[0] ?? ''}`,
-    preset: `/me/presets/${preset.value?.id ?? 'preset-daily'}`,
   };
   if (a.key === 'background') wallOpen.value = true;
+  else if (a.key === 'preset') presetOpen.value = true;
   else if (target[a.key]) void router.push(target[a.key] as string);
   else showToast('M1 实现');
+}
+
+// —— 换预设（角色和这条聊天一起换） ——
+const presetOpen = ref(false);
+function pickPreset(id: string) {
+  presetOpen.value = false;
+  const c = character.value;
+  if (!c || id === preset.value.id) return;
+  chatStore.setPreset(c.id, id);
+  showToast(`换成「${preset.value.name}」了，下一条回复起生效`);
 }
 
 // —— 剧场模式 ——
@@ -330,6 +341,15 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
       </div>
     </van-popup>
 
+    <van-popup v-model:show="presetOpen" position="bottom" round :style="{ maxHeight: '80%' }">
+      <div class="sheet" data-testid="preset-sheet">
+        <div class="sheet-title">预设 · {{ character.name }}</div>
+        <p class="text-[12.5px] text-ink-3 mt-1 mb-3 leading-relaxed">换了以后，下一条回复起按新预设拼提示词，聊天记录不变。在角色设定 → 预设 里也能换。</p>
+        <PresetPicker :model-value="preset.id" @update:model-value="pickPreset" @edit="presetOpen = false" />
+        <RouterLink to="/import" class="import-link" @click="presetOpen = false"><span class="i-lucide-file-down" />导入 SillyTavern 预设</RouterLink>
+      </div>
+    </van-popup>
+
     <van-popup v-model:show="logOpen" position="bottom" round :style="{ maxHeight: '72%' }">
       <div class="p-4">
         <div class="text-[15px] font-600 mb-2">对话记录</div>
@@ -366,6 +386,19 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
   background:
     radial-gradient(120% 60% at 50% -10%, var(--accent-soft), transparent 60%),
     var(--bg);
+}
+.import-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 44px;
+  margin-top: 10px;
+  border-radius: 14px;
+  border: 1.5px dashed var(--border);
+  color: var(--ink-2);
+  font-size: 13.5px;
+  text-decoration: none;
 }
 .divider {
   margin: 10px auto 6px;

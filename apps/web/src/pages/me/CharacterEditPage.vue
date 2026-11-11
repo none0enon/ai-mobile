@@ -7,16 +7,20 @@ import Avatar from '@/components/common/Avatar.vue';
 import ImagePick from '@/components/common/ImagePick.vue';
 import Segmented from '@/components/common/Segmented.vue';
 import CharacterFigure from '@/components/figure/CharacterFigure.vue';
+import PresetPicker from '@/components/settings/PresetPicker.vue';
 import StageView from '@/components/stage/StageView.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { FIGURE } from '@/mock/characters';
 import { pokeHotspots } from '@/mock/library';
+import { presetFor } from '@/services/prompt';
 import { useLibraryStore } from '@/stores/library';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
+import { useChatStore } from '@/stores/chat';
 
 const route = useRoute();
 const chars = useCharacterStore();
+const chatStore = useChatStore();
 const lib = useLibraryStore();
 const looks = useAppearanceStore();
 async function pickAvatar(file: File) {
@@ -28,7 +32,14 @@ async function pickAvatar(file: File) {
 }
 const character = computed(() => chars.byId(route.params.id as string) ?? chars.list[0]!);
 const figure = computed(() => FIGURE[character.value.id] ?? { hairStyle: 'long' as const, eye: '#3b2531' });
-const TABS = ['basic', 'persona', 'greeting', 'example', 'lore', 'sprite', 'voice', 'proactive', 'look'] as const;
+/** 和她聊天时实际用的预设（聊天上的优先，同拼提示词） */
+const presetId = computed(() => presetFor(chatStore.chatOfCharacter(character.value.id), character.value).id);
+function pickPreset(id: string) {
+  if (id === presetId.value) return;
+  chatStore.setPreset(character.value.id, id);
+  showToast(`换成「${lib.presetById(id)?.name ?? ''}」了`);
+}
+const TABS = ['basic', 'persona', 'greeting', 'example', 'lore', 'preset', 'sprite', 'voice', 'proactive', 'look'] as const;
 const tab = ref<string>(TABS.includes(route.query.tab as (typeof TABS)[number]) ? (route.query.tab as string) : 'basic');
 const ACCENTS = ['#f5b8a6', '#f39cc0', '#b7a6f5', '#8ec5e8', '#7fd1b1', '#f2c66d'];
 const outfit = ref('daily');
@@ -116,6 +127,12 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
               <RouterLink :to="`/me/lorebooks/${b.id}`" class="text-accent-ink text-[13px]">编辑</RouterLink>
             </label>
             <p class="text-[12px] text-ink-3 m-0">导入角色卡时，卡里内嵌的 character_book 会拆成一本独立的世界书并自动绑定。</p>
+          </div>
+        </van-tab>
+        <van-tab title="预设" name="preset">
+          <div class="px-4 pt-3">
+            <PresetPicker :model-value="presetId" @update:model-value="pickPreset" />
+            <p class="text-[12px] text-ink-3 mt-2.5 mb-0 leading-relaxed">和{{ character.pronoun }}聊天时按这套预设拼提示词（提示词顺序、采样参数、正则），下一条回复起生效。在聊天右上角 ⋯ → 预设 里也能换。</p>
           </div>
         </van-tab>
         <van-tab title="立绘" name="sprite">
