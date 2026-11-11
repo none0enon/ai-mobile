@@ -77,8 +77,19 @@ async function scrollToBottom(smooth = false) {
 
 onMounted(() => {
   chatStore.markRead(chatId.value);
-  if (character.value) app.activeCharacterId = character.value.id;
   void scrollToBottom();
+});
+// 正在看这条聊天：她这时发来的主动消息直接算已读、不弹横幅；"一起""回忆"也跟着换成她
+watch(
+  chatId,
+  (id) => {
+    app.viewingChatId = id;
+    if (character.value) app.activeCharacterId = character.value.id;
+  },
+  { immediate: true },
+);
+onBeforeUnmount(() => {
+  if (app.viewingChatId === chatId.value) app.viewingChatId = null;
 });
 watch(
   // 最后一条的正文变了、出错了、配图画好了：都滚到底（离底部不远时）

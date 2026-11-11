@@ -279,6 +279,16 @@ export const useAiStore = defineStore('ai', () => {
     if (Array.isArray(saved)) {
       routes.value = completeRoutes(saved);
       for (const [k, v] of Object.entries(stored)) if (k.startsWith('api:')) keys[k] = v;
+      // 主动消息以前默认每天 10 万 token 上限：还是这个默认值的去掉（自己改过的不动），只做一次
+      if (!(await getOne<boolean>('settings', 'proactiveBudgetCleared'))) {
+        const p = routeOf('proactive');
+        if (p.dailyTokenBudget === 100_000) delete p.dailyTokenBudget;
+        // 自动保存在读完以后才开始，这里自己写回去
+        await write('settings', [
+          { key: 'apiFeatures', value: clone(routes.value) },
+          { key: 'proactiveBudgetCleared', value: true },
+        ]);
+      }
     } else if (Array.isArray(legacyConns)) {
       // 以前按连接分的设置：转成按功能分，Key 跟着搬过来；旧的连接、分配和 Key 删掉
       const m = legacyMigrate(legacyConns, Array.isArray(legacyRoutes) ? legacyRoutes : [], legacySlots, stored);

@@ -30,7 +30,7 @@ export interface StCardFields {
   extra: Record<string, unknown>;
 }
 
-/** 主动消息的性格：决定频率，以及没回复时会不会追发 */
+/** 主动消息的性格：决定频率（没有条数上限，来几次只看性格和打开了哪些时段） */
 export type ProactivePersonality = 'clingy' | 'balanced' | 'independent';
 
 export interface CharacterVoice {
@@ -60,7 +60,6 @@ export interface CharacterVoice {
 export interface CharacterProactive {
   enabled: boolean;
   personality: ProactivePersonality;
-  dailyCap: number;
   quietHours: { start: HHMM; end: HHMM };
   /** 开启的触发器 id，见 ProactiveTriggerId */
   triggers: string[];

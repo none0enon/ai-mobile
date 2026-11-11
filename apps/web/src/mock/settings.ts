@@ -1,4 +1,4 @@
-import type { EnvironmentSettings, PushChannel, Touchpoint } from '@app/shared';
+import type { EnvironmentSettings, PushChannel } from '@app/shared';
 import { at } from '@/utils/time';
 
 export const envSettings: EnvironmentSettings = {
@@ -24,32 +24,4 @@ export const pushChannels: PushChannel[] = [
   { id: 'pc4', createdAt: t, updatedAt: t, kind: 'webhook', preset: 'pushplus', label: 'PushPlus（推到微信）', enabled: false, config: {} },
 ];
 
-/** 今天的主动消息计划：过去的时刻显示结果，未来的显示"已排期" */
-export function todayTouchpoints(now = Date.now()): Touchpoint[] {
-  const plan: [string, Touchpoint['ruleId'], Touchpoint['action'], string, string?][] = [
-    ['07:30', 'wake-call', 'call', '叫醒来电'],
-    ['07:42', 'morning', 'message', '早安 + 今天的天气'],
-    ['12:10', 'lunch', 'message', '暗示该吃午饭了', '你 20 分钟内刚聊过，跳过'],
-    ['15:40', 'sedentary', 'message', '拉你起来走走'],
-    ['18:15', 'dinner', 'message', '"我有点饿了…你吃了吗？"'],
-    ['21:30', 'miss-you', 'message', '想你了'],
-    ['23:40', 'bedtime', 'call', '催睡，必要时来电'],
-  ];
-  return plan.map(([time, ruleId, action, hint, skip]) => {
-    const dueAt = at(0, time);
-    const past = dueAt <= now;
-    return {
-      id: `today:${ruleId}`,
-      createdAt: at(0, '04:00'),
-      updatedAt: at(0, '04:00'),
-      characterId: 'suwan',
-      ruleId,
-      date: 'today',
-      dueAt,
-      action,
-      hint,
-      status: past ? (skip ? 'skipped' : 'opened') : 'planned',
-      skipReason: past ? skip : undefined,
-    };
-  });
-}
+// 今天的主动消息计划不在这里写死：每个角色按自己的设置排（packages/shared/src/proactive.ts → stores/proactive.ts）

@@ -14,6 +14,7 @@ import {
   type GenerationType,
   type Message,
   type MessagePart,
+  type AgentRole,
   type Persona,
   type Preset,
 } from '@app/shared';
@@ -143,10 +144,15 @@ export function presetFor(character: Character | undefined): Preset {
   return lib.presetById(character?.presetId) ?? (lib.presets[0] as Preset);
 }
 
-/** 主对话智能体用的模型名（请求体里的 model）；还没分配时显示"演示模型" */
-export function mainModel(): string {
+/** 这个功能用的模型名（请求体里的 model）；还没接通时显示"演示模型" */
+export function modelOf(agent: AgentRole = 'main'): string {
   const ai = useAiStore();
-  return ai.isLive('main') ? ai.chatModelOf('main') || '演示模型' : '演示模型';
+  return ai.isLive(agent) ? ai.chatModelOf(agent) || '演示模型' : '演示模型';
+}
+
+/** 主对话智能体用的模型名 */
+export function mainModel(): string {
+  return modelOf('main');
 }
 
 export interface ChatPrompt extends AssembleResult {
@@ -155,33 +161,52 @@ export interface ChatPrompt extends AssembleResult {
   request: Record<string, unknown>;
 }
 
+export interface ChatAssembleOptions {
+  /** 只是查看：不推进世界书的粘性 / 冷却、不改聊天变量 */
+  dryRun?: boolean;
+  type?: GenerationType;
+  /**
+   * 后台生成（主动消息）：这一次要她做的事。预设里有"主动消息"这一块就填在那儿；
+   * 没有或关着时接在最后（同 SillyTavern 的 quiet prompt），不然模型不知道这次是她先开口
+   */
+  quiet?: string;
+  /** 哪个功能在调用（请求体里写它的模型）；默认主对话 */
+  agent?: AgentRole;
+}
+
 /**
  * 拼这一轮的提示词。history 是要发出去的聊天记录（从旧到新，最后一条通常是你刚发的）。
- * dryRun：只是查看，不推进世界书的粘性 / 冷却、不改聊天变量。
  */
-export function assembleForChat(chat: Chat, character: Character, history: Message[], opts: { dryRun?: boolean; type?: GenerationType } = {}): ChatPrompt {
+export function assembleForChat(chat: Chat, character: Character, history: Message[], opts: ChatAssembleOptions = {}): ChatPrompt {
   const lib = useLibraryStore();
   const preset = presetFor(character);
   const persona = personaOf(chat);
+  const model = modelOf(opts.agent);
   const books = character.lorebookIds.map((id) => lib.lorebookById(id)).filter((b) => !!b);
   const lastUser = [...history].reverse().find((m) => m.role === 'user');
   const prevUser = [...history].reverse().filter((m) => m.role === 'user')[1];
+  const app = appFills(chat, character, history);
+  if (opts.quiet) app.proactive = { content: opts.quiet, source: '主动消息：这一次要她做的事' };
   const result = assemblePrompt({
     preset,
     character,
     user: { name: persona.name, description: persona.description },
     lorebooks: books,
     history: toTurns(history, character, persona.name),
-    app: appFills(chat, character, history),
+    app,
     type: opts.type,
     now: new Date(),
     idleMs: lastUser && prevUser ? lastUser.createdAt - prevUser.createdAt : null,
     vars: chat.vars,
     loreState: chat.loreState,
     dryRun: opts.dryRun,
-    model: mainModel(),
+    model,
   });
-  return { ...result, preset, persona, request: buildChatRequest(result, preset, mainModel()) };
+  if (opts.quiet && !result.blocks.some((b) => b.identifier === 'proactive' && b.sent)) {
+    result.messages.push({ role: 'system', content: opts.quiet, source: 'quiet', label: '主动消息：这一次要她做的事（接在最后）' });
+    result.tokens += estimateTokens(opts.quiet);
+  }
+  return { ...result, preset, persona, request: buildChatRequest(result, preset, model) };
 }
 
 /** 发给模型的消息（去掉来源说明） */

@@ -13,9 +13,11 @@ import { initPwa } from './pwa';
 import { router } from './router';
 import { unlockAudio } from './services/audio';
 import { useAiStore } from './stores/ai';
+import { useAppStore } from './stores/app';
 import { useCharacterStore } from './stores/characters';
 import { useChatStore } from './stores/chat';
 import { useLibraryStore } from './stores/library';
+import { useProactiveStore } from './stores/proactive';
 
 if (import.meta.env.MODE === 'preview') {
   // Claude Artifact 预览：外层已处理安全区
@@ -43,4 +45,23 @@ const unlock = () => {
   if (unlockAudio()) document.removeEventListener('pointerdown', unlock, true);
 };
 document.addEventListener('pointerdown', unlock, true);
-Promise.race([hydrated, new Promise((r) => setTimeout(r, 1500))]).finally(() => app.mount('#app'));
+
+/** "一起""回忆"、地图默认陪着你的角色：最近聊过的那个（不是固定的第一个） */
+function followLatestChat() {
+  const chars = useCharacterStore();
+  const latest = [...useChatStore().chats].filter((c) => chars.byId(c.characterId)).sort((a, b) => b.lastMessageAt - a.lastMessageAt)[0];
+  if (latest) useAppStore().activeCharacterId = latest.characterId;
+}
+
+Promise.race([hydrated, new Promise((r) => setTimeout(r, 1500))]).finally(() => {
+  app.mount('#app');
+  // 主动消息：所有打开了主动消息的角色按各自的计划到点发；等本机数据读完、界面出来以后再开始
+  // （IndexedDB 一直不回应时也照样开始，只是发送记录这次不存）
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  void Promise.race([hydrated, wait(5000)]).then(async () => {
+    followLatestChat();
+    const proactive = useProactiveStore();
+    await Promise.race([proactive.hydrate(), wait(3000)]);
+    setTimeout(() => proactive.start(), 1200);
+  });
+});

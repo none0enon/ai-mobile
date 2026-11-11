@@ -181,14 +181,11 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
         <van-tab title="主动" name="proactive">
           <van-cell-group inset class="!mt-3">
             <van-cell title="会主动找你" center><template #right-icon><van-switch v-model="character.proactive.enabled" size="22px" /></template></van-cell>
-            <van-cell title="性格" :value="PERSONALITY[character.proactive.personality]" label="决定频率，以及没回复时会不会追发" />
-            <van-cell title="每天最多" center>
-              <template #right-icon><van-stepper v-model="character.proactive.dailyCap" min="1" max="12" /></template>
-            </van-cell>
+            <van-cell title="性格" :value="PERSONALITY[character.proactive.personality]" label="决定频率（没有条数上限）" />
             <van-cell title="勿扰时段" :value="`${character.proactive.quietHours.start} - ${character.proactive.quietHours.end}`" />
             <van-cell title="允许主动来电" center><template #right-icon><van-switch v-model="character.proactive.allowCalls" size="22px" /></template></van-cell>
             <van-cell title="允许主动发自拍" label="用 NovelAI 生成" center><template #right-icon><van-switch v-model="character.proactive.allowSelfies" size="22px" /></template></van-cell>
-            <van-cell title="触发规则和推送通道" is-link to="/me/proactive" />
+            <van-cell title="什么时候来找你、今天的计划、推送通道" is-link :to="`/me/proactive?char=${character.id}`" />
           </van-cell-group>
         </van-tab>
         <van-tab title="外观 tags" name="look">
