@@ -19,10 +19,10 @@ apps/web/            前端（Vue 3 + Vite + TypeScript + Pinia + Vue Router + V
   src/components/    聊天气泡与卡片、剧场立绘与对话框、场景外壳、小地图、占位立绘 / 背景……
   src/services/      服务接口 + 假实现（假的流式模型会吐 [expr:] 等控制标签）
   src/mock/          演示数据（两个原创角色：苏晚、江屿）
-  scripts/           shots.cjs（逐页截图检查）、import-e2e.cjs（导入 + 发送的端到端检查）、make-artifact.mjs（生成预览页）
+  src/presets/       App 自带的预设文件（.json，App 自己的格式）：第一次打开时放进预设库，之后和导入的一样能改能删
+  scripts/           make-artifact.mjs（生成预览页）
 packages/shared/     前端和以后的 Worker 共用：领域类型、场景注册表、地图地点、控制标签解析、环境描述、LRC 解析
   src/st/            SillyTavern 兼容：PNG 文本块、角色卡 / 世界书 / 预设的导入导出、宏、世界书扫描、提示词拼装
-  test/fixtures/     测试用的 ST 预设、JSON 角色卡、PNG 角色卡
 packages/ai/         AI 调用层，前端和以后的 Worker 共用（只用 Web 标准接口），说明见 packages/ai/README.md
   src/llm/           文本对话：OpenAI 兼容 / DeepSeek / Claude / Gemini / Vertex Agent（流式、思考内容、流式失败改普通请求、按报错调整参数）
   src/tts/ image/ embedding/   语音合成（含火山引擎声音复刻）、生图（NovelAI、OpenAI 兼容）、向量化
@@ -35,7 +35,7 @@ docs/DESIGN.md       完整设计
 
 ## 在线试用
 
-部署在 GitHub Pages：https://none0enon.github.io/ai-mobile/ （`.github/workflows/pages.yml`：推到 main 时检查、测试、构建并部署；PR 只做检查）。
+部署在 GitHub Pages：https://none0enon.github.io/ai-mobile/ （`.github/workflows/pages.yml`：推到 main 时类型检查、构建并部署；PR 只做检查）。
 
 - 第一次部署前，在仓库 **Settings → Pages → Build and deployment → Source** 选 **GitHub Actions**。
 - 可以装成 App（PWA）：iPhone 用 Safari 打开 → 分享 → 添加到主屏幕；安卓用 Chrome 打开 → 菜单 → 安装应用，或者在「我的 → 装成 App」里点安装。装好后全屏打开，断网也能进（AI 请求仍要联网）。
@@ -50,19 +50,10 @@ docs/DESIGN.md       完整设计
 pnpm install
 pnpm dev            # http://localhost:5173
 pnpm typecheck      # vue-tsc + tsc
-pnpm test           # 单元测试：控制标签、LRC、环境描述、ST 导入 / 世界书 / 宏 / 提示词拼装；AI 调用层（假的服务端）
 pnpm build          # 正式构建 → apps/web/dist（hash 路由，可放在任意静态目录）
 pnpm build:preview  # 单文件预览页 → apps/web/artifact/index.html
 ```
 
-逐页截图检查（需要 Playwright，用环境里已安装的版本）：
-
-```bash
-cd apps/web && npx vite preview --port 4173 &
-node scripts/shots.cjs            # 全部页面，深色
-node scripts/shots.cjs chat --light   # 只看名字含 chat 的页面，浅色
-node scripts/import-e2e.cjs       # 导入测试用的预设和两张角色卡，发一条消息，核对"查看提示词"
-```
 
 ## 可以在骨架里试的
 
@@ -79,6 +70,12 @@ node scripts/import-e2e.cjs       # 导入测试用的预设和两张角色卡�
   - "我的世界"是你的真实世界（接 Google 地图前是示意图）：家、附近可以带她去的地方，带她出门时她会"来你这边"；一起待过的地方记成"我们的足迹"。
   - 家的地址在"我的 → 环境与作息"里填，只存在本机。
 - 消息按人分：一个角色只有一条聊天。去过的场景在聊天里是一段"来到… / 离开…"；在场景里点她的话可以去聊天接着聊。
+- "我的 → 预设"：按用途分六类——对话、功能（一起吃饭、一起运动……每件事一个）、主动消息、小剧场（番外）、总结、生图。
+  - 每一类上面是"用在哪"：对话预设每个角色自己选；一起做事的每件事、主动消息、番外、总结、配图各选一个这一类的预设（一起做事和主动消息也能"跟随对话预设"）。
+  - 每个 AI 调用都按它用：平时聊天用角色的对话预设，一起做某件事时用那件事的功能预设，主动消息用主动消息预设，番外、总结、配图的提示词（说明、规则、输出格式）也全在各自的预设里，代码里只填每次的输入。
+  - 自带的预设是 `apps/web/src/presets/` 里的预设文件：第一次打开时像导入一样放进预设库，之后能改每一块的文字、加块删块、调顺序、改参数，能复制（对话 / 功能 / 主动消息之间可以互相复制）、删除、导出成预设文件、恢复成文件里的样子。往这个文件夹里加一个 .json 就多一个自带预设。
+  - "导入"能读 SillyTavern 的 Chat Completion 预设（选当对话、功能还是主动消息用），也能读预设文件。
+  - 总结：攒够 30 条还没整理的消息就在后台整理一段（"总结 / 记忆"接通了 API 时），聊天 ⋯ → 整理这段聊天 也能手动整理；摘要进提示词里的"过往摘要"，记下的事进记忆本（记忆还没存进本机），好感、心情、称呼跟着更新。
 - "我的 → API 设置"：接真实模型，按功能分（不按渠道分）。
   - 文本功能（主对话、番外、总结、生图提示词、主动消息、识图）的渠道：自定义（任意地址，请求格式可选 Gemini / OpenAI / Claude，默认 Gemini，同 math-reader 的自定义渠道）、Claude、OpenAI 兼容、Gemini、Vertex Agent、DeepSeek。番外这些默认跟随主对话，也可以单独设置。
   - 其他功能的渠道：自定义（OpenAI 格式，任意地址）和能做这件事的几家——向量化：硅基流动、Gemini；语音合成：硅基流动、MiniMax、火山引擎、Fish Audio、GPT-SoVITS；生图：NovelAI（含公益站）、硅基流动；语音识别：硅基流动 / 自定义 OpenAI 兼容接口（`/audio/transcriptions`）。硅基流动拉取语音识别模型时按 `speech-to-text` 筛选，连接测试上传本地生成的静音 WAV，不开启麦克风。

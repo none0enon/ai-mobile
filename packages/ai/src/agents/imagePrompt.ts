@@ -1,28 +1,25 @@
+import { assembleTaskPrompt } from '@app/shared';
 import { joinTags } from '../image/presets.ts';
 import type { ImageRequest, ImageSize } from '../image/types.ts';
 import type { ChatMessage } from '../llm/types.ts';
+import type { TaskPreset } from './taskPreset.ts';
 
 /**
  * 生图提示词智能体（设计文档 §4.3）：把对话里的一个画面（[cg:描述]、"画一张"、约会的关键时刻、番外里的一幕）
  * 写成 NovelAI 的 tags。外观基础 tags 来自角色卡，模型只写构图、动作、表情、服装、场景、光线；
  * 程序把外观 tags 放在最前面，负面 tags 合并角色卡的。
+ * 提示词（任务、规则、"画什么"、输出格式）全在"生图"预设里；这里只填这一次的输入。
  */
 
 /**
  * 画什么（对照 SillyTavern 生图扩展的几种模式）：
  * - scene：一个具体的画面（[cg:] 里的描述、番外里的一幕），默认；
- * - portrait：她的全身像（ST 的 Character）；
+ * - portrait：全身像（ST 的 Character）；
  * - face：脸部特写，比如自拍（ST 的 Face）；
- * - background：只画场景、不画人（ST 的 Background），给地点做背景图
+ * - background：只画场景、不画人（ST 的 Background），给地点做背景图。
+ * 预设里"画什么"的几块按触发条件（这几个值）只发对应的那一块。
  */
 export type ImagePromptMode = 'scene' | 'portrait' | 'face' | 'background';
-
-const MODE_RULES: Record<ImagePromptMode, string> = {
-  scene: '- 画面就是下面"要画的画面"描述的那一刻。',
-  portrait: '- 画她的全身像（full body）：站姿或坐姿、服装、表情；背景简单。tags 以 "full body" 开头。',
-  face: '- 画她的脸部特写（close-up / portrait，像自拍）：表情、发型和发饰、上半身的衣服；不要画脖子以下。tags 以 "close-up, portrait" 开头。',
-  background: '- 只画场景，不画任何人物：地点、时段、天气、光线和细节。tags 以 "no humans, scenery" 开头，不要写人数、表情、服装。',
-};
 
 export interface ImagePromptInput {
   /** 画什么，默认 scene */
@@ -62,36 +59,38 @@ export interface ImagePromptOutput {
   characters?: { who: 'char' | 'user'; tags: string; position?: 'left' | 'right' | 'center' }[];
 }
 
-export function buildImagePromptMessages(input: ImagePromptInput): ChatMessage[] {
+/** 这一次的输入：填进"生图"预设的程序填充块 */
+export function imagePromptFills(input: ImagePromptInput): Record<string, string> {
   const { character: c, scene = {}, withUser } = input;
   const mode = input.mode ?? 'scene';
-  const system = [
-    '你是 NovelAI V4.5 的提示词写手，把一个画面写成 Danbooru 风格的英文 tags。',
-    '规则：',
-    MODE_RULES[mode],
-    '- tags 顺序：人数（1girl / 1boy / 1girl, 1boy）→ 构图与镜头（upper body, cowboy shot, from side, close-up…）→ 表情与动作 → 服装 → 场景与背景 → 光线、天气、时段 → 氛围。',
-    '- 不要写角色的外观（发色、瞳色、发型、体型），程序会自动加在最前面。',
-    '- 不要写画师名和质量词（masterpiece、best quality 之类程序会加）。',
-    '- 人物特写、半身用 portrait；风景、两个人并排用 landscape。',
-    '- 只输出一个 JSON 对象，不要任何其他文字：',
-    withUser && mode === 'scene'
-      ? '{"caption": "中文短标题（12 字以内）", "tags": "整体画面的 tags（人数、构图、场景、光线）", "negative": "额外的负面 tags，可以为空字符串", "size": "portrait|landscape|square", "characters": [{"who": "char", "tags": "她的表情、动作、服装", "position": "left|right|center"}, {"who": "user", "tags": "他的表情、动作、服装", "position": "left|right|center"}]}'
-      : '{"caption": "中文短标题（12 字以内）", "tags": "逗号分隔的英文 tags", "negative": "额外的负面 tags，可以为空字符串", "size": "portrait|landscape|square"}',
-  ].join('\n');
-  const lines = [
-    `角色：${c.name}${c.pronoun ? `（${c.pronoun}）` : ''}；外观 tags（程序会加，不要重复）：${c.appearanceTags || '（无）'}`,
-    withUser ? `画面里还有：${withUser.name}${withUser.appearanceTags ? `；外观 tags：${withUser.appearanceTags}` : ''}` : '',
-    scene.place ? `地点：${scene.place}` : '',
-    scene.outfit ? `服装：${scene.outfit}` : '',
-    [scene.timeOfDay, scene.weather].filter(Boolean).length ? `时间与天气：${[scene.timeOfDay, scene.weather].filter(Boolean).join('，')}` : '',
-    scene.expression ? `此刻的表情：${scene.expression}` : '',
-    input.recent?.length ? `最近的对话：\n${input.recent.slice(-6).join('\n')}` : '',
-    `要画的画面：${input.caption}`,
-  ].filter(Boolean);
-  return [
-    { role: 'system', content: system },
-    { role: 'user', content: lines.join('\n') },
-  ];
+  return {
+    // 两个人同框才要的输出字段（解析时按 characters 读每个人的动作），其余时候不发
+    imageCharacters:
+      withUser && mode === 'scene'
+        ? `画面里有两个人：tags 只写整体画面（人数、构图、场景、光线），再加一个 characters 字段分别写每个人：\n"characters": [{"who": "char", "tags": "${c.name}的表情、动作、服装", "position": "left|right|center"}, {"who": "user", "tags": "${withUser.name}的表情、动作、服装", "position": "left|right|center"}]`
+        : '',
+    imageSubject: [
+      `角色：${c.name}${c.pronoun ? `（${c.pronoun}）` : ''}；外观 tags（程序会加，不要重复）：${c.appearanceTags || '（无）'}`,
+      withUser ? `画面里还有：${withUser.name}${withUser.appearanceTags ? `；外观 tags：${withUser.appearanceTags}` : ''}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    imageScene: [
+      scene.place ? `地点：${scene.place}` : '',
+      scene.outfit ? `服装：${scene.outfit}` : '',
+      [scene.timeOfDay, scene.weather].filter(Boolean).length ? `时间与天气：${[scene.timeOfDay, scene.weather].filter(Boolean).join('，')}` : '',
+      scene.expression ? `此刻的表情：${scene.expression}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    imageRecent: input.recent?.length ? `最近的对话：\n${input.recent.slice(-6).join('\n')}` : '',
+    imageCaption: `要画的画面：${input.caption}`,
+  };
+}
+
+/** 按"生图"预设拼写 tags 的提示词；"画什么"那几块按这次的类型只发一块 */
+export function buildImagePromptMessages(input: ImagePromptInput, preset: TaskPreset): ChatMessage[] {
+  return assembleTaskPrompt({ preset, fills: imagePromptFills(input), macros: { char: input.character.name, user: input.withUser?.name ?? '' }, type: input.mode ?? 'scene' }).messages;
 }
 
 const SIZES = new Set(['portrait', 'landscape', 'square']);

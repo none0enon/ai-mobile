@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import Segmented from '@/components/common/Segmented.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
-import { assembleForChat } from '@/services/prompt';
+import { assembleForChat, useLabel, type ChatPrompt } from '@/services/prompt';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 import { hhmm } from '@/utils/time';
@@ -21,7 +21,18 @@ const character = computed(() => chars.byId(c.value?.characterId));
 
 const last = computed(() => chat.lastPrompt[chatId.value]);
 const which = ref<'last' | 'preview'>(last.value ? 'last' : 'preview');
-const preview = computed(() => (c.value && character.value ? assembleForChat(c.value, character.value, chat.list(chatId.value), { dryRun: true }) : null));
+/** 按现在的聊天预览；一个预设都选不到时显示原因 */
+const previewError = ref('');
+const preview = computed((): ChatPrompt | null => {
+  previewError.value = '';
+  if (!c.value || !character.value) return null;
+  try {
+    return assembleForChat(c.value, character.value, chat.list(chatId.value), { dryRun: true });
+  } catch (e) {
+    previewError.value = e instanceof Error ? e.message : String(e);
+    return null;
+  }
+});
 const p = computed(() => (which.value === 'last' && last.value ? last.value.prompt : preview.value));
 
 const tab = ref<'messages' | 'blocks' | 'lore' | 'request'>('messages');
@@ -71,7 +82,11 @@ function slotNote(position: string): string | null {
 
 <template>
   <div class="page" data-page="inspect">
-    <PageHeader title="查看提示词" :subtitle="`${c?.title ?? ''} · 预设「${p?.preset.name ?? ''}」`" :fallback="`/chat/${chatId}`" />
+    <PageHeader title="查看提示词" :subtitle="`${c?.title ?? ''} · 预设「${p?.preset.name ?? ''}」${p ? `（${useLabel(p.use)}）` : ''}`" :fallback="`/chat/${chatId}`" />
+    <div v-if="!p && previewError" class="page-scroll px-4 py-6 text-[14px] text-ink-2 leading-relaxed" data-testid="inspect-error">
+      {{ previewError }}
+      <RouterLink to="/me/presets" class="block mt-3 text-accent-ink">去"我的 → 预设"</RouterLink>
+    </div>
     <div v-if="p" class="page-scroll pb-8">
       <div class="summary mx-4 mt-3">
         <div class="flex gap-1.5 mb-2.5">

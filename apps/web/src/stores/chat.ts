@@ -14,6 +14,7 @@ import {
 import { errorReport, errorText, isAbortError } from '@app/ai';
 import { defineStore } from 'pinia';
 import { computed, reactive, ref } from 'vue';
+import { useAiStore } from './ai';
 import { useAppStore } from './app';
 import { useCharacterStore } from './characters';
 import { useRealWorldStore } from './realworld';
@@ -21,6 +22,7 @@ import { autoSave, getAll } from '@/db/idb';
 import { buildChats, buildMessages } from '@/mock/chats';
 import { services } from '@/services';
 import { assembleForChat, personaOf, toLLMMessages, type ChatPrompt } from '@/services/prompt';
+import { pendingForSummary, SUMMARY_EVERY, summarizeChat, type SummaryOutcome } from '@/services/summary';
 import { uid } from '@/utils/id';
 
 /** 正在生成的回复。只放内存，不进同步数据（math-reader 回滚提交的教训） */
@@ -194,13 +196,14 @@ export const useChatStore = defineStore('chat', () => {
     const scene = getScene(chat.currentScene ?? 'free');
     let raw = '';
 
-    // 拼提示词（真实发送：推进世界书粘性 / 冷却，保存 {{setvar}} 改过的变量）
-    const prompt = assembleForChat(chat, character, history, { type: target ? 'swipe' : 'normal' });
-    chat.loreState = prompt.loreState;
-    chat.vars = prompt.vars;
-    lastPrompt[chatId] = { prompt, at: Date.now() };
-
     try {
+      // 拼提示词（真实发送：推进世界书粘性 / 冷却，保存 {{setvar}} 改过的变量）。
+      // 预设按用途选：在一起做某件事时用那件事的功能预设，平时用这个角色的对话预设；一个都选不到时报错
+      const prompt = assembleForChat(chat, character, history, { type: target ? 'swipe' : 'normal' });
+      chat.loreState = prompt.loreState;
+      chat.vars = prompt.vars;
+      lastPrompt[chatId] = { prompt, at: Date.now() };
+
       const result = await services.llm.chat(
         {
           agent: 'main',
@@ -281,6 +284,8 @@ export const useChatStore = defineStore('chat', () => {
       }
       // 配图：生图提示词智能体写 tags → 生图智能体出图；没有生图连接时演示一下
       for (const part of parts) if (part.type === 'image') void drawPart(chatId, id, part.caption);
+      // 攒够了就在后台整理一段（"总结"预设）
+      setTimeout(() => void maybeSummarize(chatId), 0);
     } catch (e) {
       const msg = find(chatId, id);
       if (msg) {
@@ -292,6 +297,41 @@ export const useChatStore = defineStore('chat', () => {
       }
     } finally {
       delete streams[chatId];
+    }
+  }
+
+  // —— 总结：攒够 SUMMARY_EVERY 条定稿的消息就在后台整理一段（"总结 / 记忆"接通了 API 时） ——
+  const summarizing = reactive<Record<string, boolean>>({});
+  /** 自动整理失败后，这条聊天 10 分钟内不再自动试（完整报错在 API 设置 → 总结 / 记忆） */
+  const summaryBackoff = new Map<string, number>();
+
+  async function maybeSummarize(chatId: string) {
+    const chat = chatById(chatId);
+    if (!chat || summarizing[chatId] || streams[chatId] || !useAiStore().isLive('summary')) return;
+    if ((summaryBackoff.get(chatId) ?? 0) > Date.now()) return;
+    if (pendingForSummary(chat, list(chatId)).length < SUMMARY_EVERY) return;
+    summarizing[chatId] = true;
+    try {
+      await summarizeChat(chat, list(chatId));
+      summaryBackoff.delete(chatId);
+    } catch (e) {
+      if (!isAbortError(e)) summaryBackoff.set(chatId, Date.now() + 10 * 60_000);
+    } finally {
+      delete summarizing[chatId];
+    }
+  }
+
+  /** 手动整理（聊天 ⋯ → 整理这段聊天）：结果或报错交给界面显示 */
+  async function summarizeNow(chatId: string): Promise<SummaryOutcome | null> {
+    const chat = chatById(chatId);
+    if (!chat) return null;
+    summarizing[chatId] = true;
+    try {
+      const r = await summarizeChat(chat, list(chatId));
+      summaryBackoff.delete(chatId);
+      return r;
+    } finally {
+      delete summarizing[chatId];
     }
   }
 
@@ -596,6 +636,8 @@ export const useChatStore = defineStore('chat', () => {
     deleteMessage,
     redraw,
     recentLines,
+    summarizing,
+    summarizeNow,
     poke,
     postCard,
     enterScene,

@@ -13,7 +13,7 @@ src/agents/     多智能体：按功能路由与备用 API、每日上限、各
 src/connection.ts  拉取模型列表、测试连接（失败时给完整报错）
 ```
 
-测试：`pnpm --filter @app/ai test`（`test/` 里三个文件：文本对话、语音和生图、多智能体；用假的 fetch，覆盖分块边界、各家返回格式、各种报错重试）。
+番外、总结、生图提示词的提示词全在预设里（App 的"小剧场 / 总结 / 生图"预设，自带的是 apps/web/src/presets 里的预设文件），这里只按预设拼消息、填每次的输入、解析输出。
 
 参考了三个项目：math-reader（文本对话的调用）、SleepTogether（SillyTavern 扩展：主备 API、输出修剪、TTS、生图）、SillyTavern 本体（各家参数、消息整理、推理强度、TTS 文字处理）。
 

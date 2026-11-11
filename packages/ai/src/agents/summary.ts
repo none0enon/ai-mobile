@@ -1,9 +1,11 @@
-import type { MemoryType } from '@app/shared';
+import { assembleTaskPrompt, type MemoryType } from '@app/shared';
 import type { ChatMessage } from '../llm/types.ts';
+import type { TaskPreset } from './taskPreset.ts';
 
 /**
  * 总结 / 记忆智能体（设计文档 §4.2）：把一段已定稿的聊天压成章节摘要，抽出记忆条目和关系变化。
  * 只从定稿的消息里抽（调用方负责跳过最后两轮和没被选中的 swipe）；好感变化每次最多 ±3。
+ * 提示词（任务、输出格式、规则）全在"总结"预设里；这里只填这一次的输入。
  */
 
 export interface SummaryInput {
@@ -34,29 +36,19 @@ export interface SummaryOutput {
 
 const TYPES = new Set<MemoryType>(['fact', 'preference', 'event', 'promise', 'followup', 'emotion', 'relationship']);
 
-export function buildSummaryMessages(input: SummaryInput): ChatMessage[] {
-  const { character: c, user } = input;
-  const system = [
-    `你负责整理${c.name}和${user.name}的聊天记录，帮${c.name}记住重要的事。`,
-    '输出一个 JSON 对象，不要任何其他文字：',
-    '{"summary": "这一段发生了什么（第三人称，100–200 字）", "memories": [{"type": "fact|preference|event|promise|followup|emotion|relationship", "content": "一句话，具体到人和事", "importance": 1-10, "dueAt": "需要之后跟进时写 ISO 时间（带时区），否则 null", "supersedes": ["被这条更新掉的旧记忆 id"]}], "relationship": {"affectionDelta": -3 到 3 的整数, "mood": "' + c.name + '现在的心情，没变化写 null", "nicknames": {"user": "' + c.name + '对' + user.name + '的新称呼，没有就省略", "char": "' + user.name + '对' + c.name + '的新称呼，没有就省略"}}}',
-    '规则：',
-    `- 记忆只写以后用得上的：${user.name}的事实、偏好、约定、要跟进的事、情绪变化、关系里程碑；闲聊不记。`,
-    '- 和已有记忆重复的不再写；有变化的写新的一条，并在 supersedes 里写旧的 id。',
-    `- "周三下午两点面试"这类带时间的事写成 followup，dueAt 写事情结束后适合问结果的时间。`,
-    '- 好感变化克制：普通聊天 0，明显的感动或冲突才 ±1～3。',
-  ].join('\n');
-  const now = input.now;
-  const lines = [
-    `现在：${now.toISOString()}`,
-    input.previousSummary ? `上一段摘要：${input.previousSummary}` : '',
-    input.memories?.length ? `已有记忆：\n${input.memories.map((m) => `- [${m.id}] ${m.content}`).join('\n')}` : '',
-    `要整理的聊天：\n${input.transcript.join('\n')}`,
-  ].filter(Boolean);
-  return [
-    { role: 'system', content: system },
-    { role: 'user', content: lines.join('\n\n') },
-  ];
+/** 这一次的输入：填进"总结"预设的程序填充块 */
+export function summaryFills(input: SummaryInput): Record<string, string> {
+  return {
+    summaryNow: `现在：${input.now.toISOString()}`,
+    summaryPrevious: input.previousSummary ? `上一段摘要：${input.previousSummary}` : '',
+    summaryMemories: input.memories?.length ? `已有记忆：\n${input.memories.map((m) => `- [${m.id}] ${m.content}`).join('\n')}` : '',
+    summaryTranscript: `要整理的聊天：\n${input.transcript.join('\n')}`,
+  };
+}
+
+/** 按"总结"预设拼提示词 */
+export function buildSummaryMessages(input: SummaryInput, preset: TaskPreset): ChatMessage[] {
+  return assembleTaskPrompt({ preset, fills: summaryFills(input), macros: { char: input.character.name, user: input.user.name, now: input.now } }).messages;
 }
 
 export function parseSummary(value: unknown, knownIds: Set<string> = new Set()): SummaryOutput | null {

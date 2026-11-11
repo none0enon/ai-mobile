@@ -1,44 +1,180 @@
-import type { Lorebook, Preset } from '@app/shared';
+import {
+  parsePresetFile,
+  presetUse,
+  PRESET_USES,
+  toPresetFile,
+  type Character,
+  type Lorebook,
+  type Preset,
+  type PresetCategory,
+  type PresetFile,
+  type PresetUse,
+  type PresetUseId,
+} from '@app/shared';
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
-import { autoSave, getAll } from '@/db/idb';
-import { lorebooks as demoLorebooks, presets as demoPresets } from '@/mock/library';
+import { reactive, ref } from 'vue';
+import { autoSave, getAll, getOne, write } from '@/db/idb';
+import { lorebooks as demoLorebooks } from '@/mock/library';
+import { uid } from '@/utils/id';
 
-/** 演示用的预设、世界书：每次打开重新生成，不存进本机数据库 */
-const DEMO_IDS = new Set([...demoPresets.map((p) => p.id), ...demoLorebooks.map((b) => b.id)]);
+/**
+ * App 自带的预设：src/presets/ 里的预设文件（App 自己的格式）。往这个文件夹里加一个 .json 就多一个自带预设。
+ * 第一次打开时像导入一样放进预设库，之后和你导入的一样：能改、能删、能复制、能导出；删掉的不会再放回来。
+ */
+const FILES = import.meta.glob<unknown>('../presets/*.json', { eager: true, import: 'default' });
 
-export function isDemoRecord(id: string) {
-  return DEMO_IDS.has(id);
+interface Seed {
+  file: string;
+  preset: Preset;
+  defaultFor: PresetUseId[];
 }
 
-/** 预设和世界书。导入的存在本机（IndexedDB） */
-export const useLibraryStore = defineStore('library', () => {
-  const presets = ref<Preset[]>([...demoPresets]);
-  const lorebooks = ref<Lorebook[]>([...demoLorebooks]);
+function readSeeds(): Seed[] {
+  const out: Seed[] = [];
+  for (const [path, json] of Object.entries(FILES)) {
+    const file = path.split('/').pop() ?? path;
+    try {
+      const { warnings: _w, defaultFor, id, ...data } = parsePresetFile(json, file);
+      const now = Date.now();
+      out.push({ file, defaultFor, preset: { ...data, id: id ?? `preset-${file.replace(/\.json$/i, '')}`, createdAt: now, updatedAt: now, seedFile: file } });
+    } catch (e) {
+      console.error(`预设文件 ${file} 读不出来：`, e);
+    }
+  }
+  // 先对话、再功能……同一类按文件名
+  const order: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image'];
+  return out.sort((a, b) => order.indexOf(a.preset.category) - order.indexOf(b.preset.category) || a.file.localeCompare(b.file));
+}
 
-  const presetSaver = autoSave(
-    'presets',
-    () => presets.value.filter((p) => !DEMO_IDS.has(p.id)).map((p) => ({ key: p.id, value: p })),
-    presets,
-  );
+const SEEDS = readSeeds();
+const DEMO_BOOK_IDS = new Set(demoLorebooks.map((b) => b.id));
+
+/** 演示用的世界书（每次打开重新生成）；预设没有"自带的不能动"这回事 */
+export function isDemoRecord(id: string) {
+  return DEMO_BOOK_IDS.has(id);
+}
+
+function clone<T>(x: T): T {
+  return JSON.parse(JSON.stringify(x)) as T;
+}
+
+/**
+ * 预设和世界书。
+ * - 预设分六类（对话、功能、主动消息、小剧场、总结、生图）；
+ * - 每个用途（一起做事的每件事、主动消息、番外、总结、配图）选一个对应分类的预设；对话预设每个角色自己选；
+ * - 所有预设都存在本机（自带的放进来以后也一样）。
+ */
+export const useLibraryStore = defineStore('library', () => {
+  // 读本机数据库之前先用预设文件里的（启动时界面要有东西），读完以后以本机的为准
+  const presets = ref<Preset[]>(SEEDS.map((s) => clone(s.preset)));
+  const lorebooks = ref<Lorebook[]>([...demoLorebooks]);
+  /** 每个用途选的预设；null = 跟随对话预设 */
+  const uses = reactive<Partial<Record<PresetUseId, string | null>>>(defaultUses(SEEDS));
+
+  const presetSaver = autoSave('presets', () => presets.value.map((p) => ({ key: p.id, value: p })), presets);
   const bookSaver = autoSave(
     'lorebooks',
-    () => lorebooks.value.filter((b) => !DEMO_IDS.has(b.id)).map((b) => ({ key: b.id, value: b })),
+    () => lorebooks.value.filter((b) => !DEMO_BOOK_IDS.has(b.id)).map((b) => ({ key: b.id, value: b })),
     lorebooks,
   );
+  const useSaver = autoSave('settings', () => [{ key: 'presetUses', value: { ...uses } }], () => ({ ...uses }));
+
+  /** 预设文件里写的"默认给哪些用途用" */
+  function defaultUses(seeds: Seed[]): Partial<Record<PresetUseId, string>> {
+    const out: Partial<Record<PresetUseId, string>> = {};
+    for (const s of seeds) for (const u of s.defaultFor) out[u] ??= s.preset.id;
+    return out;
+  }
 
   async function hydrate() {
-    const [ps, bs] = await Promise.all([getAll<Preset>('presets'), getAll<Lorebook>('lorebooks')]);
-    // 库里按 id 排，id 是随机的：按导入时间排回来
-    const byTime = <T extends { createdAt: number }>(a: T, b: T) => a.createdAt - b.createdAt;
-    for (const p of ps.sort(byTime)) if (!presets.value.some((x) => x.id === p.id)) presets.value.push(p);
-    for (const b of bs.sort(byTime)) if (!lorebooks.value.some((x) => x.id === b.id)) lorebooks.value.push(b);
+    const [ps, bs, savedUses, seeded] = await Promise.all([
+      getAll<Preset>('presets'),
+      getAll<Lorebook>('lorebooks'),
+      getOne<Record<string, unknown>>('settings', 'presetUses'),
+      getOne<string[]>('settings', 'seededPresetFiles'),
+    ]);
+    const done = new Set(Array.isArray(seeded) ? seeded : []);
+    const saved = new Map(ps.map((p) => [p.id, { ...p, category: p.category ?? 'chat' } as Preset]));
+    const list: Preset[] = [];
+    const fresh: Seed[] = [];
+    for (const s of SEEDS) {
+      const mine = saved.get(s.preset.id);
+      if (mine) {
+        list.push(mine);
+        saved.delete(s.preset.id);
+      } else if (!done.has(s.file)) {
+        // 新的预设文件（第一次打开，或者 App 更新后多了一个）：放进预设库
+        list.push(clone(s.preset));
+        fresh.push(s);
+      }
+      // 放进来过、本机又没有：你删掉了，不再放回来
+    }
+    // 导入的、复制的：按导入时间排（以前存的没有分类，都是对话预设）
+    list.push(...[...saved.values()].sort((a, b) => a.createdAt - b.createdAt));
+    presets.value = list;
+
+    for (const k of Object.keys(uses) as PresetUseId[]) delete uses[k];
+    if (savedUses && typeof savedUses === 'object') {
+      for (const u of PRESET_USES) {
+        const v = savedUses[u.id];
+        if (v === null && u.followChat) uses[u.id] = null;
+        else if (typeof v === 'string') uses[u.id] = v;
+      }
+    }
+    // 新放进来的预设文件写了默认给哪些用途：那个用途还没选过才用它
+    for (const [u, id] of Object.entries(defaultUses(fresh)) as [PresetUseId, string][]) if (!(u in uses)) uses[u] = id;
+
+    for (const s of SEEDS) done.add(s.file);
+    await write('settings', [{ key: 'seededPresetFiles', value: [...done] }]);
+    for (const b of bs.sort((a, b) => a.createdAt - b.createdAt)) if (!lorebooks.value.some((x) => x.id === b.id)) lorebooks.value.push(b);
     presetSaver.start();
     bookSaver.start();
+    useSaver.start();
+    // 新放进来的预设要写进本机（start 只记下现在的样子，不会自己写）
+    if (fresh.length) await write('presets', fresh.map((s) => ({ key: s.preset.id, value: clone(presets.value.find((p) => p.id === s.preset.id)) })));
   }
 
   function presetById(id: string | null | undefined): Preset | undefined {
     return presets.value.find((p) => p.id === id);
+  }
+
+  function presetsOf(category: PresetCategory): Preset[] {
+    return presets.value.filter((p) => p.category === category);
+  }
+
+  /** 这个角色的对话预设；没选、选的被删了或不是对话预设时用第一个对话预设（一个都没有时为空） */
+  function chatPresetFor(character?: Pick<Character, 'presetId'> | null): Preset | undefined {
+    const own = presetById(character?.presetId);
+    if (own?.category === 'chat') return own;
+    return presetsOf('chat')[0];
+  }
+
+  /** 这个用途选的预设 id；null = 跟随对话预设；选的被删了时用这一类的第一个 */
+  function useChoice(use: PresetUseId): string | null | undefined {
+    const meta = presetUse(use);
+    const v = uses[use];
+    if (v === null && meta?.followChat) return null;
+    const picked = presetById(v ?? undefined);
+    if (picked && picked.category === meta?.category) return picked.id;
+    return meta ? presetsOf(meta.category)[0]?.id : undefined;
+  }
+
+  /** 这个用途这次用哪个预设；这一类一个都没有时：能跟随对话的用对话预设，其余为空（调用方说清楚缺什么） */
+  function presetForUse(use: PresetUseId, character?: Pick<Character, 'presetId'> | null): Preset | undefined {
+    const choice = useChoice(use);
+    if (choice === null) return chatPresetFor(character);
+    const p = presetById(choice);
+    if (p) return p;
+    return presetUse(use)?.followChat ? chatPresetFor(character) : undefined;
+  }
+
+  function setUse(use: PresetUseId, id: string | null) {
+    uses[use] = id;
+  }
+
+  /** 用着这个预设的用途 */
+  function usesOf(presetId: string): PresetUse[] {
+    return PRESET_USES.filter((u) => useChoice(u.id) === presetId);
   }
 
   function lorebookById(id: string | null | undefined): Lorebook | undefined {
@@ -50,18 +186,72 @@ export const useLibraryStore = defineStore('library', () => {
     return presets.value.at(-1) as Preset;
   }
 
+  /** 复制一份；角色扮演类的可以复制成另一类（例如把导入的对话预设复制成功能预设） */
+  function duplicatePreset(id: string, category?: PresetCategory): Preset | undefined {
+    const src = presetById(id);
+    if (!src) return undefined;
+    const now = Date.now();
+    const { seedFile: _f, ...rest } = clone(src);
+    return addPreset({ ...rest, id: uid('preset'), createdAt: now, updatedAt: now, name: `${src.name}（副本）`, category: category ?? src.category });
+  }
+
+  /** 从 App 自带的预设文件放进来的：文件里现在的样子（可以恢复成它） */
+  function seedOf(id: string): Preset | undefined {
+    const p = presetById(id);
+    const s = SEEDS.find((x) => x.file === p?.seedFile);
+    return s ? clone(s.preset) : undefined;
+  }
+
+  /** 恢复成预设文件里的样子（名字、分类、块、参数都按文件） */
+  function restoreFromFile(id: string): boolean {
+    const i = presets.value.findIndex((p) => p.id === id);
+    const s = seedOf(id);
+    if (i < 0 || !s) return false;
+    presets.value[i] = { ...s, id, createdAt: presets.value[i]!.createdAt, updatedAt: Date.now() };
+    return true;
+  }
+
+  /** 导出成预设文件（App 自己的格式，带上它现在给哪些用途用） */
+  function exportFile(id: string): PresetFile | undefined {
+    const p = presetById(id);
+    return p ? toPresetFile(p, usesOf(id).map((u) => u.id)) : undefined;
+  }
+
   function addLorebook(b: Lorebook) {
     lorebooks.value.push(b);
     return lorebooks.value.at(-1) as Lorebook;
   }
 
+  /** 删掉一个预设（自带的也能删）；选了它的用途改用这一类的第一个 */
   function removePreset(id: string) {
     presets.value = presets.value.filter((p) => p.id !== id);
+    for (const u of PRESET_USES) if (uses[u.id] === id) delete uses[u.id];
   }
 
   function removeLorebook(id: string) {
     lorebooks.value = lorebooks.value.filter((b) => b.id !== id);
   }
 
-  return { presets, lorebooks, hydrate, presetById, lorebookById, addPreset, addLorebook, removePreset, removeLorebook };
+  return {
+    presets,
+    lorebooks,
+    uses,
+    hydrate,
+    presetById,
+    presetsOf,
+    chatPresetFor,
+    useChoice,
+    presetForUse,
+    setUse,
+    usesOf,
+    lorebookById,
+    addPreset,
+    duplicatePreset,
+    seedOf,
+    restoreFromFile,
+    exportFile,
+    addLorebook,
+    removePreset,
+    removeLorebook,
+  };
 });

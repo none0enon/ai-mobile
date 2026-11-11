@@ -226,7 +226,7 @@ function drawStory() {
           {{ [story.time, story.place, story.mood, story.people.join('、')].filter(Boolean).join(' · ') }}
         </div>
         <p class="story">{{ story.story }}</p>
-        <div class="text-[11.5px] text-ink-3">{{ story.demo ? '演示故事' : `番外智能体 · ${story.model}` }}</div>
+        <div class="text-[11.5px] text-ink-3">{{ story.demo ? '演示故事' : `番外智能体 · ${story.model}${story.presetName ? ` · 预设「${story.presetName}」` : ''}` }}</div>
         <div class="flex gap-2.5 mt-4">
           <van-button v-if="story.cg" round block @click="drawStory">画这一幕</van-button>
           <van-button v-if="story.hook" round block type="primary" @click="sendHook">让她发来："{{ story.hook }}"</van-button>

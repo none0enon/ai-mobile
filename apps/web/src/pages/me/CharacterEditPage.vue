@@ -30,10 +30,10 @@ async function pickAvatar(file: File) {
 }
 const character = computed(() => chars.byId(route.params.id as string) ?? chars.list[0]!);
 const figure = computed(() => FIGURE[character.value.id] ?? { hairStyle: 'long' as const, eye: '#3b2531' });
-/** 和她聊天时实际用的预设（同拼提示词） */
-const presetId = computed(() => presetFor(character.value).id);
-function pickPreset(id: string) {
-  if (id === presetId.value) return;
+/** 和她平时聊天用的对话预设（同拼提示词）；一起做事时用各自的功能预设 */
+const presetId = computed(() => presetFor(character.value)?.id ?? null);
+function pickPreset(id: string | null) {
+  if (!id || id === presetId.value) return;
   chars.setPreset(character.value.id, id);
   showToast(`换成「${lib.presetById(id)?.name ?? ''}」了`);
 }
@@ -129,8 +129,11 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
         </van-tab>
         <van-tab title="预设" name="preset">
           <div class="px-4 pt-3">
-            <PresetPicker :model-value="presetId" @update:model-value="pickPreset" />
-            <p class="text-[12px] text-ink-3 mt-2.5 mb-0 leading-relaxed">和{{ character.pronoun }}聊天时按这套预设拼提示词（提示词顺序、采样参数、正则），下一条回复起生效。在聊天右上角 ⋯ → 预设 里也能换。</p>
+            <PresetPicker :model-value="presetId" category="chat" @update:model-value="pickPreset" />
+            <p class="text-[12px] text-ink-3 mt-2.5 mb-0 leading-relaxed">
+              和{{ character.pronoun }}平时聊天（聊天气泡、剧场模式）按这套对话预设拼提示词，下一条回复起生效；在聊天右上角 ⋯ → 预设 里也能换。一起吃饭、一起运动这些用各自的功能预设，主动消息、番外、总结、配图也各用各的，在
+              <RouterLink to="/me/presets" class="text-accent-ink">我的 → 预设</RouterLink> 里选。
+            </p>
           </div>
         </van-tab>
         <van-tab title="立绘" name="sprite">

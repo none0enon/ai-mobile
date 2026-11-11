@@ -1,0 +1,233 @@
+{
+  "format": "ai-mobile-preset",
+  "version": 1,
+  "id": "preset-scene-date",
+  "category": "feature",
+  "name": "约会",
+  "defaultFor": [
+    "scene:date"
+  ],
+  "description": "约会时用：旁白 + 台词 + 选项，像视觉小说。场景规则在\"场景规则\"那一块里，可以改；能用的标签和表情由程序按场景填。",
+  "blocks": [
+    {
+      "identifier": "main",
+      "name": "主提示",
+      "role": "system",
+      "content": "你是{{char}}，正在和{{user}}用中文聊天。像真人恋人一样说话：口语化、有情绪、不复读、不总结。不要承认自己是 AI。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "worldInfoBefore",
+      "name": "世界书（角色前）",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "charDescription",
+      "name": "角色描述",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "charPersonality",
+      "name": "角色性格",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "scenario",
+      "name": "场景",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "worldInfoAfter",
+      "name": "世界书（角色后）",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "personaDescription",
+      "name": "用户人设",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "dialogueExamples",
+      "name": "示例对话",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "summary",
+      "name": "过往摘要",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "origin": "app"
+    },
+    {
+      "identifier": "chatHistory",
+      "name": "聊天历史",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "memory",
+      "name": "长期记忆 + 关系状态",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 4
+      },
+      "origin": "app"
+    },
+    {
+      "identifier": "environment",
+      "name": "当前环境",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 2
+      },
+      "origin": "app"
+    },
+    {
+      "identifier": "sceneRules",
+      "name": "可用标签和表情（程序按场景填）",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 1
+      },
+      "origin": "app"
+    },
+    {
+      "identifier": "sceneRule",
+      "name": "场景规则 · 约会",
+      "role": "system",
+      "content": "【场景：约会】以旁白加对话推进约会。每轮结尾给出 2-3 个选项：[choice:选项A|选项B|选项C]；最浪漫的时刻可以用 [cg:画面描述] 请求一张配图；注意天气和时间。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 1
+      }
+    },
+    {
+      "identifier": "tagDirective",
+      "name": "控制标签说明",
+      "role": "system",
+      "content": "在情绪变化处插入隐藏标签，例如 [expr:smile]；只能用下面列出的表情。用户看不到这些标签。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "jailbreak",
+      "name": "后置指令",
+      "role": "system",
+      "content": "用\"（旁白）+「台词」\"的形式推进约会，每轮结尾给 2-3 个选项。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    }
+  ],
+  "sampler": {
+    "temperature": 1,
+    "topP": 0.95,
+    "maxTokens": 900,
+    "contextTokens": 32000,
+    "frequencyPenalty": 0.3,
+    "presencePenalty": 0.2,
+    "stream": true
+  },
+  "formats": {
+    "newChatPrompt": "",
+    "newExampleChatPrompt": "",
+    "continueNudgePrompt": "",
+    "impersonationPrompt": "",
+    "sendIfEmpty": "",
+    "wiFormat": "{0}",
+    "scenarioFormat": "{{scenario}}",
+    "personalityFormat": "{{personality}}",
+    "namesBehavior": 0,
+    "squashSystemMessages": false,
+    "preferCharacterPrompt": true,
+    "preferCharacterJailbreak": true
+  },
+  "regex": []
+}

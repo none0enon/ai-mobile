@@ -1,0 +1,145 @@
+{
+  "format": "ai-mobile-preset",
+  "version": 1,
+  "id": "preset-theater",
+  "category": "theater",
+  "name": "小剧场 · 番外",
+  "defaultFor": [
+    "theater"
+  ],
+  "description": "你不在的时候她那边发生的一小段日常：第三人称、150–250 字，附带一句可能发给你的话和适合配图的一幕。",
+  "blocks": [
+    {
+      "identifier": "main",
+      "name": "任务",
+      "role": "system",
+      "content": "你在为一个陪伴 App 写\"番外\"：{{char}}在自己的世界里，{{user}}不在场时发生的一小段日常。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "rules",
+      "name": "要求",
+      "role": "system",
+      "content": "要求：\n- 第三人称，像轻小说的番外，150–250 字；贴合{{char}}的性格、作息和此刻所在的地方。\n- 写一个小而具体的事件（一个小麻烦、一个小惊喜、一段对话），有画面感；不要流水账，不要结尾升华。\n- 可以出现{{char}}世界里的其他人；{{user}}不出场，但{{char}}可以想到{{user}}、想起你们聊过的事。\n- 不要和最近写过的番外重复。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "format",
+      "name": "输出格式（JSON，字段名别改）",
+      "role": "system",
+      "content": "只输出一个 JSON 对象，不要任何其他文字：\n{\"title\": \"标题（12 字以内）\", \"story\": \"故事正文\", \"time\": \"发生的时段\", \"place\": \"地点\", \"mood\": \"{{char}}现在的心情（一个词）\", \"people\": [\"出场的其他人\"], \"hook\": \"写完这件事后{{char}}可能发给对方的一句消息（口语，30 字以内），没有就写 null\", \"cg\": \"最适合配一张图的画面（中文一句话），没有就写 null\"}",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "storyCharacter",
+      "name": "角色",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "storyWorld",
+      "name": "她的世界（作息、手头的事、身边的人）",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "storyNow",
+      "name": "现在（时间、她在哪）",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "storyMemories",
+      "name": "她记得的关于你的事",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "storyRecent",
+      "name": "最近的聊天",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "storyPrevious",
+      "name": "最近写过的番外（避免重复）",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    }
+  ],
+  "sampler": {
+    "temperature": 1,
+    "topP": 1,
+    "maxTokens": 2000,
+    "contextTokens": 32000,
+    "frequencyPenalty": 0,
+    "presencePenalty": 0,
+    "stream": false
+  },
+  "formats": {
+    "newChatPrompt": "",
+    "newExampleChatPrompt": "",
+    "continueNudgePrompt": "",
+    "impersonationPrompt": "",
+    "sendIfEmpty": "",
+    "wiFormat": "{0}",
+    "scenarioFormat": "{{scenario}}",
+    "personalityFormat": "{{personality}}",
+    "namesBehavior": 0,
+    "squashSystemMessages": false,
+    "preferCharacterPrompt": true,
+    "preferCharacterJailbreak": true
+  },
+  "regex": []
+}

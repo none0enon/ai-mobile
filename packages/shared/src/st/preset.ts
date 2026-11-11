@@ -195,6 +195,8 @@ export function parsePreset(json: unknown, fileName = '导入的预设'): Parsed
   return {
     name,
     description: `从 SillyTavern 导入 · ${blocks.length - app.before.length - app.after.length} 块（开 ${on} 块）· 用的是 ${picked?.id ?? '默认'} 这套顺序`,
+    // ST 的 Chat Completion 预设是对话预设；导入时可以改成功能或主动消息
+    category: 'chat',
     blocks,
     sampler,
     formats,

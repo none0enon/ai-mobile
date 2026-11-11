@@ -15,5 +15,7 @@ export * from './scenes.ts';
 export * from './locations.ts';
 export * from './environment.ts';
 export * from './proactive.ts';
+export * from './presetUses.ts';
+export * from './presetFile.ts';
 export * from './lrc.ts';
 export * from './st/index.ts';

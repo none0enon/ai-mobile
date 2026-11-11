@@ -52,6 +52,7 @@ export * from './channels.ts';
 export * from './agents/router.ts';
 export * from './agents/usage.ts';
 export * from './agents/system.ts';
+export * from './agents/taskPreset.ts';
 export * from './agents/imagePrompt.ts';
 export * from './agents/sidestory.ts';
 export * from './agents/summary.ts';

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PRESET_CATEGORIES, ROLEPLAY_CATEGORIES, type PresetCategory } from '@app/shared';
 import { showToast } from 'vant';
 import { nextTick, ref } from 'vue';
 import PageHeader from '@/layouts/PageHeader.vue';
@@ -13,7 +14,14 @@ import { useLibraryStore } from '@/stores/library';
 const KINDS = [
   { id: 'card', icon: 'i-lucide-contact-round', title: '角色卡', accept: '.png,.json,image/png,application/json', hint: '.png .json', desc: 'V1 / V2 / V3（PNG 或 JSON）。内嵌的世界书会拆出来自动绑定，备选开场白、标签、扩展字段都保留。' },
   { id: 'lore', icon: 'i-lucide-library-big', title: '世界书', accept: '.json,application/json', hint: '.json', desc: 'World Info JSON：关键词、次关键词逻辑、常驻、插入位置 / 深度、顺序、概率、分组、递归、粘性 / 冷却 / 延迟。' },
-  { id: 'preset', icon: 'i-lucide-sliders-horizontal', title: '预设', accept: '.json,application/json', hint: '.json', desc: 'Chat Completion 预设：提示词块与顺序（用 ST 实际生效的那套）、采样参数、拼装用的文字。App 自己的记忆 / 环境 / 场景块会自动补进去。' },
+  {
+    id: 'preset',
+    icon: 'i-lucide-sliders-horizontal',
+    title: '预设',
+    accept: '.json,application/json',
+    hint: '.json',
+    desc: 'SillyTavern 的 Chat Completion 预设（用 ST 实际生效的那套顺序，自动补上记忆 / 环境 / 场景块），或 App 自己的预设文件（任何一类：对话、功能、主动消息、小剧场、总结、生图）。',
+  },
   { id: 'chat', icon: 'i-lucide-messages-square', title: '聊天记录', accept: '.jsonl', hint: '.jsonl', desc: 'SillyTavern 的 .jsonl 聊天记录，含 swipe。（下一步做）' },
 ];
 
@@ -23,6 +31,8 @@ const done = ref<ImportDone | null>(null);
 const error = ref('');
 const busy = ref(false);
 const presetId = ref<string | null>(null);
+/** SillyTavern 预设当哪一类用（它本来是对话预设，也能当功能或主动消息） */
+const category = ref<PresetCategory>('chat');
 const resultEl = ref<HTMLElement | null>(null);
 
 /** 结果卡片在四个入口下面，手机上一屏放不下：出来以后滚过去 */
@@ -42,6 +52,7 @@ async function picked(e: Event) {
   try {
     pending.value = await readImport(file);
     presetId.value = defaultPresetId();
+    category.value = 'chat';
   } catch (err) {
     error.value = `${file.name}：${err instanceof Error ? err.message : String(err)}`;
   }
@@ -52,7 +63,7 @@ async function confirm() {
   if (!pending.value || busy.value) return;
   busy.value = true;
   try {
-    done.value = await commitImport(pending.value, { presetId: presetId.value });
+    done.value = await commitImport(pending.value, { presetId: presetId.value, category: category.value });
     pending.value = null;
     void reveal();
   } catch (err) {
@@ -97,13 +108,22 @@ const TITLE: Record<PendingImport['kind'], string> = { card: '角色卡', preset
           <li v-for="w in pending.warnings" :key="w">{{ w }}</li>
         </ul>
         <template v-if="pending.kind === 'card'">
-          <div class="text-[12.5px] text-ink-3 mt-3 mb-1.5">聊天用哪个预设（之后在聊天右上角 ⋯ → 预设，或角色设定 → 预设 里都能换）</div>
+          <div class="text-[12.5px] text-ink-3 mt-3 mb-1.5">聊天用哪个对话预设（之后在聊天右上角 ⋯ → 预设，或角色设定 → 预设 里都能换）</div>
           <div class="flex flex-wrap gap-1.5">
-            <button v-for="p in lib.presets" :key="p.id" type="button" class="chip-btn" :class="{ on: presetId === p.id }" @click="presetId = p.id">
+            <button v-for="p in lib.presetsOf('chat')" :key="p.id" type="button" class="chip-btn" :class="{ on: presetId === p.id }" @click="presetId = p.id">
               {{ p.name }}
             </button>
           </div>
           <p class="text-[12px] text-ink-3 mt-2.5 mb-0 leading-relaxed">导入的角色暂时没有自己的小世界（地图上不出现），从角色卡生成小世界是下一步。</p>
+        </template>
+        <template v-if="pending.kind === 'preset' && !pending.appFile">
+          <div class="text-[12.5px] text-ink-3 mt-3 mb-1.5">当哪一类预设用（之后在预设页能复制成别的类）</div>
+          <div class="flex flex-wrap gap-1.5" data-testid="import-category">
+            <button v-for="cat in ROLEPLAY_CATEGORIES" :key="cat" type="button" class="chip-btn" :class="{ on: category === cat }" @click="category = cat">
+              {{ PRESET_CATEGORIES[cat].label }}
+            </button>
+          </div>
+          <p class="text-[12px] text-ink-3 mt-2 mb-0 leading-relaxed">{{ PRESET_CATEGORIES[category].desc }}</p>
         </template>
         <van-button type="primary" round block class="!mt-3" :loading="busy" @click="confirm">导入</van-button>
       </div>

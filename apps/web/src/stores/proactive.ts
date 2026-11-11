@@ -129,12 +129,15 @@ export const useProactiveStore = defineStore('proactive', () => {
     return { parts: [{ type: 'text', text: line.text }] as MessagePart[], expression: line.expr, meta: {} as Message['meta'] };
   }
 
-  /** 接通了"主动消息"的 API：按她的预设、角色卡、世界书、记忆和聊天记录，用她的口吻写 */
+  /**
+   * 接通了"主动消息"的 API：按"主动消息"预设（或跟随她的对话预设）、角色卡、世界书、记忆和聊天记录，用她的口吻写。
+   * 程序只告诉她现在几点、这一次要做什么；怎么写（长短、口吻）由预设里的块说
+   */
   async function writeWithModel(c: Character, ch: Chat, t: Pick<Touchpoint, 'hint'>) {
     const chat = useChatStore();
     const persona = personaOf(ch);
-    const task = substituteMacros(t.hint, { char: c.name, user: persona.name });
-    const quiet = `【主动消息】现在是 ${hhmm(Date.now())}，${persona.name}还没有来找你。这一次要做的事：${task}。\n以${c.name}的身份主动给${persona.name}发消息：像发微信一样，一到两句，口语，可以用表情标签；不要提到这条说明。`;
+    const hint = substituteMacros(t.hint, { char: c.name, user: persona.name });
+    const quiet = `【主动消息】现在是 ${hhmm(Date.now())}，${persona.name}还没有来找你，由${c.name}先开口。这一次要做的事：${hint}。`;
     const prompt = assembleForChat(ch, c, chat.list(ch.id), { type: 'quiet', dryRun: true, quiet, agent: 'proactive' });
     const r = await services.llm.chat({
       agent: 'proactive',
@@ -153,6 +156,7 @@ export const useProactiveStore = defineStore('proactive', () => {
       if (tag.kind === 'music') parts.push({ type: 'music', songId: 's1', title: tag.title, artist: tag.artist });
     }
     if (!parts.length) throw new AiError('empty', '模型回了一条空消息');
+    chat.lastPrompt[ch.id] = { prompt, at: Date.now() };
     const meta: Message['meta'] = { model: r.model, agent: 'proactive', latencyMs: r.latencyMs, tokens: r.tokens, ...(r.fellBack ? { fellBack: true } : {}) };
     return { parts, expression, meta };
   }
