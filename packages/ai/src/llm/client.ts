@@ -30,6 +30,11 @@ function hopeless(e: unknown): boolean {
   return e instanceof AiError && e.code === 'http' && (e.status === 401 || e.status === 402 || e.status === 403 || e.status === 404);
 }
 
+/** 服务端不接受这个请求（参数不认）：按 math-reader 的最简请求再发一次 */
+function rejected(e: unknown): boolean {
+  return e instanceof AiError && e.code === 'http' && (e.status === 400 || e.status === 422);
+}
+
 /**
  * 对一个连接发一次对话（移植自 math-reader 的 doAIRequestPreferStream）：
  * - 有 onDelta 时走流式；流式请求在收到任何正文之前就失败（例如服务端没有流式接口），同一个连接改普通请求再试一次，并报告 fallback；
@@ -52,13 +57,26 @@ export async function chatOnce(ep: Endpoint, req: ChatRequest, opts: ChatOptions
       }
     : undefined;
 
+  // 带预设参数的请求被拒（400 / 422）时，改成 math-reader 发的最简请求（模型、消息、temperature、stream、输出上限）再发；
+  // 之后流式失败改普通请求时也用最简请求
+  let current = req;
+  const send: ChatProvider = async (e, r, call) => {
+    try {
+      return await provider(e, r, call);
+    } catch (err) {
+      if (r.minimal || !rejected(err) || call.signal?.aborted) throw err;
+      current = { ...r, minimal: true };
+      return provider(e, current, call);
+    }
+  };
+
   let result: ChatResult;
   if (!wantStream) {
-    result = await provider(ep, req, { stream: false, onState: opts.onState, signal: opts.signal });
+    result = await send(ep, current, { stream: false, onState: opts.onState, signal: opts.signal });
   } else {
     let received = false;
     try {
-      result = await provider(ep, req, {
+      result = await send(ep, current, {
         stream: true,
         onState: opts.onState,
         signal: opts.signal,
@@ -70,7 +88,7 @@ export async function chatOnce(ep: Endpoint, req: ChatRequest, opts: ChatOptions
     } catch (e) {
       if (received || isAbortError(e) || opts.signal?.aborted || hopeless(e)) throw e;
       opts.onState?.('fallback', errorText(e));
-      result = await provider(ep, req, { stream: false, onState: opts.onState, signal: opts.signal });
+      result = await send(ep, current, { stream: false, onState: opts.onState, signal: opts.signal });
     }
   }
   if (onDelta && (result.text !== shownText || result.thinking !== shownThinking)) onDelta(result.text, result.thinking);

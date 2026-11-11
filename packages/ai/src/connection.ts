@@ -1,5 +1,5 @@
 import type { Capability } from '@app/shared';
-import { anthropicBase, bearerHeaders, deepseekBase, geminiBase, joinUrl, openaiBase, transportOf, type Endpoint } from './core/endpoint.ts';
+import { anthropicBase, bearerHeaders, deepseekBase, geminiBase, isFullChatUrl, joinUrl, openaiModelsUrl, transportOf, type Endpoint } from './core/endpoint.ts';
 import { AiError, errorText, httpError } from './core/errors.ts';
 import { readText, request } from './core/http.ts';
 import { embedTexts } from './embedding/client.ts';
@@ -38,29 +38,46 @@ export const STATIC_MODELS: Partial<Record<Endpoint['kind'], string[]>> = {
   'workers-ai': ['@cf/baai/bge-m3', '@cf/baai/bge-large-en-v1.5', '@cf/baai/bge-base-en-v1.5'],
 };
 
+function hostOf(url: string): string {
+  try {
+    return new URL(url.trim()).hostname;
+  } catch {
+    return '';
+  }
+}
+
 export async function listModels(ep: Endpoint, signal?: AbortSignal): Promise<string[]> {
   const fixed = STATIC_MODELS[ep.kind];
   if (fixed) return [...fixed];
   let res: Response;
   if (ep.kind === 'gemini') {
-    // Gemini：GET {base}/models?key=…，只留能对话或能向量化的模型
-    res = await request(transportOf(ep), ep.name, `${geminiBase(ep.baseUrl)}/models?pageSize=1000&key=${encodeURIComponent(ep.key ?? '')}`, { method: 'GET', signal });
+    // Gemini：GET {base}/models?key=…，只留能对话或能向量化的模型。
+    // 自定义地址（不是 Google 官方）同 math-reader 的 fetchModels 另外带上 Bearer；官方接口带了 Authorization 会被当成 OAuth 拒绝
+    const official = /(^|\.)googleapis\.com$/i.test(hostOf(ep.baseUrl));
+    res = await request(transportOf(ep), ep.name, `${geminiBase(ep.baseUrl)}/models?pageSize=1000&key=${encodeURIComponent(ep.key ?? '')}`, {
+      method: 'GET',
+      headers: { ...(!official && ep.key ? { Authorization: `Bearer ${ep.key}` } : {}), ...(ep.headers ?? {}) },
+      signal,
+    });
     if (!res.ok) throw httpError(ep.name, res.status, await readText(res));
-    const data = (await res.json()) as { models?: { name?: string; supportedGenerationMethods?: string[] }[] };
+    const data = (await res.json()) as { models?: { name?: string; supportedGenerationMethods?: string[] }[]; data?: { id?: string }[] };
+    // 自定义地址也可能按 OpenAI 的写法回 { data: [{ id }] }
+    if (!data.models && Array.isArray(data.data)) return data.data.map((m) => (m.id ?? '').replace(/^models\//, '')).filter(Boolean);
     return (data.models ?? [])
       .filter((m) => !m.supportedGenerationMethods || m.supportedGenerationMethods.some((x) => x === 'generateContent' || x === 'embedContent'))
       .map((m) => (m.name ?? '').replace(/^models\//, ''))
       .filter(Boolean);
   }
-  if (ep.kind === 'anthropic') {
+  if (ep.kind === 'anthropic' && !isFullChatUrl(ep.baseUrl)) {
     res = await request(transportOf(ep), ep.name, joinUrl(anthropicBase(ep.baseUrl), 'models?limit=1000'), {
       method: 'GET',
       headers: { ...(ep.key ? { 'x-api-key': ep.key } : {}), 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', ...(ep.headers ?? {}) },
       signal,
     });
-  } else if (ep.kind === 'openai' || ep.kind === 'deepseek') {
-    const base = ep.kind === 'deepseek' ? deepseekBase(ep.baseUrl) : openaiBase(ep.baseUrl);
-    res = await request(transportOf(ep), ep.name, joinUrl(base, 'models'), { method: 'GET', headers: bearerHeaders(ep, false), signal });
+  } else if (ep.kind === 'openai' || ep.kind === 'deepseek' || ep.kind === 'anthropic') {
+    // 同 math-reader 的 fetchModels：GET {URL 去掉 /chat/completions}/models，Bearer 鉴权
+    const url = ep.kind === 'deepseek' && !isFullChatUrl(ep.baseUrl) ? joinUrl(deepseekBase(ep.baseUrl), 'models') : openaiModelsUrl(ep.baseUrl);
+    res = await request(transportOf(ep), ep.name, url, { method: 'GET', headers: bearerHeaders(ep, false), signal });
   } else {
     return [];
   }

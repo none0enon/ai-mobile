@@ -98,6 +98,11 @@ function inlineName(m: ChatMessage, names: ChatRequest['names']): ChatMessage {
   return withPrefix(m, realName(m.name, names));
 }
 
+/** 名字写进正文、去掉空消息：不带 name 字段（math-reader 不发，有的中转不认） */
+export function inlineNames(messages: ChatMessage[], names?: ChatRequest['names']): ChatMessage[] {
+  return messages.map((m) => inlineName(m, names)).filter((m) => !isEmpty(m));
+}
+
 function isEmpty(m: ChatMessage): boolean {
   return typeof m.content === 'string' ? !m.content.trim() : m.content.every((p) => p.type === 'text' && !p.text.trim());
 }

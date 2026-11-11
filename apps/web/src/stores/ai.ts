@@ -1,15 +1,5 @@
-import {
-  AgentSystem,
-  DEFAULT_IMAGE_STYLE,
-  DEFAULT_OUTPUT_FILTERS,
-  DEFAULT_TTS_TEXT,
-  isDeepSeekOfficial,
-  MemoryAudioCache,
-  type AgentConfig,
-  type Endpoint,
-  type RouteStatus,
-} from '@app/ai';
-import { AGENT_META, type AgentRole, type AgentRoute, type ProviderConnection } from '@app/shared';
+import { AgentSystem, DEFAULT_IMAGE_STYLE, DEFAULT_OUTPUT_FILTERS, DEFAULT_TTS_TEXT, MemoryAudioCache, type AgentConfig, type Endpoint, type RouteStatus } from '@app/ai';
+import { AGENT_META, API_SLOT_LABEL, API_SLOTS, type AgentRole, type AgentRoute, type ApiSlot, type ApiSlotSetting, type ProviderConnection } from '@app/shared';
 import { defineStore } from 'pinia';
 import { showToast } from 'vant';
 import { markRaw, reactive, ref } from 'vue';
@@ -37,39 +27,45 @@ function completeRoutes(saved: AgentRoute[]): AgentRoute[] {
   });
 }
 
-const LEGACY_DEEPSEEK = /^deepseek-(?:chat|reasoner)$/;
+/** 示例连接"中转站 A"以前带的假模型名：不是真的模型，带过来也连不上 */
+const PLACEHOLDER_MODEL = /^relay-(?:main|fast)-model$/;
 
 /**
- * DeepSeek 的旧模型名 deepseek-chat / deepseek-reasoner 已在 2026-07-24 停用（官网更新日志）。
- * 以前存的、地址是 DeepSeek 官方的连接改成 DeepSeek 协议，模型换成 deepseek-flash；
- * 原来用 deepseek-chat（不思考）的智能体把推理强度设成"关闭"，保持原来的快速回复。调用时也会自动换，这里让界面显示对
+ * 三套 API 第一次打开时的设置：主要 API 沿用主对话原来分配的连接和模型，次要、备用不使用（同 math-reader 的默认）
  */
-function migrateDeepSeek(conns: ProviderConnection[], routes: AgentRoute[]) {
-  const ids = new Set<string>();
-  for (const c of conns) {
-    if ((c.kind !== 'openai' && c.kind !== 'deepseek') || !isDeepSeekOfficial(c.baseUrl)) continue;
-    ids.add(c.id);
-    c.kind = 'deepseek';
-    if (c.models.some((m) => LEGACY_DEEPSEEK.test(m))) c.models = [...new Set([...c.models.map((m) => (LEGACY_DEEPSEEK.test(m) ? 'deepseek-flash' : m)), 'deepseek-v4-pro'])];
+function initialSlots(routes: AgentRoute[]): Record<ApiSlot, ApiSlotSetting> {
+  const main = routes.find((r) => r.role === 'main');
+  const model = main?.model && !PLACEHOLDER_MODEL.test(main.model) ? main.model : '';
+  return {
+    primary: { connectionId: main?.connectionId ?? null, model },
+    secondary: { connectionId: null, model: '' },
+    backup: { connectionId: null, model: '' },
+  };
+}
+
+function completeSlots(saved: Partial<Record<ApiSlot, Partial<ApiSlotSetting>>>): Record<ApiSlot, ApiSlotSetting> {
+  const out = {} as Record<ApiSlot, ApiSlotSetting>;
+  for (const slot of API_SLOTS) {
+    const x = saved[slot];
+    out[slot] = { connectionId: typeof x?.connectionId === 'string' ? x.connectionId : null, model: typeof x?.model === 'string' ? x.model : '' };
   }
-  for (const r of routes) {
-    if (r.connectionId && ids.has(r.connectionId) && LEGACY_DEEPSEEK.test(r.model)) {
-      if (r.model === 'deepseek-chat' && !r.params?.reasoningEffort) r.params = { ...(r.params ?? {}), reasoningEffort: 'none' };
-      r.model = 'deepseek-flash';
-    }
-    if (r.fallbackConnectionId && ids.has(r.fallbackConnectionId) && r.fallbackModel && LEGACY_DEEPSEEK.test(r.fallbackModel)) r.fallbackModel = 'deepseek-flash';
-  }
+  return out;
 }
 
 /**
- * API 连接、智能体分配和 Key（参考 math-reader 的"三套 API + 按功能分配"，扩展成任意个连接 + 每个智能体单独分配）。
- * - 连接和分配存在 settings 表（以后随同步走）；
+ * API 连接、三套 AI API、智能体分配和 Key：
+ * - 连接 = 地址 + Key（OpenAI 兼容、Claude、Gemini、DeepSeek……）；
+ * - 主要 / 次要 / 备用 API 各选一个连接和模型，文字类智能体按 math-reader 的规则选用（同 math-reader 的 API Setting + AI 功能分配）；
+ * - 语音合成、生图、向量化、地图各自选连接；
+ * - 连接、三套 API 和分配存在 settings 表（以后随同步走）；
  * - Key 单独存在 secrets 表，只在这台设备上，永远不进同步数据；
  * - 智能体的主连接有 Key 时真的调用，没有时界面继续用演示模型。
  */
 export const useAiStore = defineStore('ai', () => {
   const connections = ref<ProviderConnection[]>(clone(seedConnections));
   const routes = ref<AgentRoute[]>(completeRoutes(clone(seedRoutes)));
+  /** 主要 / 次要 / 备用 API 各用哪个连接、哪个模型 */
+  const apiSlots = ref<Record<ApiSlot, ApiSlotSetting>>(initialSlots(routes.value));
   const keys = reactive<Record<string, string>>({});
   /** 输出修剪规则（SleepTogether 的全局正则）：所有文本智能体的回复都过一遍 */
   const outputFilters = ref<string[]>([...DEFAULT_OUTPUT_FILTERS]);
@@ -79,9 +75,10 @@ export const useAiStore = defineStore('ai', () => {
     () => [
       { key: 'connections', value: connections.value },
       { key: 'routes', value: routes.value },
+      { key: 'apiSlots', value: apiSlots.value },
       { key: 'outputFilters', value: outputFilters.value },
     ],
-    () => [connections.value, routes.value, outputFilters.value],
+    () => [connections.value, routes.value, apiSlots.value, outputFilters.value],
   );
   const secretSaver = autoSave(
     'secrets',
@@ -96,6 +93,7 @@ export const useAiStore = defineStore('ai', () => {
     keyOf: (id) => keys[id] || null,
     // M2：连上自己的 Worker 后，经 /v1/relay 转发（对方不允许浏览器直连、或 Key 交给了 Worker 时用）
     relay: () => null,
+    apiSlots: () => apiSlots.value,
   };
 
   // 换备用连接时提示一下（同 math-reader 的"主要 API 失败，改用备用 API"）
@@ -107,7 +105,8 @@ export const useAiStore = defineStore('ai', () => {
       onFailover: (role, from, to) => {
         if (Date.now() - lastFailoverToast < 3000) return;
         lastFailoverToast = Date.now();
-        showToast(`${AGENT_META[role].label}：${from.connection.name} 失败，改用 ${to.connection.name}`);
+        const name = (a: typeof from) => (a.slot ? API_SLOT_LABEL[a.slot] : a.connection.name);
+        showToast(`${AGENT_META[role].label}：${name(from)} 调用失败，尝试${name(to)}…`);
       },
     }),
   );
@@ -120,15 +119,16 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   async function hydrate() {
-    const [savedConns, savedRoutes, savedFilters, secrets] = await Promise.all([
+    const [savedConns, savedRoutes, savedSlots, savedFilters, secrets] = await Promise.all([
       getOne<ProviderConnection[]>('settings', 'connections'),
       getOne<AgentRoute[]>('settings', 'routes'),
+      getOne<Partial<Record<ApiSlot, Partial<ApiSlotSetting>>>>('settings', 'apiSlots'),
       getOne<string[]>('settings', 'outputFilters'),
       getEntries<string>('secrets'),
     ]);
     if (savedConns?.length) connections.value = savedConns;
     if (savedRoutes?.length) routes.value = completeRoutes(savedRoutes);
-    migrateDeepSeek(connections.value, routes.value);
+    apiSlots.value = savedSlots ? completeSlots(savedSlots) : initialSlots(routes.value);
     if (Array.isArray(savedFilters)) setOutputFilters(savedFilters);
     for (const { key, value } of secrets) if (typeof value === 'string' && value) keys[key] = value;
     syncHasKey();
@@ -191,6 +191,19 @@ export const useAiStore = defineStore('ai', () => {
     return system.status(role).live;
   }
 
+  function saveApiSlot(slot: ApiSlot, setting: ApiSlotSetting) {
+    apiSlots.value = { ...apiSlots.value, [slot]: { connectionId: setting.connectionId, model: setting.model.trim() } };
+  }
+
+  /** 文字类智能体这次会用的模型（主对话请求体里的 model）；不能用时为空 */
+  function chatModelOf(role: AgentRole): string {
+    try {
+      return system.router.attempts(role)[0]?.endpoint.model ?? '';
+    } catch {
+      return '';
+    }
+  }
+
   /** 用连接 + Key 拼一个端点（测试连接、拉模型列表；连接可能还没保存） */
   function endpointOf(c: ProviderConnection, key: string | null, model = c.models[0] ?? ''): Endpoint {
     return {
@@ -211,6 +224,9 @@ export const useAiStore = defineStore('ai', () => {
   return {
     connections,
     routes,
+    apiSlots,
+    saveApiSlot,
+    chatModelOf,
     outputFilters,
     system,
     hydrate,

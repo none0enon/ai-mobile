@@ -145,7 +145,7 @@ export function presetFor(chat: Chat | undefined, character: Character | undefin
 /** 主对话智能体用的模型名（请求体里的 model）；还没分配时显示"演示模型" */
 export function mainModel(): string {
   const ai = useAiStore();
-  return ai.isLive('main') ? (ai.routeOf('main')?.model ?? '演示模型') : '演示模型';
+  return ai.isLive('main') ? ai.chatModelOf('main') || '演示模型' : '演示模型';
 }
 
 export interface ChatPrompt extends AssembleResult {

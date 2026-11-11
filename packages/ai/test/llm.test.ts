@@ -64,7 +64,7 @@ test('Claude SSE: thinking blocks separated, usage merged; Sonnet 5 asks for a s
   assert.deepEqual(call.body.thinking, { type: 'adaptive', display: 'summarized' });
 });
 
-test('Gemini SSE: thought parts, key in URL, safety off like SillyTavern', async () => {
+test('Gemini SSE: thought parts, key in URL', async () => {
   const t = fakeTransport(() =>
     sse(
       [
@@ -82,8 +82,6 @@ test('Gemini SSE: thought parts, key in URL, safety off like SillyTavern', async
   assert.equal(call.url, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=g-key');
   assert.deepEqual(call.body.systemInstruction, { parts: [{ text: '你是苏晚' }] });
   assert.deepEqual(call.body.generationConfig.thinkingConfig, { includeThoughts: true });
-  assert.equal(call.body.safetySettings.length, 5);
-  assert.ok(call.body.safetySettings.every((s: { threshold: string }) => s.threshold === 'OFF'));
 });
 
 test('stream formats: JSON array, newline-delimited JSON, relays that send message chunks', async () => {
@@ -120,7 +118,7 @@ test('stream failure before text retries without streaming; 401 does not retry',
   const states: [StreamState, string | undefined][] = [];
   const r = await chatOnce(endpoint('openai', t), { messages: USER }, { onDelta: () => undefined, onState: (s, d) => states.push([s, d]) });
   assert.equal(r.text, '普通请求的回复');
-  assert.equal(t.calls[1]!.body.stream, false);
+  assert.equal(t.calls.at(-1)!.body.stream, false);
   assert.ok(/stream not supported/.test(states.find(([s]) => s === 'fallback')?.[1] ?? ''));
   const t2 = fakeTransport(() => json({ error: { message: 'invalid api key' } }, 401));
   await assert.rejects(chatOnce(endpoint('openai', t2), { messages: USER }, { onDelta: () => undefined }), (e: unknown) => e instanceof AiError && e.status === 401 && /Key 不对/.test(e.message));
@@ -316,7 +314,7 @@ function deepseekServer() {
   );
 }
 
-test('DeepSeek (official docs): thinking switch and effort, room for thinking, prefix completion on /beta, retired model names', async () => {
+test('DeepSeek (official docs): thinking switch and effort, room for thinking, prefix completion on /beta', async () => {
   const t = deepseekServer();
   const ep = endpoint('deepseek', t, { baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' });
   const r = await chatOnce(ep, { messages: USER, maxTokens: 800, reasoningEffort: 'medium', temperature: 0.8 }, { onDelta: () => undefined });
@@ -346,22 +344,13 @@ test('DeepSeek (official docs): thinking switch and effort, room for thinking, p
   assert.equal(call.url, 'https://api.deepseek.com/beta/chat/completions');
   assert.deepEqual(call.body.messages.at(-1), { role: 'assistant', content: '「笨蛋', prefix: true });
 
-  // 停用的旧模型名：deepseek-chat → deepseek-flash 非思考
-  await chatOnce(endpoint('deepseek', t, { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' }), { messages: USER }, { stream: false });
-  call = t.calls[4]!;
-  assert.equal(call.url, 'https://api.deepseek.com/v1/chat/completions');
-  assert.equal(call.body.model, 'deepseek-flash');
-  assert.deepEqual(call.body.thinking, { type: 'disabled' });
-
   // 选成"OpenAI 兼容"、地址是 DeepSeek 官方的旧设置也按 DeepSeek 的规则发；reasoner 不再被当成"模型名开思考"强制 temperature 1
   await chatOnce(endpoint('openai', t, { baseUrl: 'https://api.deepseek.com/v1/chat/completions', model: 'deepseek-reasoner' }), { messages: USER, temperature: 0.9 }, { stream: false });
-  call = t.calls[5]!;
-  assert.equal(call.body.model, 'deepseek-flash');
-  assert.deepEqual(call.body.thinking, { type: 'enabled' });
+  call = t.calls.at(-1)!;
   assert.equal(call.body.temperature, 0.9);
 });
 
-test('Vertex Agent with an API key (math-reader): key in the URL, pasted full URL accepted, Vertex safety list; open models need a service account', async () => {
+test('Vertex Agent with an API key (math-reader): key in the URL, pasted full URL accepted; open models need a service account', async () => {
   const t = fakeTransport(() => sse([{ candidates: [{ content: { parts: [{ text: '好' }] } }] }], { done: false }));
   const ep = endpoint('vertex', t, {
     baseUrl: 'https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.7-flash:streamGenerateContent?alt=sse',
@@ -373,10 +362,6 @@ test('Vertex Agent with an API key (math-reader): key in the URL, pasted full UR
   const call = t.calls[0]!;
   assert.equal(call.url, 'https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.7-flash:streamGenerateContent?alt=sse&key=AQ.test-key');
   assert.equal(call.headers.authorization, undefined);
-  assert.deepEqual(
-    call.body.safetySettings.map((x: { category: string }) => x.category),
-    ['HARM_CATEGORY_HARASSMENT', 'HARM_CATEGORY_HATE_SPEECH', 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'HARM_CATEGORY_DANGEROUS_CONTENT'],
-  );
   assert.equal(call.body.generationConfig.thinkingConfig.thinkingLevel, 'HIGH');
   await assert.rejects(
     chatOnce(endpoint('vertex', t, { key: 'AQ.test-key', model: 'deepseek-ai/deepseek-v4.1-flash-maas' }), { messages: USER }, { stream: false }),
