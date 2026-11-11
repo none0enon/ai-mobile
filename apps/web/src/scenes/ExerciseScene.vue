@@ -44,7 +44,7 @@ function tick() {
   if (km > lastKm) {
     lastKm = km;
     line.value = KM_LINES[Math.min(km, KM_LINES.length) - 1] ?? '继续加油！';
-    if (voiceOn.value) void services.tts.speak(line.value);
+    if (voiceOn.value) void services.tts.speak(line.value, { characterId: app.activeCharacterId, expression: 'smile' });
     services.native.vibrate(30);
   }
 }

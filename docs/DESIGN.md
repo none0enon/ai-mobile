@@ -1,6 +1,6 @@
 # AI 陪伴 App 设计文档
 
-> 状态：M1 进行中。已完成：SillyTavern 导入（角色卡 / 世界书 / 预设）、按 ST 规则拼提示词、本机存储导入的数据。还没有：真实模型调用、导出按钮、聊天记录导入、导入时生成小世界。其余仍是 M0 的演示数据。
+> 状态：M1 进行中。已完成：SillyTavern 导入（角色卡 / 世界书 / 预设）、按 ST 规则拼提示词、本机存储导入的数据；AI 调用层与多智能体（`packages/ai`，§4.5）：填了 Key 的智能体真的调用（对话、番外、生图提示词、生图、语音合成、向量化），连接和分配存本机、Key 只在本机。还没有：导出按钮、聊天记录导入、导入时生成小世界、记忆和番外的持久化、语音识别。其余仍是 M0 的演示数据。
 > 约定：文中"她"泛指角色，角色也可以是男性；"你"指使用者。
 
 ---
@@ -14,7 +14,7 @@
 | 实时对话直连 | 手机直接请求你自己的 API / 中转（同 math-reader） | 延迟最低；不经过第三方 |
 | 自己的云端中枢 | Cloudflare Worker + D1 + R2，负责同步、主动消息、推送、少量代理 | "App 关着也能收到她的消息"必须有常驻的云端 |
 | 记录级增量同步 | 服务器分配递增序号 `seq`，按记录拉取 / 推送，删除用墓碑 | 比 math-reader 的快照合并简单；不依赖设备时钟 |
-| 多智能体 | 主对话、总结/记忆、向量化、检索、生图提示词、生图、主动消息、视觉、TTS、STT，各自选连接和模型，可设备用连接 | 便宜的活交给便宜的模型；失败自动降级 |
+| 多智能体 | 主对话、番外、总结/记忆、向量化、检索、生图提示词、生图、主动消息、视觉、TTS、STT，各自选连接和模型，可设备用连接 | 便宜的活交给便宜的模型；失败自动降级 |
 | 向量检索在本机 | 向量（float16）随记忆同步，手机上暴力计算余弦；向量化 API 由你自选 | 不受 Cloudflare 免费额度限制，离线可用 |
 | 控制标签 | 回复里夹带 `[expr:smile]` `[cg:…]` `[music:…]` `[call]` `[choice:…]` 等，流式剥离 | 中转对 function calling 支持参差；标签不影响流式正文 |
 | 主动消息"先排期再触发" | 每天生成 Touchpoint，Cron 每 5 分钟触发，内容在触发时才写 | 可预测、可幂等、安卓可设精确闹钟 |
@@ -113,6 +113,7 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 | 智能体 | 何时触发 | 产出 | 在哪运行 | 建议模型 |
 |---|---|---|---|---|
 | 主对话 | 每次发言 | 角色回复（含控制标签） | 本机 | 强模型（Claude / DeepSeek / Gemini，经中转） |
+| 番外 | 你很久没来、夜间、手动"写一段她的番外" | 她在自己世界里的一小段故事 + 可能发给你的一句话（hook）+ 适合配图的一幕（cg），JSON | 本机或 Worker | 便宜模型，温度高一点 |
 | 总结 / 记忆 | 未总结消息约 30 条、会话结束、夜间 | 章节摘要 + 记忆条目 + 关系变化（JSON） | 本机空闲时 / Worker 夜间 | 便宜快的模型 |
 | 向量化 | 新记忆写入、换模型重算 | float16 向量 | 记忆在哪生成就在哪算 | 任意 OpenAI 兼容 `/embeddings`（bge-m3 等） |
 | 检索 | 每次发言前 | Top-K 记忆 | 本机 | — |
@@ -153,7 +154,37 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 
 - 外观基础 tags 来自角色卡的"外观 tags"，服装 tags 来自当前场景。
 
-### 4.4 控制标签协议（`packages/shared/src/tags.ts`）
+### 4.4 番外智能体的输出
+
+```json
+{ "title": "借伞的人", "story": "第三人称的小故事（150–250 字）", "time": "傍晚", "place": "图书馆门口", "mood": "有点好笑", "people": ["学弟"], "hook": "今天把伞借出去了…", "cg": "傍晚图书馆屋檐下，她抱着书看雨" }
+```
+
+- 输入：角色卡、她的世界（作息、手头的事、三餐、身边的人）、此刻在哪、她记得的关于你的事、最近的聊天、最近写过的番外标题（避免重复）。
+- 你不出场，但她可以想到你、提起你们聊过的事；写一个小而具体的事件，不写流水账。
+- `hook` 可以当作一条主动消息发给你；`cg` 交给配图流水线（§4.5）。以后番外写进她的"生活记录"，聊天时她能自然地提起。
+
+### 4.5 AI 调用层（`packages/ai`）
+
+前端和以后的 Worker 共用，只用 Web 标准接口（tsconfig 用 `WebWorker` 库）。说明见 `packages/ai/README.md`。
+
+| 模块 | 内容 | 来源 |
+|---|---|---|
+| `llm/` | OpenAI 兼容 / Claude / Gemini；读流兼容 SSE、JSON 数组、逐行 JSON、单个 JSON；思考内容和 `<think>`；流式失败同一连接改普通请求；输出上限超了按报错重试；不被接受的参数自动去掉 | 移植自 math-reader 的 `callAI` / `readAIStream` |
+| `llm/`（续） | 消息整理（原样 / 合并 / 半严格 / 严格 / 单条）；推理强度按各家换算；Claude 型号表（思考、采样参数、预填）；Gemini 安全过滤 OFF 和思考预算；额外 / 去掉的请求参数；备用连接发最简请求；回复修剪（正则） | SillyTavern 的 Chat Completion 设置；SleepTogether 的主备 API 和全局过滤 |
+| `llm/`（DeepSeek、Vertex） | DeepSeek 官方：deepseek-flash / deepseek-v4-pro，思考开关和强度，思考时留足输出上限，前缀续写（/beta），停用的旧模型名自动换；Vertex Agent：API Key 调 Gemini（express 地址），服务账号 JSON 换访问令牌后调项目地址的 Gemini 和 DeepSeek 等开源模型（OpenAI 兼容接口） | DeepSeek 官网文档；math-reader main 的 Vertex Agent 和 Google 官网文档 |
+| `tts/` | OpenAI 兼容 `/audio/speech`（硅基流动 CosyVoice）、MiniMax t2a_v2、火山引擎 v3（含声音复刻）、Fish Audio、GPT-SoVITS；朗读前的文字处理（只读引号、星号 / 括号、代码块、状态栏标签、自定义正则）；表情 → 情绪；按句缓存 | SleepTogether 的 TTS 管理（火山引擎、MiniMax）；SillyTavern 的 TTS 设置 |
+| `image/` | NovelAI V4.5 / V4（`v4_prompt`、多人位置）/ V3；生图风格（固定前后缀、负面词、采样器、噪声调度、Variety Boost）；质量词默认不加；zip / JSON / 图片都认；种子从 PNG 元数据核对；OpenAI 兼容 `/images/generations`（尺寸、Avoid 负面词） | SleepTogether 的生图管理；SillyTavern 的 NovelAI 设置 |
+| `embedding/` | OpenAI 兼容 `/embeddings`、Gemini `batchEmbedContents`、Workers AI（OpenAI 兼容接口）；查询 / 记忆的前缀；float16 base64；向量空间 = 模型族 + 维度；检索最低相似度 | 新写；阈值参考 SillyTavern 的向量存储 |
+| `agents/` | 路由（主连接 → 备用，取消和超预算不换）、每日 token 上限、`chat` / `json` / `speak` / `draw` / `embed`、番外 / 生图提示词 / 总结的提示词与解析、配图流水线、记忆检索打分（§6.1） | 新写 |
+
+- **真调用还是演示**：智能体的主连接分配了、这台设备上有 Key（或连接不需要 Key）、协议能做这件事，才真的调用；否则界面继续用演示实现。"API 与智能体"页每个智能体写着"已接通"或"演示模型 · 原因"。
+- **Key**：存在本机数据库单独的 `secrets` 表，不和连接、分配放在一起，永远不进同步数据。
+- **备用连接**：语音只换同一种协议的备用（音色 id 只在同一家有效）；向量化只换同一个模型族的备用（不同模型的向量不能比较）。
+- **设置在哪**："API 与智能体"页：连接（火山引擎填 APP ID；OpenAI 兼容的对话连接在"高级"里选消息整理、写额外 / 去掉的请求参数）、每个对话智能体的推理强度和要不要思考过程、生图智能体的生图风格、回复修剪规则。"语音"页：朗读哪些字、火山引擎的声音复刻。
+- **配图**：`[cg:]` → 生图提示词智能体（JSON：caption / tags / negative / size，外观 tags 由程序放最前面）→ 生图智能体 → 本机素材库（`assets` 表，按 SHA-256 内容哈希，以后同一个哈希传 R2）→ 消息里的图片卡片。失败时卡片上写原因，可以重画。
+
+### 4.6 控制标签协议（`packages/shared/src/tags.ts`）
 
 | 标签 | 作用 |
 |---|---|
@@ -772,7 +803,7 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
   - 立绘是 SVG 简笔画，11 种表情、5 套服装、5 种姿势（`components/figure/CharacterFigure.vue`）；
   - 背景按场景和时段画（`SceneBackdrop.vue`）；
   - 导入真立绘、真背景后自动替换。
-- **服务接口**：在 `services/types.ts`，界面只依赖接口。本轮全部是假实现（`services/mock/*`），其中假模型会流式吐控制标签，演示换表情、发歌、要配图、来电。
+- **服务接口**：在 `services/types.ts`，界面只依赖接口。对话、语音合成、向量化、生图的实现在 `services/ai.ts`（交给 `packages/ai` 的多智能体）：智能体有可用连接时真的调用，否则退回假实现（`services/mock/*`），假模型会流式吐控制标签，演示换表情、发歌、要配图、来电。语音识别、音乐、天气、地图、同步、推送仍是假实现。
 - **预览**：`pnpm build:preview` 用内存路由 + 单文件打包，生成可发布的预览页（`scripts/make-artifact.mjs`）。
 - **检查**：`scripts/shots.cjs` 用 Playwright 按手机尺寸逐页截图，检查报错、对外请求、横向溢出、路由重定向。
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Character, MessagePart } from '@app/shared';
 import { computed, ref } from 'vue';
-import CgArt from '@/components/figure/CgArt.vue';
+import GenImage from '@/components/figure/GenImage.vue';
 import { clock } from '@/utils/time';
 
 /** 消息里各种"卡片"的渲染（文字以外的 part） */
@@ -42,11 +42,11 @@ function playVoice() {
 
   <!-- 图片 / 配图 -->
   <button v-else-if="part.type === 'image'" class="pcard image" @click="emit('open-image')">
-    <CgArt :character="character" scene="library" :expression="'shy'" :pending="!part.generated" class="rounded-[14px]" />
+    <GenImage :part="part" :character="character" class="rounded-[14px]" />
     <div class="flex items-center gap-1.5 mt-2 text-[12.5px] text-ink-2">
       <span class="i-lucide-wand-sparkles text-accent-ink" />
       <span class="truncate">{{ part.caption }}</span>
-      <span class="ml-auto text-ink-3 shrink-0">{{ part.generated ? 'NovelAI' : '生成中' }}</span>
+      <span class="ml-auto shrink-0" :class="part.error ? 'text-bad' : 'text-ink-3'">{{ part.error ? '点开重画' : part.generated ? (part.model?.includes('nai') || !part.model ? 'NovelAI' : '已生成') : '生成中' }}</span>
     </div>
   </button>
 

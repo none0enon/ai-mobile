@@ -56,7 +56,7 @@ async function talkLoop() {
       speaker.value = 'her';
       captions.value.push(turn);
       chars.setExpression(character.value.id, 'smile');
-      await services.tts.speak(turn.text, { onLevel: (l) => (level.value = l) });
+      await services.tts.speak(turn.text, { characterId: character.value.id, expression: 'smile', onLevel: (l) => (level.value = l) });
     } else {
       speaker.value = 'you';
       for (let i = 0; i < 14 && alive; i += 1) {

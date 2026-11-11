@@ -62,7 +62,7 @@ function segments(text: string) {
       </template>
     </template>
 
-    <div v-else-if="textParts.length || cardParts.length || streaming" class="row">
+    <div v-else-if="textParts.length || cardParts.length || streaming || message.meta.error || message.meta.interrupted" class="row">
       <Avatar v-if="!mine" :character="character" :size="34" class="mt-0.5" />
       <div class="col">
         <span v-if="message.proactive" class="proactive">
@@ -86,7 +86,7 @@ function segments(text: string) {
           @open-image="emit('open-image', p)"
           @answer-date="(ok) => emit('answer-date', ok)"
         />
-        <div v-if="!mine && isLast && !streaming && message.swipes.length > 0" class="tools">
+        <div v-if="!mine && isLast && !streaming && (message.swipes.length > 0 || message.meta.error || message.meta.interrupted)" class="tools">
           <template v-if="message.swipes.length > 1">
             <button class="tool" aria-label="上一个回复" @click="emit('swipe', -1)"><span class="i-lucide-chevron-left" /></button>
             <span class="num text-[12px] text-ink-3">{{ message.swipeIndex + 1 }}/{{ message.swipes.length }}</span>
@@ -98,6 +98,7 @@ function segments(text: string) {
           <button v-for="c in message.meta.choices" :key="c" class="choice press" @click="emit('choose', c)">{{ c }}</button>
         </div>
         <span v-if="message.meta.interrupted" class="text-[12px] text-warn">回复被打断了 · 点重新生成继续</span>
+        <span v-if="message.meta.error" class="err">回复失败：{{ message.meta.error }}</span>
       </div>
       <PersonaAvatar v-if="mine && showMyAvatar && me" :persona="me" :size="34" class="mt-0.5" />
     </div>
@@ -105,6 +106,14 @@ function segments(text: string) {
 </template>
 
 <style scoped>
+.err {
+  max-width: 100%;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--bad);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .msg {
   padding: 5px 14px;
 }

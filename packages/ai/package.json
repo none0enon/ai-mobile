@@ -1,0 +1,21 @@
+{
+  "name": "@app/ai",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "AI 调用层：对话（OpenAI 兼容 / Claude / Gemini）、语音合成、生图、向量化，以及多智能体的路由与流水线。只用 fetch 等 Web 标准接口，浏览器、Cloudflare Worker、Node 都能跑",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@app/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "~6.0.3"
+  }
+}

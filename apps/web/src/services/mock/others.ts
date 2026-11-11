@@ -64,6 +64,7 @@ export class MockSTT implements STTClient {
  * 真实版本调你在"智能体分配"里选的 Embedding 接口。
  */
 export class MockEmbedding implements EmbeddingClient {
+  readonly live = false;
   readonly model = 'BAAI/bge-m3（演示）';
   readonly dims = 256;
 

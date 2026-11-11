@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { showToast } from 'vant';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import PageHeader from '@/layouts/PageHeader.vue';
-import { connections } from '@/mock/api';
 import { services, type SyncStatus } from '@/services';
+import { useAiStore } from '@/stores/ai';
 import { hhmm } from '@/utils/time';
 
 /**
@@ -15,7 +15,8 @@ const syncing = ref(false);
 const autoSync = ref(true);
 const encryptKeys = ref(false);
 const dailyBackup = ref(true);
-const hubKeys = connections.filter((c) => c.keyStorage === 'hub');
+const ai = useAiStore();
+const hubKeys = computed(() => ai.connections.filter((c) => c.keyStorage === 'hub'));
 
 async function syncNow() {
   syncing.value = true;

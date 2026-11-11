@@ -456,7 +456,7 @@ export function assemblePrompt(input: AssembleInput): AssembleResult {
 }
 
 /** 发给 OpenAI 兼容接口的请求体（/v1/chat/completions） */
-export function buildChatRequest(result: Pick<AssembleResult, 'messages'>, preset: Pick<Preset, 'sampler'>, model: string): Record<string, unknown> {
+export function buildChatRequest(result: Pick<AssembleResult, 'messages'>, preset: Pick<Preset, 'sampler'> & Partial<Pick<Preset, 'extra'>>, model: string): Record<string, unknown> {
   const s = preset.sampler;
   const body: Record<string, unknown> = {
     model,
@@ -470,5 +470,11 @@ export function buildChatRequest(result: Pick<AssembleResult, 'messages'>, prese
   };
   if (s.topK) body.top_k = s.topK;
   if (s.seed != null && s.seed >= 0) body.seed = s.seed;
+  // SillyTavern 预设里和调用方式有关的设置（导入时原样存在 extra 里），同 ST 发给后端的字段名；由 AI 调用层按各家协议决定怎么发
+  const x = preset.extra ?? {};
+  if (typeof x.assistant_prefill === 'string' && x.assistant_prefill.trim()) body.assistant_prefill = x.assistant_prefill;
+  if (typeof x.reasoning_effort === 'string' && x.reasoning_effort) body.reasoning_effort = x.reasoning_effort;
+  if (typeof x.show_thoughts === 'boolean') body.include_reasoning = x.show_thoughts;
+  if (typeof x.custom_prompt_post_processing === 'string' && x.custom_prompt_post_processing) body.custom_prompt_post_processing = x.custom_prompt_post_processing;
   return body;
 }

@@ -7,7 +7,7 @@ import Avatar from '@/components/common/Avatar.vue';
 import Segmented from '@/components/common/Segmented.vue';
 import CgArt from '@/components/figure/CgArt.vue';
 import { album, diaries, memories, MEMORY_TYPE_META, timeline, type AlbumItem } from '@/mock/memories';
-import { agentRoutes } from '@/mock/api';
+import { services } from '@/services';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { daysBetween, monthDay } from '@/utils/time';
@@ -45,7 +45,7 @@ const shown = computed(() =>
     .filter((m) => !keyword.value || m.content.includes(keyword.value))
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.importance - a.importance),
 );
-const embed = agentRoutes.find((r) => r.role === 'embedding');
+
 const FILTERS: { value: MemoryType | 'all' | 'pinned'; label: string }[] = [
   { value: 'all', label: '全部' },
   { value: 'pinned', label: '置顶' },
@@ -188,7 +188,7 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
         </div>
         <RouterLink to="/me/api" class="embed-note">
           <span class="i-lucide-waypoints" />
-          向量模型：{{ embed?.model }} · {{ embed?.dims }} 维 · 检索在本机计算
+          向量模型：{{ services.embedding.live ? `${services.embedding.model} · ${services.embedding.dims || '—'} 维` : '演示用假向量' }} · 检索在本机计算
           <span class="i-lucide-chevron-right ml-auto" />
         </RouterLink>
       </div>

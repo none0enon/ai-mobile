@@ -1,11 +1,12 @@
 import type { AgentRole, MapLocation, WeatherSnapshot } from '@app/shared';
 
 /**
- * 服务接口。界面只依赖这些接口；本轮全部是假实现（services/mock），
- * M1 起逐个换成真实实现（例如 LLMClient 换成移植自 math-reader readAIStream 的版本）。
+ * 服务接口。界面只依赖这些接口。
+ * 真实实现在 services/ai.ts（调用 @app/ai 的多智能体）：智能体分配的连接在这台设备上有 Key 时真的调用，
+ * 没有时退回 services/mock 里的演示实现，所以不填 Key 也能逛。
  */
 
-/** 和 math-reader 的 onStreamState 对齐，方便移植 */
+/** 和 math-reader 的 onStreamState 对齐（@app/ai 的 StreamState） */
 export type StreamState = 'sent' | 'connected' | 'thinking' | 'streaming' | 'fallback' | 'unstreamed' | 'buffered';
 
 export interface LLMChatMessage {
@@ -22,24 +23,47 @@ export interface LLMRequest {
   body?: Record<string, unknown>;
   /** 在和谁聊（假模型用它决定用演示台词还是回显提示词） */
   characterId?: string;
+  /** Claude / Gemini 不支持 name 字段：把示例对话的 example_user / example_assistant 换成真名 */
+  names?: { user?: string; char?: string };
   signal?: AbortSignal;
 }
 
 export interface LLMResult {
   text: string;
+  /** 模型的思考内容（没有为空串） */
+  thinking: string;
   model: string;
   connectionId: string;
   /** 主连接失败后用了备用连接 */
   fellBack: boolean;
+  latencyMs?: number;
+  tokens?: number;
+  /** 用的是演示模型（这个智能体还没有可用的连接） */
+  demo: boolean;
+}
+
+export interface LLMCallbacks {
+  /** 每次给的是累积全文（同 readAIStream 的 onDelta），配合 parseControlTags 使用 */
+  onText?(full: string): void;
+  onThinking?(full: string): void;
+  onState?(state: StreamState, detail?: string): void;
 }
 
 export interface LLMClient {
-  /** onText 每次给的是累积全文（同 readAIStream 的 onDelta），配合 parseControlTags 使用 */
-  chat(req: LLMRequest, cb?: { onText?(full: string): void; onState?(state: StreamState): void }): Promise<LLMResult>;
+  chat(req: LLMRequest, cb?: LLMCallbacks): Promise<LLMResult>;
+}
+
+export interface SpeakOptions {
+  /** 谁在说话：用这个角色的音色（CharacterVoice） */
+  characterId?: string;
+  /** 这句话的表情，映射成情绪；不给用立绘当前的表情 */
+  expression?: string | null;
+  onLevel?(level: number): void;
+  signal?: AbortSignal;
 }
 
 export interface TTSClient {
-  speak(text: string, opts?: { voiceId?: string; onLevel?(level: number): void; signal?: AbortSignal }): Promise<void>;
+  speak(text: string, opts?: SpeakOptions): Promise<void>;
   stop(): void;
 }
 
@@ -48,9 +72,44 @@ export interface STTClient {
 }
 
 export interface EmbeddingClient {
+  /** 有没有真的向量化连接（没有时是演示用的假向量） */
+  readonly live: boolean;
   readonly model: string;
   readonly dims: number;
-  embed(texts: string[]): Promise<Float32Array[]>;
+  /** 存进记忆用 document，检索时的查询用 query */
+  embed(texts: string[], purpose?: 'document' | 'query'): Promise<Float32Array[]>;
+}
+
+export interface IllustrateRequest {
+  characterId: string;
+  /** 要画的画面（[cg:] 标签里的描述） */
+  caption: string;
+  place?: string;
+  outfit?: string;
+  expression?: string | null;
+  /** 最近几句对话，帮生图提示词智能体理解画面 */
+  recent?: string[];
+  seed?: number;
+}
+
+export interface IllustrateOutcome {
+  /** 存在本机素材库里的 key（内容哈希）；服务商只给了链接时为空 */
+  assetKey: string | null;
+  url?: string;
+  caption: string;
+  prompt: string;
+  negative: string;
+  seed: number | null;
+  model: string;
+  /** 写提示词的模型；没用生图提示词智能体时为空 */
+  promptModel: string | null;
+}
+
+export interface ImageClient {
+  /** 有没有真的生图连接 */
+  readonly live: boolean;
+  /** 配图：生图提示词智能体写 tags → 生图智能体出图 → 存进本机素材库 */
+  illustrate(req: IllustrateRequest, opts?: { signal?: AbortSignal; onStage?(stage: 'prompt' | 'image'): void }): Promise<IllustrateOutcome>;
 }
 
 export interface SongInfo {
