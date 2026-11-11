@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
+import { Miniflare, convertV4MiniflareOptions, type V4ServiceDesignator } from 'miniflare';
 import { characterFromCard, parseCardJson, parsePresetFile, DEFAULT_PROACTIVE_RULES,
   type Message, type ProactiveContext, type ProactiveCredentials, type Touchpoint } from '@app/shared';
 import { seal } from '../src/crypto.ts';
@@ -31,11 +31,12 @@ export function message(c: ProactiveContext, t: Touchpoint, now: number): Messag
   return { id: `proactive:${t.id}`, chatId: c.chat.id, role: 'assistant', text: 'Hello from the cloud', parts: [{ type: 'text', text: 'Hello from the cloud' }],
     createdAt: now, updatedAt: now, expression: null, swipes: [], swipeIndex: 0, proactive: true, read: false, meta: { tokens: 20 } };
 }
-export async function fixture(t: { after(fn: () => Promise<void>): void }, bundled = false) {
+export async function fixture(t: { after(fn: () => Promise<void>): void }, bundled = false, options: { bindings?: Record<string, string>; outboundService?: V4ServiceDesignator } = {}) {
   const mf = new Miniflare(convertV4MiniflareOptions({ unsafeTriggerHandlers: true, workers: [{ name: 'hub', modules: true, compatibilityDate: '2026-11-11',
     ...(bundled ? { scriptPath: new URL('../dist/index.js', import.meta.url).pathname } : { script: 'export default { fetch() { return new Response("ok"); } }' }),
     d1Databases: { DB: 'test-db' },
-    bindings: { HUB_PASSWORD: 'test-password', KEK: btoa('k'.repeat(32)), APP_ORIGIN: 'https://app.test', APP_URL: 'https://app.test/ai-mobile/' },
+    bindings: { HUB_PASSWORD: 'test-password', KEK: btoa('k'.repeat(32)), APP_ORIGIN: 'https://app.test', APP_URL: 'https://app.test/ai-mobile/', ...options.bindings },
+    ...(options.outboundService ? { outboundService: options.outboundService } : {}),
   }] }));
   t.after(() => mf.dispose());
   const DB = await mf.getD1Database('DB') as unknown as D1Database;

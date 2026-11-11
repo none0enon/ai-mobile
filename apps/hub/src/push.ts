@@ -16,6 +16,14 @@ export interface Channel {
   iv: string;
 }
 
+export class PushDeliveryError extends Error {
+  override name = 'PushDeliveryError';
+}
+
+function safePushDetail(value: string): string {
+  return value.replace(/https?:\/\/\S+/g, '[推送地址]').replace(/[A-Za-z0-9_+\/-]{40,}={0,2}/g, '[已隐藏]').slice(0, 300);
+}
+
 export function notificationFor(context: ProactiveContext, t: Touchpoint, message: Message): HubNotification {
   return {
     title: context.preview === 'hidden' ? 'AI 陪伴' : context.character.name,
@@ -33,14 +41,28 @@ function substitute(value: unknown, vars: Record<string, string>): unknown {
 }
 
 export async function sendChannel(env: Env, ch: Channel, notification: HubNotification): Promise<void> {
+  try {
+    await deliverChannel(env, ch, notification);
+  } catch (error) {
+    if (error instanceof PushDeliveryError) throw error;
+    throw new PushDeliveryError(`通知发送失败：${safePushDetail(error instanceof Error ? `${error.name}: ${error.message}` : String(error))}`);
+  }
+}
+
+async function deliverChannel(env: Env, ch: Channel, notification: HubNotification): Promise<void> {
   let response: Response;
   if (ch.kind === 'webpush') {
     if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY || !env.VAPID_SUBJECT) throw new Error('Worker 尚未配置 VAPID');
     const subscription = await unseal<PushSubscription>(env.KEK, ch);
-    const payload = await buildPushPayload({ data: JSON.stringify(notification), options: { ttl: 10_800 } }, subscription, {
-      publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT,
-    });
-    response = await fetch(subscription.endpoint, { ...payload, redirect: 'error', signal: AbortSignal.timeout(15_000) });
+    let payload: Awaited<ReturnType<typeof buildPushPayload>>;
+    try {
+      payload = await buildPushPayload({ data: JSON.stringify(notification), options: { ttl: 10_800 } }, subscription, {
+        publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT,
+      });
+    } catch (error) {
+      throw new PushDeliveryError(`Web Push 加密失败：${safePushDetail(error instanceof Error ? error.message : String(error))}`);
+    }
+    response = await fetch(subscription.endpoint, { ...payload, redirect: 'manual', signal: AbortSignal.timeout(15_000) });
     if (response.status === 404 || response.status === 410) {
       await env.DB.prepare('DELETE FROM push_channels WHERE id = ?').bind(ch.id).run();
     }
@@ -56,14 +78,17 @@ export async function sendChannel(env: Env, ch: Channel, notification: HubNotifi
       const endpoint = new URL(config.url);
       body = JSON.stringify({ topic: endpoint.pathname.slice(1), title: notification.title, message: notification.body, click: url.href });
       endpoint.pathname = '/';
-      response = await fetch(endpoint, { method: 'POST', headers, body, redirect: 'error', signal: AbortSignal.timeout(15_000) });
+      response = await fetch(endpoint, { method: 'POST', headers, body, redirect: 'manual', signal: AbortSignal.timeout(15_000) });
     } else {
       body = JSON.stringify(config.preset === 'bark' ? { title: notification.title, body: notification.body, url: url.href, group: 'ai-mobile' }
         : substitute(config.body ?? { title: '{{title}}', body: '{{body}}', url: '{{url}}', id: '{{id}}' }, vars));
-      response = await fetch(config.url, { method: 'POST', headers, body, redirect: 'error', signal: AbortSignal.timeout(15_000) });
+      response = await fetch(config.url, { method: 'POST', headers, body, redirect: 'manual', signal: AbortSignal.timeout(15_000) });
     }
   }
-  if (!response.ok) throw new Error(`${ch.kind} HTTP ${response.status}`);
+  if (!response.ok) {
+    const detail = ch.kind === 'webpush' ? safePushDetail(await response.text()) : '';
+    throw new PushDeliveryError(`${ch.kind === 'webpush' ? 'Web Push' : 'Webhook'} 推送失败（HTTP ${response.status}）${detail ? `：${detail}` : ''}`);
+  }
   if (ch.kind === 'webhook') {
     // Several providers return HTTP 200 for an application error.
     const body = await response.json().catch(() => null) as { code?: number; errcode?: number; success?: boolean } | null;

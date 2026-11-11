@@ -29,6 +29,52 @@ test('bundled Worker: authenticated API and scheduled event work with no app cli
   assert.ok(stored && !stored.ciphertext.includes('test-key'));
   const conflict = await mf.dispatchFetch('https://hub.test/v1/proactive/contexts/alice', { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ context: c, revision: 0 }) });
   assert.equal(conflict.status, 409);
+  assert.equal((await mf.dispatchFetch('https://hub.test/v1/auth/session', { method: 'DELETE', headers })).status, 200);
+  assert.equal((await mf.dispatchFetch('https://hub.test/v1/status', { headers })).status, 401);
+});
+
+test('workerd sends encrypted Web Push and webhooks, reports failures and never follows redirects', async (t) => {
+  const vapid = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']) as CryptoKeyPair;
+  const receiver = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']) as CryptoKeyPair;
+  const base64 = (data: ArrayBuffer | Uint8Array) => Buffer.from(data instanceof Uint8Array ? data : new Uint8Array(data)).toString('base64url');
+  let responseStatus = 201;
+  const outgoing: { url: string; encoding: string | null; length: number }[] = [];
+  const { mf } = await fixture(t, true, {
+    bindings: { VAPID_PUBLIC_KEY: base64(await crypto.subtle.exportKey('raw', vapid.publicKey) as ArrayBuffer), VAPID_PRIVATE_KEY: (await crypto.subtle.exportKey('jwk', vapid.privateKey) as JsonWebKey).d!, VAPID_SUBJECT: 'mailto:test@example.test' },
+    outboundService: async (request) => {
+      assert.equal(request.method, 'POST');
+      const bytes = await request.arrayBuffer();
+      outgoing.push({ url: request.url, encoding: request.headers.get('content-encoding'), length: bytes.byteLength });
+      if (request.url.endsWith('/webpush')) assert.match(request.headers.get('authorization')!, /^vapid t=.+, k=.+$/);
+      return new Response(responseStatus === 201 ? '{}' : 'Push service rejected this request', { status: responseStatus, headers: responseStatus === 302 ? { Location: 'https://other.test/private' } : {} });
+    },
+  });
+  const login = await mf.dispatchFetch('https://hub.test/v1/auth/login', { method: 'POST', body: JSON.stringify({ password: 'test-password' }) });
+  const { token } = await login.json() as { token: string };
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const channels = [
+    { kind: 'webpush', config: { endpoint: 'https://push.test/webpush', keys: { p256dh: base64(await crypto.subtle.exportKey('raw', receiver.publicKey) as ArrayBuffer), auth: base64(crypto.getRandomValues(new Uint8Array(16))) } } },
+    ...['bark', 'ntfy', 'custom'].map((preset) => ({ kind: 'webhook', config: { url: `https://push.test/${preset}`, preset } })),
+  ];
+  const ids: string[] = [];
+  for (const channel of channels) {
+    const subscribed = await mf.dispatchFetch('https://hub.test/v1/push/subscribe', { method: 'POST', headers, body: JSON.stringify({ ...channel, label: 'test' }) });
+    assert.equal(subscribed.status, 200);
+    const { id } = await subscribed.json() as { id: string }; ids.push(id);
+    const sent = await mf.dispatchFetch(`https://hub.test/v1/push/channels/${encodeURIComponent(id)}`, { method: 'POST', headers });
+    assert.equal(sent.status, 200, await sent.text());
+  }
+  assert.equal(outgoing.length, 4);
+  assert.equal(outgoing[0]!.encoding, 'aes128gcm');
+  assert.equal(outgoing[0]!.length, 4096);
+  for (const status of [403, 302]) {
+    responseStatus = status;
+    const sent = await mf.dispatchFetch(`https://hub.test/v1/push/channels/${encodeURIComponent(ids[0]!)}`, { method: 'POST', headers });
+    assert.equal(sent.status, 502);
+    assert.match((await sent.json() as { error: string }).error, new RegExp(`HTTP ${status}`));
+  }
+  assert.equal(outgoing.length, 6);
+  assert.ok(outgoing.every((request) => request.url.startsWith('https://push.test/')));
 });
 
 test('service worker receives push with zero windows, then opens the exact chat under the PWA scope', async () => {
