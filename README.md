@@ -5,7 +5,7 @@ AI 陪伴对话 App：像 SillyTavern 一样用角色卡、世界书、预设聊
 - 设计文档：[`docs/DESIGN.md`](docs/DESIGN.md)
 - 当前进度：**M1 进行中**。
   - 已经是真的：导入 SillyTavern 角色卡（PNG / JSON，V1–V3，内嵌世界书自动拆出来绑定）、世界书、Chat Completion 预设；导入的东西和聊天存在本机（IndexedDB），刷新后还在；发消息时按 SillyTavern 的规则拼提示词（预设顺序、世界书扫描、宏、按深度插入、token 预算），"查看提示词"里看到的就是请求体。
-  - 也是真的（在"我的 → API 与智能体"里填了 Key 之后；本机的 Termux 服务不用 Key）：多智能体调用（`packages/ai`）。主对话流式回复（Claude、OpenAI 官方，OpenAI 兼容的中转和本机服务，Gemini，移植自 math-reader），主连接失败自动换备用；`[cg:]` 配图走生图提示词智能体 + NovelAI；她的声音走 TTS（硅基流动 CosyVoice / MiniMax / Fish Audio / GPT-SoVITS）；向量化（测相似度、重算向量）；"写一段她的番外"。连接、分配存在本机，Key 单独存、只在这台设备上。
+  - 也是真的（在"我的 → API 与智能体"里填了 Key 之后）：多智能体调用（`packages/ai`）。主对话流式回复（OpenAI 兼容 / Claude / Gemini，移植自 math-reader），主连接失败自动换备用；`[cg:]` 配图走生图提示词智能体 + NovelAI；她的声音走 TTS（硅基流动 CosyVoice / MiniMax / Fish Audio / GPT-SoVITS）；向量化（测相似度、重算向量）；"写一段她的番外"。连接、分配存在本机，Key 单独存、只在这台设备上。
   - 还是假的：没填 Key 的智能体（用演示模型，所以不填也能逛）、语音识别、同步、推送，以及演示角色、记忆、天气、今日活动这些数据。
 
 ## 目录
@@ -76,9 +76,7 @@ node scripts/import-e2e.cjs       # 导入测试用的预设和两张角色卡�
   - 家的地址在"我的 → 环境与作息"里填，只存在本机。
 - 消息按人分：一个角色只有一条聊天。去过的场景在聊天里是一段"来到… / 离开…"；在场景里点她的话可以去聊天接着聊。
 - "我的 → API 与智能体"：接真实模型。
-  - 自带 Claude（默认 claude-opus-5-5）、OpenAI（gpt-5.5，别的模型点"拉取模型列表"）和"本机（Termux 8787）"。主对话等文本智能体默认用 Claude，失败时改用 OpenAI。
-  - 点一个连接（或"添加"，从模板选 Claude / OpenAI / 本机 Termux / DeepSeek / 硅基流动 / Gemini / NovelAI / MiniMax……），填 Base URL 和 Key，"拉取模型列表"、"测试连接"（按这个连接能做的事逐项测：对话、向量、语音、NovelAI 订阅），保存。保存后，还在用演示模型的主对话等会自动改用它；"保存，并让主对话等全部用它"把对话全换过去。
-  - Termux 等本机服务：地址填 `http://127.0.0.1:8787/v1`，或 math-reader 里那种完整地址（`…/chat/completions`，照原样用）；本机和局域网地址不用填 Key。服务要允许跨域（CORS）；Chrome 问"允许访问本地网络上的设备"时选允许。服务是 Claude 格式（`/v1/messages`）的话，测试连接时会自动把协议改成 Claude。连不上时，报错里会写要检查什么。
+  - 点一个连接（或"添加"，从模板选 DeepSeek / 硅基流动 / Claude / Gemini / NovelAI / MiniMax……），填 Base URL 和 Key，"拉取模型列表"、"测试连接"（按这个连接能做的事逐项测：对话、向量、语音、NovelAI 订阅），保存。
   - 每个智能体单独选连接、模型、备用连接；卡片上写着"已接通"还是"演示模型"以及原因。番外、总结等后台智能体可以设每日 token 上限。
   - 向量化可以测相似度、用新模型重算向量。
   - 主对话填好后，聊天就是真的模型在回；她回复里的 `[cg:…]` 会真的出图（存在本机素材库）；回复失败时气泡下写着原因，可以重新生成。

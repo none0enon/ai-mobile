@@ -1,36 +1,13 @@
 import { abortError, isAbortError, networkError } from './errors.ts';
 
-const PRIVATE = /^(?:10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|[^.]+\.local)$/i;
-
 /**
  * 发请求的函数。默认是全局 fetch；连接打开"经 Worker 转发"时换成转发到自己 Worker 的版本，
  * 测试里换成假的服务端。签名和 fetch 一样，所以各家协议的代码不用关心请求怎么出去。
  */
 export type Transport = (url: string, init: RequestInit) => Promise<Response>;
 
-/** 局域网的 http 地址（Chrome 的"本地网络访问"）：标上 targetAddressSpace，https 的网页才能连。127.0.0.1 本来就能连，不用标 */
-function lanHttp(url: string): boolean {
-  try {
-    const u = new URL(url);
-    return u.protocol === 'http:' && PRIVATE.test(u.hostname);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * 默认的请求函数：全局 fetch（不能直接存 fetch 本身：有的浏览器里脱离 window 调用会报 Illegal invocation）。
- * 局域网的 http 地址先带 targetAddressSpace: 'local' 发；不认这个字段的浏览器、或者还是失败时，去掉它再发一次
- */
-export const defaultTransport: Transport = async (url, init) => {
-  if (!lanHttp(url)) return fetch(url, init);
-  try {
-    return await fetch(url, { ...init, targetAddressSpace: 'local' } as RequestInit);
-  } catch (e) {
-    if (isAbortError(e) || init.signal?.aborted) throw e;
-    return fetch(url, init);
-  }
-};
+// 不能直接存 fetch 本身：有的浏览器里脱离 window 调用会报 Illegal invocation
+export const defaultTransport: Transport = (url, init) => fetch(url, init);
 
 /**
  * 发一个请求：网络层的失败（断网、CORS、DNS）统一成 AiError('network')，取消统一成 AiError('aborted')。
@@ -42,7 +19,7 @@ export async function request(transport: Transport, provider: string, url: strin
     return await transport(url, init);
   } catch (e) {
     if (isAbortError(e) || init.signal?.aborted) throw abortError();
-    throw networkError(provider, e, url);
+    throw networkError(provider, e);
   }
 }
 
