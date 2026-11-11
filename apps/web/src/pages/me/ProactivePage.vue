@@ -1,23 +1,22 @@
 <script setup lang="ts">
-import { substituteMacros, TIMED_TRIGGERS, touchpointClock, WEBHOOK_PRESETS, type NotificationPreview, type ProactiveTriggerId } from '@app/shared';
-import { showToast } from 'vant';
+import { substituteMacros, TIMED_TRIGGERS, touchpointClock, type ProactiveTriggerId } from '@app/shared';
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import PersonTabs from '@/components/common/PersonTabs.vue';
 import Segmented from '@/components/common/Segmented.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { personas } from '@/mock/characters';
-import { pushChannels } from '@/mock/settings';
-import { services } from '@/services';
 import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useProactiveStore, type PlannedTouchpoint } from '@/stores/proactive';
-import { hhmm } from '@/utils/time';
+import { useHubStore } from '@/stores/hub';
+import { useEnvironmentStore } from '@/stores/environment';
+import CloudPushSettings from '@/components/settings/CloudPushSettings.vue';
 
 /**
  * 主动消息："先排期，再触发"。每个角色按自己的设置（开没开、性格、每天最多几条、勿扰、允许哪些时候来找你）排今天的计划，
- * App 开着时到点就发（stores/proactive.ts）；Worker 接上以后 App 关着也能准点发。
+ * Cloudflare 每 5 分钟检测并生成；本机同步已生成的消息。
  * 上面一排头像切换看谁的（?char=），导入的角色也在里面。
  */
 const route = useRoute();
@@ -43,15 +42,13 @@ watch(
 
 const plan = computed(() => (c.value ? proactive.planFor(c.value.id) : []));
 const live = computed(() => ai.isLive('proactive'));
-const isDemo = computed(() => !!c.value && chars.isDemo(c.value.id));
 const left = computed(() => (c.value ? proactive.upcoming(c.value.id) : 0));
 
-const channels = ref(pushChannels.map((p) => ({ ...p })));
-const preview = ref<NotificationPreview>('name-only');
-const testing = ref<string | null>(null);
+const hub = useHubStore();
+const env = useEnvironmentStore();
+const preview = computed({ get: () => hub.config.preview, set: (v) => { hub.config.preview = v; } });
 
 const RULE_LABEL = Object.fromEntries(proactive.rules.map((r) => [r.id, r.label])) as Record<ProactiveTriggerId, string>;
-const CHANNEL_ICON: Record<string, string> = { webpush: 'i-lucide-globe', android: 'i-lucide-smartphone', webhook: 'i-lucide-webhook' };
 
 /** 一条计划现在的状态：发了 / 没发（为什么）/ 等着 */
 function stateOf(t: PlannedTouchpoint): { label: string; cls: string; note: string } {
@@ -59,7 +56,7 @@ function stateOf(t: PlannedTouchpoint): { label: string; cls: string; note: stri
   if (t.log?.status === 'fired') return { label: t.action === 'call' ? '打过来了' : '已发送', cls: 'good', note: t.log.reason ? `${hint}（${t.log.reason}）` : hint };
   if (t.log?.status === 'skipped') return { label: '没发', cls: 'warn', note: t.log.reason ?? '' };
   if (t.status === 'skipped') return { label: '不发', cls: 'warn', note: t.skipReason ?? '' };
-  if (t.dueAt <= proactive.clock) return { label: '到点了', cls: 'accent', note: hint };
+  if (t.dueAt <= proactive.clock) return { label: hub.config.active ? '待云端检测' : '云端未开启', cls: 'accent', note: ('lastError' in t && typeof t.lastError === 'string') ? t.lastError : hint };
   return { label: '已排期', cls: 'accent', note: hint };
 }
 
@@ -77,12 +74,6 @@ function toggleRule(id: ProactiveTriggerId, on: boolean) {
   p.triggers = on ? [...new Set([...p.triggers, id])] : p.triggers.filter((x) => x !== id);
 }
 
-async function test(id: string) {
-  testing.value = id;
-  const ok = await services.push.test(id);
-  testing.value = null;
-  showToast(ok ? '测试推送已发出' : '发送失败');
-}
 </script>
 
 <template>
@@ -107,7 +98,7 @@ async function test(id: string) {
                   { value: 'independent', label: '独立' },
                 ]"
               />
-              <div class="mt-1.5">没有条数上限：粘人的每个时段几乎都来，独立的随缘，但每天至少来一次</div>
+              <div class="mt-1.5">按性格和时段安排；实际发送还会检查勿扰、最近聊天和未回复退避</div>
             </template>
           </van-cell>
           <van-cell title="允许主动来电" label="叫醒、催睡时直接打过来" center>
@@ -116,12 +107,13 @@ async function test(id: string) {
           <van-cell title="勿扰时段" :value="`${c.proactive.quietHours.start} - ${c.proactive.quietHours.end}`" />
         </van-cell-group>
 
-        <div class="source" :class="{ warn: !live && !isDemo }" data-testid="proactive-source">
-          <span :class="live ? 'i-lucide-sparkles' : 'i-lucide-info'" class="shrink-0 mt-0.5" />
-          <span v-if="live">到点时由「主动消息」的模型（{{ ai.chatModelOf('proactive') || '已接通' }}）按{{ c.name }}的预设、角色卡和你们的聊天，用{{ c.pronoun }}的口吻写。</span>
-          <span v-else-if="isDemo">「主动消息」还没接通 API：{{ c.name }}到点发演示台词。<RouterLink to="/me/api" class="text-accent-ink">去 API 设置</RouterLink></span>
-          <span v-else>「主动消息」还没接通 API：{{ c.name }}是导入的角色，没有能代替{{ c.pronoun }}说话的台词，到点会跳过。<RouterLink to="/me/api" class="text-accent-ink">去 API 设置</RouterLink></span>
+        <div class="source" :class="{ warn: !hub.config.active }" data-testid="proactive-source">
+          <span class="i-lucide-cloud shrink-0 mt-0.5" />
+          <span v-if="hub.config.active">云端每 5 分钟检测，App 关闭时照常生成和推送。消息使用同步到云端的角色卡、预设和聊天。<RouterLink to="/me/sync" class="text-accent-ink">查看云端状态</RouterLink></span>
+          <span v-else>云端主动消息尚未开启。<RouterLink to="/me/sync" class="text-accent-ink">连接并启用 Cloudflare Worker →</RouterLink></span>
         </div>
+        <p v-if="!live" class="note">本机「主动消息」API 尚未接通。启用云端前请先在 <RouterLink to="/me/api" class="text-accent-ink">API 设置</RouterLink> 中配置。</p>
+        <p v-if="hub.error" class="note text-danger" role="alert">{{ hub.error }}</p>
 
         <div class="group-title">{{ c.name }}今天的计划</div>
         <div class="px-4">
@@ -129,7 +121,7 @@ async function test(id: string) {
           <div v-else-if="!plan.length" class="plan empty">今天没有按时间排的计划（下面的规则都关着，或者都要等事件触发）。</div>
           <div v-else class="plan" data-testid="proactive-plan">
             <div v-for="t in plan" :key="t.id" class="tp" :class="stateOf(t).cls" :data-rule="t.ruleId">
-              <span class="time num">{{ touchpointClock(t) }}</span>
+              <span class="time num">{{ touchpointClock(t, env.settings.timezone) }}</span>
               <span class="dot" />
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5">
@@ -142,7 +134,7 @@ async function test(id: string) {
             </div>
           </div>
         </div>
-        <p class="note">App 开着时每分钟看一次，到点就发；你 20 分钟内刚和{{ c.pronoun }}聊过就不打扰。App 关着时到点的，3 小时内打开会补上最近的一条，更早的算错过；接上自己的 Worker 以后由它准点发、推送到手机。</p>
+        <p class="note">云端按你的时区持续排期。勿扰、最近 20 分钟聊过、学习或哄睡、规则冷却、连续未回复退避和你设置的 token 预算都在云端检查。打开 App 只补齐已生成的消息，不会重复生成。</p>
 
         <div class="group-title">{{ c.name }}会在这些时候来找你</div>
         <van-cell-group inset>
@@ -159,22 +151,7 @@ async function test(id: string) {
       </template>
       <p v-else class="note">还没有角色。先在"我的 → 导入 ST 文件"里导入一张角色卡。</p>
 
-      <div class="group-title">推送通道<button class="action"><span class="i-lucide-plus" />添加</button></div>
-      <div class="px-4 grid gap-2">
-        <div v-for="ch in channels" :key="ch.id" class="channel">
-          <span class="ch-icon"><span :class="CHANNEL_ICON[ch.kind]" /></span>
-          <div class="flex-1 min-w-0">
-            <div class="text-[14.5px] truncate">{{ ch.label }}</div>
-            <div class="text-[12px] text-ink-3 truncate">
-              {{ ch.kind === 'webhook' && ch.preset ? WEBHOOK_PRESETS[ch.preset].desc : ch.kind === 'webpush' ? 'APNs / 微软通道，国内可用' : '轮询 + 精确闹钟，不需要谷歌服务' }}
-              <template v-if="ch.lastOkAt"> · 上次成功 {{ hhmm(ch.lastOkAt) }}</template>
-            </div>
-          </div>
-          <van-button size="mini" round :loading="testing === ch.id" :disabled="!ch.enabled" @click="test(ch.id)">测试</van-button>
-          <van-switch v-model="ch.enabled" size="20px" />
-        </div>
-      </div>
-      <p class="note">推送要等 Worker 接上（M3）：Worker 会按顺序尝试已开启的通道，直到有一个成功；无论推送是否成功，打开 App 时都会补齐。</p>
+      <CloudPushSettings />
 
       <div class="group-title">锁屏上显示</div>
       <div class="px-4">

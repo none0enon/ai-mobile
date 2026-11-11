@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ai-mobile-hub",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-11",
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "observability": { "enabled": true },
+  "vars": {
+    "APP_ORIGIN": "https://none0enon.github.io",
+    "APP_URL": "https://none0enon.github.io/ai-mobile/"
+  },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "ai-mobile-hub",
+    // Replaced by scripts/configure.mjs for deployment; local dev needs no account.
+    "database_id": "00000000-0000-0000-0000-000000000000",
+    "migrations_dir": "migrations"
+  }]
+}

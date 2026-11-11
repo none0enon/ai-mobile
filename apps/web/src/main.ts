@@ -18,6 +18,8 @@ import { useCharacterStore } from './stores/characters';
 import { useChatStore } from './stores/chat';
 import { useLibraryStore } from './stores/library';
 import { useProactiveStore } from './stores/proactive';
+import { useHubStore } from './stores/hub';
+import { useEnvironmentStore } from './stores/environment';
 
 if (import.meta.env.MODE === 'preview') {
   // Claude Artifact 预览：外层已处理安全区
@@ -38,7 +40,7 @@ const app = createApp(App).use(createPinia()).use(router);
 
 // 先读本机数据库（导入的角色、世界书、预设、聊天），再挂载：刷新后直接打开导入角色的聊天也找得到
 // 个别 WebView 里 IndexedDB 可能一直不回应：最多等 1.5 秒，读到的数据之后再补进来
-const hydrated = Promise.all([useAiStore().hydrate(), useLibraryStore().hydrate(), useCharacterStore().hydrate(), useChatStore().hydrate()]).catch(() => undefined);
+const hydrated = Promise.allSettled([useAiStore().hydrate(), useLibraryStore().hydrate(), useCharacterStore().hydrate(), useChatStore().hydrate(), useHubStore().hydrate(), useEnvironmentStore().hydrate()]);
 
 // iPhone 上只有用户点过屏幕后"解锁"的 <audio> 才能在网络请求之后播放语音：第一次点屏幕时解锁
 const unlock = () => {
@@ -55,13 +57,16 @@ function followLatestChat() {
 
 Promise.race([hydrated, new Promise((r) => setTimeout(r, 1500))]).finally(() => {
   app.mount('#app');
-  // 主动消息：所有打开了主动消息的角色按各自的计划到点发；等本机数据读完、界面出来以后再开始
-  // （IndexedDB 一直不回应时也照样开始，只是发送记录这次不存）
+  // 界面展示排期；云端同步只在所有本机上下文读完后启动，避免上传半份数据。
+  // IndexedDB 卡住时仍显示本机界面，但云端同步等待完整读取。
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   void Promise.race([hydrated, wait(5000)]).then(async () => {
     followLatestChat();
     const proactive = useProactiveStore();
-    await Promise.race([proactive.hydrate(), wait(3000)]);
-    setTimeout(() => proactive.start(), 1200);
+    proactive.start();
+    void hydrated.then((results) => {
+      if (results.every((r) => r.status === 'fulfilled')) useHubStore().start();
+      else useHubStore().error = '本机数据未读完整，云端同步未启动；请重新打开 App';
+    });
   });
 });

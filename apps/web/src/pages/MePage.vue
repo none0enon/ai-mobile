@@ -16,6 +16,7 @@ import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 import { useProactiveStore } from '@/stores/proactive';
+import { useHubStore } from '@/stores/hub';
 import { showErrorDialog } from '@/utils/errors';
 
 const router = useRouter();
@@ -29,7 +30,7 @@ const me = personas.find((p) => p.isDefault) ?? personas[0]!;
 const proactive = useProactiveStore();
 /** 今天所有打开了主动消息的角色加起来还会来找你几次 */
 const upcoming = computed(() => proactive.upcoming());
-const sync = services.sync.status();
+const hub = useHubStore();
 const totalMessages = computed(() => Object.values(chat.messages).reduce((n, l) => n + l.length, 0) + 1268);
 const THEME_LABEL = { system: '跟随系统', dark: '夜', light: '昼' } as const;
 
@@ -63,7 +64,7 @@ const groups = computed(() => [
       {
         icon: 'i-lucide-bell-ring',
         label: '主动消息',
-        value: !chars.list.some((c) => c.proactive.enabled) ? '都没打开' : upcoming.value ? `今天还会找你 ${upcoming.value} 次` : '今天的都发完了',
+        value: !hub.config.active ? '云端未开启' : !chars.list.some((c) => c.proactive.enabled) ? '都没打开' : upcoming.value ? `今天还会找你 ${upcoming.value} 次` : '查看云端计划',
         desc: `${chars.list.filter((c) => c.proactive.enabled).map((c) => c.name).join('、') || '还没有角色'}会主动找你`,
         to: '/me/proactive',
       },
@@ -73,7 +74,7 @@ const groups = computed(() => [
   {
     title: '数据',
     rows: [
-      { icon: 'i-lucide-refresh-cw', label: '同步与备份', value: sync.mode === 'hub' ? '已连接 Worker' : '仅本机', to: '/me/sync' },
+      { icon: 'i-lucide-refresh-cw', label: '云端与同步', value: hub.connected ? '已连接 Worker' : '仅本机', to: '/me/sync' },
       { icon: 'i-lucide-palette', label: '外观', value: THEME_LABEL[app.themeSetting], to: '/me/appearance' },
       {
         icon: 'i-lucide-smartphone',

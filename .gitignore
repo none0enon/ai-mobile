@@ -10,3 +10,6 @@ artifact/
 .wrangler/
 coverage/
 screenshots/
+
+*.secrets.json
+wrangler.deploy.json

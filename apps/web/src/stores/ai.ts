@@ -298,7 +298,7 @@ export const useAiStore = defineStore('ai', () => {
       await write(
         'secrets',
         Object.entries(m.keys).map(([key, value]) => ({ key, value })),
-        Object.keys(stored).filter((k) => !k.startsWith('api:')),
+        Object.keys(stored).filter((k) => !k.startsWith('api:') && !k.startsWith('hub:')),
       );
     }
     if (Array.isArray(savedFilters)) setOutputFilters(savedFilters);

@@ -5,14 +5,15 @@ AI 陪伴对话 App：像 SillyTavern 一样用角色卡、世界书、预设聊
 - 设计文档：[`docs/DESIGN.md`](docs/DESIGN.md)
 - 当前进度：**M1 进行中**。
   - 已经是真的：导入 SillyTavern 角色卡（PNG / JSON，V1–V3，内嵌世界书自动拆出来绑定）、世界书、Chat Completion 预设；导入的东西和聊天存在本机（IndexedDB），刷新后还在；发消息时按 SillyTavern 的规则拼提示词（预设顺序、世界书扫描、宏、按深度插入、token 预算），"查看提示词"里看到的就是请求体。
-  - 也是真的（在"我的 → API 设置"里填了 Key 之后）：多智能体调用（`packages/ai`）。主对话流式回复（自定义 / Claude / OpenAI 兼容 / Gemini / Vertex Agent / DeepSeek，移植自 math-reader），失败自动换备用 API；`[cg:]` 配图走生图提示词 + NovelAI；她的声音走 TTS（硅基流动 CosyVoice / MiniMax / 火山引擎 / Fish Audio / GPT-SoVITS）；向量化（测相似度、重算向量）；"写一段她的番外"。调用失败时显示完整报错（请求地址、状态码、响应头、服务商返回的原文）。设置存在本机，Key 单独存、只在这台设备上。
+  - 也是真的（在"我的 → API 设置"里填了 Key 之后）：多智能体调用（`packages/ai`）。主对话流式回复（自定义 / Claude / OpenAI 兼容 / Gemini / Vertex Agent / DeepSeek，移植自 math-reader），失败自动换备用 API；`[cg:]` 配图走生图提示词 + NovelAI；她的声音走 TTS（硅基流动 CosyVoice / MiniMax / 火山引擎 / Fish Audio / GPT-SoVITS）；向量化（测相似度、重算向量）；"写一段她的番外"。调用失败时显示完整报错（请求地址、状态码、响应头、服务商返回的原文）。设置存在本机，Key 单独保存；启用云端主动消息后，仅该功能使用的 API Key 会加密保存到自己的 Worker。
   - 语音消息：按住录音，松开后上传到配置的语音识别 API（硅基流动 SenseVoice / OpenAI 兼容），真实识别后发消息；录音存在本机，可播放和查看文字。上滑取消、离开聊天会释放麦克风，识别失败显示完整报错，不会代填演示台词。
-  - 主动消息：每个打开了主动消息的角色（导入的角色也默认打开）按自己的设置排今天的计划（性格、哪些时段、勿扰、允许来电；没有条数上限），App 开着时到点就发，3 小时内打开 App 会补上最近的一条。接通"主动消息"的 API 时由模型按她的预设、角色卡和聊天记录用她的口吻写；没接通时苏晚、江屿用各自的演示台词，导入的角色跳过（接通后 3 小时内补发）。"我的 → 主动消息"按角色切换，能看到每条计划发没发、为什么。
-  - 还是假的：没填 Key 的文本智能体（用演示模型，所以不填也能逛）、语音通话、同步、推送（App 关着时的主动消息要等 Worker），以及演示角色、记忆、天气、今日活动这些数据。
+  - 主动消息：Cloudflare Worker 每 5 分钟按各角色设置和你的时区独立排期、检测、生成，消息先存 D1，再通过 Web Push / Bark / ntfy / 自定义 webhook 通知。App 关闭后仍运行；打开时按服务器游标补齐，固定消息 ID 防重复。角色并发执行，勿扰、最近聊天、规则冷却、未回复退避和每日 token 预算都在云端检查。入口「我的 → 云端与同步」，部署步骤见 [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)。
+  - 仍是演示或尚未接入：没填 Key 的文本智能体、真实语音通话、完整多设备同步与素材备份，以及演示角色的初始内容、记忆、天气、今日活动。主动消息的上下文上传、云端收件箱和系统推送已经接通。
 
 ## 目录
 
 ```
+apps/hub/            Cloudflare Worker：Cron、D1、加密凭据、Web Push / webhook
 apps/web/            前端（Vue 3 + Vite + TypeScript + Pinia + Vue Router + Vant 4 + UnoCSS）
   src/pages/         页面：消息、聊天（IM / 剧场）、通话、地图、场景、回忆、我的、各设置页
   src/scenes/        七个场景的面板（运动、吃饭、学习、哄睡、听歌、约会、戳戳乐）
@@ -21,9 +22,9 @@ apps/web/            前端（Vue 3 + Vite + TypeScript + Pinia + Vue Router + V
   src/mock/          演示数据（两个原创角色：苏晚、江屿）
   src/presets/       App 自带的预设文件（.json，App 自己的格式）：第一次打开时放进预设库，之后和导入的一样能改能删
   scripts/           make-artifact.mjs（生成预览页）
-packages/shared/     前端和以后的 Worker 共用：领域类型、场景注册表、地图地点、控制标签解析、环境描述、LRC 解析
+packages/shared/     前端和 Worker 共用：领域类型、场景注册表、地图地点、控制标签解析、环境描述、LRC 解析
   src/st/            SillyTavern 兼容：PNG 文本块、角色卡 / 世界书 / 预设的导入导出、宏、世界书扫描、提示词拼装
-packages/ai/         AI 调用层，前端和以后的 Worker 共用（只用 Web 标准接口），说明见 packages/ai/README.md
+packages/ai/         AI 调用层，前端和 Worker 共用（只用 Web 标准接口），说明见 packages/ai/README.md
   src/llm/           文本对话：OpenAI 兼容 / DeepSeek / Claude / Gemini / Vertex Agent（流式、思考内容、流式失败改普通请求、按报错调整参数）
   src/tts/ image/ embedding/   语音合成（含火山引擎声音复刻）、生图（NovelAI、OpenAI 兼容）、向量化
   src/channels.ts    渠道表：每个功能能选哪些渠道、默认地址和常用模型
@@ -31,7 +32,7 @@ packages/ai/         AI 调用层，前端和以后的 Worker 共用（只用 We
 docs/DESIGN.md       完整设计
 ```
 
-以后会加 `apps/hub`（Cloudflare Worker + D1 + R2）和 `apps/android`（WebView 壳）。
+`apps/hub` 已提供 Cloudflare Worker + D1 主动消息中枢；R2 素材备份和 `apps/android`（WebView 壳）后续实现。
 
 ## 在线试用
 
@@ -50,6 +51,7 @@ docs/DESIGN.md       完整设计
 pnpm install
 pnpm dev            # http://localhost:5173
 pnpm typecheck      # vue-tsc + tsc
+pnpm test           # 云端主动消息：workerd + D1、并发/幂等/重试/时区、Service Worker
 pnpm build          # 正式构建 → apps/web/dist（hash 路由，可放在任意静态目录）
 pnpm build:preview  # 单文件预览页 → apps/web/artifact/index.html
 ```

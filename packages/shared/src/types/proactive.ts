@@ -29,7 +29,7 @@ export interface ProactiveRule {
   canCall: boolean;
 }
 
-/** 默认规则表（Worker 的 Cron 每 10 分钟按它判定） */
+/** 默认规则表（Worker 的 Cron 每 5 分钟按它判定） */
 export const DEFAULT_PROACTIVE_RULES: ProactiveRule[] = [
   { id: 'morning', label: '早安', desc: '起床时间后说早安，顺带天气', enabled: true, window: { start: '07:00', end: '09:30' }, cooldownMin: 720, probability: 1, canCall: false },
   { id: 'wake-call', label: '叫醒来电', desc: '在你设的起床时间打电话叫醒你', enabled: true, cooldownMin: 720, probability: 1, canCall: true },
@@ -48,8 +48,8 @@ export const DEFAULT_PROACTIVE_RULES: ProactiveRule[] = [
 
 /**
  * 一天的主动消息计划（"先规划、再触发"）：
- * 每天凌晨（或当天第一次打开 App 时）规划器按规则生成当天的 Touchpoint，Cron 每 5 分钟触发到点的那些，
- * 消息内容在触发时才生成（用最新的上下文）。id = `${date}:${ruleId}`，Worker 触发和打开 App 补发都是幂等的。
+ * 云端规划器按规则持续维护当天及跨午夜的 Touchpoint，Cron 每 5 分钟触发到点的那些，
+ * 消息内容在触发时才生成（用最新的上下文）。id = `${date}:${characterId}:${ruleId}`，Worker 触发和打开 App 补发都是幂等的。
  * 安卓壳把 planned 的 dueAt 设成精确闹钟，不依赖推送也能准点。
  */
 export interface Touchpoint extends SyncMeta {

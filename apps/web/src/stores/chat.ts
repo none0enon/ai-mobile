@@ -18,7 +18,7 @@ import { useAiStore } from './ai';
 import { useAppStore } from './app';
 import { useCharacterStore } from './characters';
 import { useRealWorldStore } from './realworld';
-import { autoSave, getAll } from '@/db/idb';
+import { autoSave, getAll, getEntries, write } from '@/db/idb';
 import { buildChats, buildMessages } from '@/mock/chats';
 import { services } from '@/services';
 import { assembleForChat, personaOf, toLLMMessages, type ChatPrompt } from '@/services/prompt';
@@ -42,30 +42,32 @@ export const useChatStore = defineStore('chat', () => {
   /** 每条聊天上一次实际发出去的提示词（"查看提示词"里看）。只放内存 */
   const lastPrompt = reactive<Record<string, { prompt: ChatPrompt; at: number } | undefined>>({});
 
-  // 演示聊天每次打开重新生成；和导入角色的聊天存在本机
-  const DEMO_CHATS = new Set(chats.value.map((c) => c.id));
+  // 全部聊天持久化，含演示角色收到的真实云端消息。
   const chatSaver = autoSave(
     'chats',
-    () => chats.value.filter((c) => !DEMO_CHATS.has(c.id)).map((c) => ({ key: c.id, value: c })),
+    () => chats.value.map((c) => ({ key: c.id, value: c })),
     chats,
   );
   const messageSaver = autoSave(
     'messages',
-    () => chats.value.filter((c) => !DEMO_CHATS.has(c.id)).map((c) => ({ key: c.id, value: messages.value[c.id] ?? [] })),
+    () => chats.value.map((c) => ({ key: c.id, value: messages.value[c.id] ?? [] })),
     messages,
   );
 
   async function hydrate() {
-    const [cs, ms] = await Promise.all([getAll<Chat>('chats'), getAll<Message[]>('messages')]);
+    const [cs, ms] = await Promise.all([getAll<Chat>('chats'), getEntries<Message[]>('messages')]);
     for (const c of cs.sort((a, b) => a.createdAt - b.createdAt)) {
-      if (chats.value.some((x) => x.id === c.id)) continue;
+      chats.value = chats.value.filter((x) => x.id !== c.id);
       delete (c as Chat & { presetId?: unknown }).presetId; // 旧数据里聊天上也存了一份预设，现在只看角色上的
       chats.value.push(c);
     }
-    for (const list of ms) {
-      const chatId = list[0]?.chatId;
-      if (chatId && !DEMO_CHATS.has(chatId)) messages.value[chatId] = list;
+    for (const { key: chatId, value: list } of ms) {
+      if (Array.isArray(list)) messages.value[chatId] = list;
     }
+    await Promise.all([
+      write('chats', chats.value.map((c) => ({ key: c.id, value: JSON.parse(JSON.stringify(c)) }))),
+      write('messages', Object.entries(messages.value).map(([key, value]) => ({ key, value: JSON.parse(JSON.stringify(value)) }))),
+    ]);
     chatSaver.start();
     messageSaver.start();
   }

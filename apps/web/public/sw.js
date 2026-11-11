@@ -1,7 +1,7 @@
 // 让浏览器认可"安装到主屏幕"，断网时也能打开。
 // 只处理本站的 GET 请求；发给 AI 服务商的请求（跨域）不经过这里，也不缓存。
 // 换版本号时，激活后删掉旧版本的缓存。
-const CACHE = 'ai-mobile-v2';
+const CACHE = 'ai-mobile-v3';
 const SHELL = ['./', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -17,6 +17,39 @@ self.addEventListener('activate', (event) => {
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
+});
+
+// Web Push wakes this worker even with every App window closed. Generation happens in Cloudflare.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data?.json() || {}; } catch { /* still show a visible notification */ }
+  const route = typeof data.route === 'string' && /^\/(chat|call|me)(\/|$)/.test(data.route) ? data.route : '/';
+  event.waitUntil(Promise.all([
+    self.registration.showNotification(data.title || 'AI 陪伴', {
+      body: data.body || '你有一条新消息', tag: data.tag || 'ai-mobile',
+      icon: new URL('icons/icon-192.png', self.registration.scope).href,
+      data: { route },
+    }),
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) client.postMessage({ type: 'hub-inbox' });
+    }),
+  ]));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = new URL(self.registration.scope);
+  const route = event.notification.data?.route;
+  target.hash = typeof route === 'string' && /^\/(chat|call|me)(\/|$)/.test(route) ? route : '/';
+  event.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const existing = clients.find((c) => c.url.startsWith(self.registration.scope));
+    if (existing) {
+      const navigated = await existing.navigate(target.href);
+      if (navigated) { await navigated.focus(); return; }
+    }
+    await self.clients.openWindow(target.href);
+  })());
 });
 
 // 页面上的"清理安装数据"：删掉全部缓存

@@ -9,6 +9,8 @@ export * from './types/activity.ts';
 export * from './types/api.ts';
 export * from './types/proactive.ts';
 export * from './types/settings.ts';
+export * from './types/hub.ts';
+export * from './timezone.ts';
 export * from './tags.ts';
 export * from './expressions.ts';
 export * from './scenes.ts';

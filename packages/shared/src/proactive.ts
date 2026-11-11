@@ -1,3 +1,4 @@
+import { zonedDateKey, zonedInstant, zonedParts } from './timezone.ts';
 import type { Character, ProactivePersonality } from './types/character.ts';
 import type { HHMM, ISODate } from './types/common.ts';
 import type { ProactiveRule, ProactiveTriggerId, Touchpoint } from './types/proactive.ts';
@@ -8,7 +9,7 @@ import type { EnvironmentSettings } from './types/settings.ts';
  * 按这个角色自己的设置排：开没开、性格（频率）、允许哪些触发器、勿扰时段、允许来电（没有条数上限）；
  * 再加上全局的触发规则（开关、时段、概率）和你的作息（起床、三餐、睡觉）。
  * 同一天、同一个角色排出来的总是同一份（时间的偏移和概率都按 日期 + 角色 + 规则 算），
- * 所以 App 每次打开重新排也对得上；以后 Worker 用同一个函数排，结果一样。
+ * 所以 App 展示和 Worker 排期使用同一个函数、同一个时区，结果一致。
  * 天气变化、运动夸夸、学习打卡、纪念日由事件触发，不按时间排。
  */
 
@@ -18,6 +19,9 @@ export interface ProactivePlanInput {
   env: Pick<EnvironmentSettings, 'wakeTime' | 'sleepTime' | 'meals'>;
   /** 排哪一天（当天任意时刻） */
   day: Date;
+  /** 云端与客户端按同一个 IANA 时区排期；date 可指定跨午夜的上一天。 */
+  timeZone?: string;
+  date?: string;
   /** 这个角色记着的待跟进的事（到期时间在这一天的会排进去） */
   followups?: { id: string; content: string; dueAt: number }[];
 }
@@ -100,10 +104,10 @@ interface Draft {
 export function planTouchpoints(input: ProactivePlanInput): Touchpoint[] {
   const { character: c, env } = input;
   const p = c.proactive;
-  const date = dateKey(input.day);
+  const date = input.date ?? (input.timeZone ? zonedDateKey(input.day.getTime(), input.timeZone) : dateKey(input.day));
   const dayStart = new Date(input.day);
   dayStart.setHours(0, 0, 0, 0);
-  const base = dayStart.getTime();
+  const base = input.timeZone ? zonedInstant(date, 0, input.timeZone) : dayStart.getTime();
   const rules = new Map(input.rules.map((r) => [r.id, r]));
   const allowed = new Set(p.triggers);
   const on = (id: ProactiveTriggerId) => allowed.has(id) && rules.get(id)?.enabled === true;
@@ -136,7 +140,9 @@ export function planTouchpoints(input: ProactivePlanInput): Touchpoint[] {
   if (on('bedtime')) add('bedtime', sleep + 10 + Math.round(10 * jitter('bedtime')), p.allowCalls ? 'call' : 'message', p.allowCalls ? '过了睡觉时间还没睡：打电话催{{user}}睡觉' : undefined);
   if (on('followup')) {
     for (const f of input.followups ?? []) {
-      const minute = Math.round((f.dueAt - base) / 60_000);
+      if (input.timeZone && zonedDateKey(f.dueAt, input.timeZone) !== date) continue;
+      const parts = input.timeZone ? zonedParts(f.dueAt, input.timeZone) : null;
+      const minute = parts ? parts.hour * 60 + parts.minute : Math.round((f.dueAt - base) / 60_000);
       if (minute < 0 || minute >= 1440) continue;
       add('followup', minute, 'message', `{{user}}之前提过的事到时间了，问问结果：${f.content}`, `followup:${f.id}`);
     }
@@ -172,7 +178,7 @@ export function planTouchpoints(input: ProactivePlanInput): Touchpoint[] {
       characterId: c.id,
       ruleId: d.ruleId,
       date,
-      dueAt: base + d.minute * 60_000,
+      dueAt: input.timeZone ? zonedInstant(date, d.minute, input.timeZone) : base + d.minute * 60_000,
       action: d.action,
       hint: d.hint,
       status: skipReason ? 'skipped' : 'planned',
@@ -182,7 +188,12 @@ export function planTouchpoints(input: ProactivePlanInput): Touchpoint[] {
 }
 
 /** "07:42"：计划里的时刻（过了半夜的显示成"次日 00:40"） */
-export function touchpointClock(t: Pick<Touchpoint, 'dueAt' | 'date'>): string {
+export function touchpointClock(t: Pick<Touchpoint, 'dueAt' | 'date'>, timeZone?: string): string {
+  if (timeZone) {
+    const p = zonedParts(t.dueAt, timeZone);
+    const label = hhmmOf(p.hour * 60 + p.minute);
+    return zonedDateKey(t.dueAt, timeZone) === t.date ? label : `次日 ${label}`;
+  }
   const d = new Date(t.dueAt);
   const label = hhmmOf(d.getHours() * 60 + d.getMinutes());
   return dateKey(d) === t.date ? label : `次日 ${label}`;
