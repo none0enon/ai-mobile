@@ -30,6 +30,13 @@ docs/DESIGN.md       完整设计
 
 以后会加 `apps/hub`（Cloudflare Worker + D1 + R2）和 `apps/android`（WebView 壳）。
 
+## 在线试用
+
+部署在 GitHub Pages：https://none0enon.github.io/ai-mobile/ （`.github/workflows/pages.yml`：推到 main 时检查、测试、构建并部署；PR 只做检查）。
+
+- 第一次部署前，在仓库 **Settings → Pages → Build and deployment → Source** 选 **GitHub Actions**。
+- 在「我的 → API 与智能体」添加连接、填 Key、点「测试连接」，再把智能体分配给它。Key 只存在这台设备的浏览器里，请求从浏览器直接发给服务商。
+
 ## 本地运行
 
 需要 Node 22.12+ 和 pnpm 10。
