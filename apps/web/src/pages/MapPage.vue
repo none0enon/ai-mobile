@@ -291,7 +291,7 @@ watch(
             @select-location="openLoc"
             @select-character="openChar"
           />
-          <RouterLink v-if="!real.mapsReady" to="/me/api" class="maps-note"><span class="i-lucide-map shrink-0" />示意图 · 接入 Google 地图后显示真实地图</RouterLink>
+          <span v-if="!real.mapsReady" class="maps-note"><span class="i-lucide-map shrink-0" />示意图 · 接入 Google 地图后显示真实地图</span>
         </div>
 
         <div class="group-title">附近可以一起去</div>

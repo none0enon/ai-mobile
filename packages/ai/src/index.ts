@@ -7,7 +7,8 @@
  *   tts/        语音合成：OpenAI 兼容（硅基流动 CosyVoice）/ MiniMax / 火山引擎豆包 / Fish Audio / GPT-SoVITS
  *   image/      生图：NovelAI（V4 / V4.5 / V3）/ OpenAI 兼容（参考 SleepTogether 的 image-manager）
  *   embedding/  向量化：OpenAI 兼容 / Gemini / Workers AI，float16 编码、向量空间
- *   agents/     多智能体：路由与备用连接、每日上限、各智能体的提示词与解析、配图流水线、记忆检索
+ *   channels.ts 渠道表：每个功能能选哪些渠道、默认地址和常用模型
+ *   agents/     多智能体：按功能路由与备用 API、每日上限、各智能体的提示词与解析、配图流水线、记忆检索
  */
 
 export * from './core/errors.ts';
@@ -43,7 +44,8 @@ export { unzipFirst } from './image/zip.ts';
 export { embedTexts, canEmbed, instructionPrefix, type EmbedPurpose, type EmbedRequest, type EmbedResult } from './embedding/client.ts';
 export * from './embedding/vector.ts';
 
-export { listModels, testConnection, STATIC_MODELS, VERTEX_MODELS, type TestResult } from './connection.ts';
+export { listModels, testConnection, STATIC_MODELS, type TestResult } from './connection.ts';
+export * from './channels.ts';
 
 export * from './agents/router.ts';
 export * from './agents/usage.ts';

@@ -1,5 +1,5 @@
 import { AGENT_META, estimateTokens, type AgentRole } from '@app/shared';
-import { AiError } from '../core/errors.ts';
+import { AiError, isAbortError } from '../core/errors.ts';
 import { parseJsonLoose } from '../core/util.ts';
 import { embedTexts, type EmbedPurpose, type EmbedResult } from '../embedding/client.ts';
 import { modelFamily, vectorSpace } from '../embedding/vector.ts';
@@ -19,15 +19,17 @@ import { dayKey, MemoryUsageMeter, type UsageMeter } from './usage.ts';
  * 多智能体的入口（设计文档 §4）：每个智能体按自己的分配调用不同的模型。
  * - 文本：主对话、番外、生图提示词、总结、主动消息……（chat / json）
  * - 语音合成（speak）、生图（draw）、向量化（embed）
- * 统一做的事：分配里的参数作为默认值、每日 token 上限、主连接失败换备用（备用连接发最简请求，参考 SleepTogether）、
+ * 统一做的事：功能设置里的参数作为默认值、每日 token 上限、失败换备用 API（备用发最简请求，参考 SleepTogether）、
  * 文本回复统一过输出修剪（SleepTogether 的全局正则）、记录用了哪个连接和模型。
  */
 
 export interface CallMeta {
   model: string;
+  /** 用的哪个 API（api:main、api:main:backup） */
   connectionId: string;
+  /** "Claude"、"DeepSeek（备用）" */
   connectionName: string;
-  /** 主连接失败后用了备用连接 */
+  /** 自己的 API 失败后用了备用 API */
   fellBack: boolean;
   latencyMs: number;
 }
@@ -67,8 +69,13 @@ export interface AgentSystemOptions {
   meter?: UsageMeter;
   audioCache?: AudioCache;
   now?: () => Date;
-  /** 换备用连接时通知（界面弹提示："主连接失败，改用…"） */
+  /** 换备用 API 时通知（界面弹提示："主对话的 API 失败，改用备用…"） */
   onFailover?(role: AgentRole, from: Attempt, to: Attempt, error: unknown): void;
+  /**
+   * 每次调用的结果（取消的不算）：设置页据此显示"上次调用失败"和完整报错。
+   * 成功但用了备用 API 时 fellBack 为真（自己的 API 那次失败已经通过 onFailover 报过了）
+   */
+  onCall?(role: AgentRole, outcome: { ok: true; fellBack: boolean } | { ok: false; error: unknown }): void;
   /** 输出修剪的规则（llm/filter.ts 的写法）；不给用默认的三条（去掉漏出来的思考内容） */
   outputFilters?: string[];
 }
@@ -128,7 +135,7 @@ export class AgentSystem {
     if (!budget) return;
     const used = this.usedToday(role);
     if (used + estimate > budget) {
-      throw new AiError('budget', `"${AGENT_META[role].label}"今天的 token 已经用到上限（${used} / ${budget}），明天再继续，或在"API 与智能体"里调高上限`);
+      throw new AiError('budget', `"${AGENT_META[role].label}"今天的 token 已经用到上限（${used} / ${budget}），明天再继续，或在"API 设置"里调高上限`);
     }
   }
 
@@ -144,7 +151,19 @@ export class AgentSystem {
   }
 
   private meta(attempt: Attempt, fellBack: boolean, started: number): CallMeta {
-    return { model: attempt.endpoint.model, connectionId: attempt.connection.id, connectionName: attempt.connection.name, fellBack, latencyMs: Date.now() - started };
+    return { model: attempt.endpoint.model, connectionId: attempt.endpoint.connectionId, connectionName: attempt.endpoint.name, fellBack, latencyMs: Date.now() - started };
+  }
+
+  /** 报告这次调用的结果（给 onCall），出错原样抛出 */
+  private async track<T extends { fellBack: boolean }>(role: AgentRole, work: () => Promise<T>): Promise<T> {
+    try {
+      const r = await work();
+      this.opts.onCall?.(role, { ok: true, fellBack: r.fellBack });
+      return r;
+    } catch (e) {
+      if (!isAbortError(e)) this.opts.onCall?.(role, { ok: false, error: e });
+      throw e;
+    }
   }
 
   /**
@@ -153,6 +172,10 @@ export class AgentSystem {
    * 流式的每一段和最后的结果都过一遍输出修剪
    */
   async chat(role: AgentRole, req: ChatRequest, opts: ChatOptions & AgentCallOptions = {}): Promise<AgentChatResult> {
+    return this.track(role, () => this.chatOnce(role, req, opts));
+  }
+
+  private async chatOnce(role: AgentRole, req: ChatRequest, opts: ChatOptions & AgentCallOptions): Promise<AgentChatResult> {
     const route = this.router.route(role);
     const p = route?.params ?? {};
     const merged: ChatRequest = {
@@ -179,7 +202,13 @@ export class AgentSystem {
     );
     this.record(role, (value.usage?.inputTokens ?? inputTokens) + (value.usage?.outputTokens ?? estimateTokens(value.text + value.thinking)));
     const text = applyFilters(value.text, this.filters);
-    if (!text.trim()) throw new AiError('empty', `${attempt.connection.name} 的回复修剪后是空的（只有思考内容）`, { retryable: true });
+    if (!text.trim()) {
+      throw new AiError('empty', `${attempt.endpoint.name} 的回复修剪后是空的（只有思考内容）`, {
+        retryable: true,
+        detail: value.text,
+        context: { api: attempt.endpoint.name, model: attempt.endpoint.model },
+      });
+    }
     return { ...value, text, ...this.meta(attempt, fellBack, started) };
   }
 
@@ -209,30 +238,29 @@ export class AgentSystem {
   }
 
   /**
-   * 语音合成。角色可以单独选 TTS 连接（CharacterVoice.connectionId）；音色 id 只在同一家服务商里有效，
-   * 所以只会换到同一种协议的备用连接。同一句话按缓存的键复用音频。
+   * 语音合成：用"语音合成"功能的 API。角色可以单独填模型（音色在角色上）；音色 id 只在同一家服务商里有效，
+   * 所以只会换到同一种协议的备用 API。同一句话按缓存的键复用音频。
    */
-  async speak(req: TtsRequest & { connectionId?: string | null }, opts: AgentCallOptions = {}): Promise<TtsAudio & CallMeta & { cached: boolean }> {
-    const route = this.router.route('tts');
-    const connId = req.connectionId || route?.connectionId;
-    const own = connId && connId !== route?.connectionId ? this.router.connection(connId) : undefined;
-    const model = req.voice.model || (own ? own.models[0] : route?.model) || route?.model || '';
-    const all = this.router.attempts('tts', { connectionId: connId, model });
-    const kind = all[0]?.endpoint.kind;
-    const attempts = all.filter((a, i) => i === 0 || a.endpoint.kind === kind);
-    const first = attempts[0] as Attempt;
-    // 朗读前怎么处理文字：请求没写就用"语音合成"智能体的设置（只读引号里的、动作读不读……）
-    const withText: TtsRequest = { ...req, textOptions: req.textOptions ?? route?.ttsText };
-    const key = ttsCacheKey(first.endpoint, withText);
-    const hit = await this.audioCache?.get(key);
-    if (hit) return { ...hit, ...this.meta(first, false, Date.now()), cached: true };
-    const started = Date.now();
-    const signal = req.signal ?? opts.signal;
-    const { value, attempt, fellBack } = await this.router.run(attempts, (ep) => synthesize(ep, { ...withText, signal }), this.failover('tts', opts));
-    if (!fellBack) await this.audioCache?.put(key, value);
-    this.record('tts', estimateTokens(value.text));
-    // TTS 的模型以实际用的为准（角色可以单独选模型）
-    return { ...this.meta(attempt, fellBack, started), ...value, cached: false };
+  async speak(req: TtsRequest, opts: AgentCallOptions = {}): Promise<TtsAudio & CallMeta & { cached: boolean }> {
+    return this.track('tts', async () => {
+      const route = this.router.route('tts');
+      const all = this.router.attempts('tts', { model: req.voice.model });
+      const kind = all[0]?.endpoint.kind;
+      const attempts = all.filter((a, i) => i === 0 || a.endpoint.kind === kind);
+      const first = attempts[0] as Attempt;
+      // 朗读前怎么处理文字：请求没写就用"语音合成"的设置（只读引号里的、动作读不读……）
+      const withText: TtsRequest = { ...req, textOptions: req.textOptions ?? route?.ttsText };
+      const key = ttsCacheKey(first.endpoint, withText);
+      const hit = await this.audioCache?.get(key);
+      if (hit) return { ...hit, ...this.meta(first, false, Date.now()), cached: true };
+      const started = Date.now();
+      const signal = req.signal ?? opts.signal;
+      const { value, attempt, fellBack } = await this.router.run(attempts, (ep) => synthesize(ep, { ...withText, signal }), this.failover('tts', opts));
+      if (!fellBack) await this.audioCache?.put(key, value);
+      this.record('tts', estimateTokens(value.text));
+      // TTS 的模型以实际用的为准（角色可以单独填模型）
+      return { ...this.meta(attempt, fellBack, started), ...value, cached: false };
+    });
   }
 
   /**
@@ -240,6 +268,10 @@ export class AgentSystem {
    * 分配里的 extra 再并进请求参数
    */
   async draw(req: ImageRequest, opts: AgentCallOptions = {}): Promise<ImageResult & CallMeta> {
+    return this.track('image', () => this.drawOnce(req, opts));
+  }
+
+  private async drawOnce(req: ImageRequest, opts: AgentCallOptions): Promise<ImageResult & CallMeta> {
     const route = this.router.route('image');
     const styled = applyImageStyle(req, route?.imageStyle);
     const merged: ImageRequest = { ...styled, signal: req.signal ?? opts.signal, extra: route?.extra ? { ...route.extra, ...(req.extra ?? {}) } : req.extra };
@@ -250,13 +282,17 @@ export class AgentSystem {
   }
 
   /**
-   * 向量化。不同模型的向量不能互相比较，所以只会换到同一个模型族的备用连接（例如硅基流动的 bge-m3 → Workers AI 的 bge-m3）；
+   * 向量化。不同模型的向量不能互相比较，所以只会换到同一个模型族的备用 API（例如硅基流动的 bge-m3 → 别家的 bge-m3）；
    * 检索时传 family，保证查询向量和已存的记忆向量在同一个空间。分配的 extra.dimensions 作为输出维度。
    */
   async embed(
     texts: string[],
     opts: AgentCallOptions & { purpose?: EmbedPurpose; family?: string } = {},
   ): Promise<EmbedResult & CallMeta & { space: string; cached: boolean }> {
+    return this.track('embedding', () => this.embedOnce(texts, opts));
+  }
+
+  private async embedOnce(texts: string[], opts: AgentCallOptions & { purpose?: EmbedPurpose; family?: string }): Promise<EmbedResult & CallMeta & { space: string; cached: boolean }> {
     const route = this.router.route('embedding');
     const { dimensions, ...extra } = route?.extra ?? {};
     const all = this.router.attempts('embedding');

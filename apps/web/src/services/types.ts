@@ -2,7 +2,7 @@ import type { AgentRole, MapLocation, WeatherSnapshot } from '@app/shared';
 
 /**
  * 服务接口。界面只依赖这些接口。
- * 真实实现在 services/ai.ts（调用 @app/ai 的多智能体）：智能体分配的连接在这台设备上有 Key 时真的调用，
+ * 真实实现在 services/ai.ts（调用 @app/ai 的多智能体）：这个功能在 API 设置里能用（选了渠道、填了 Key）时真的调用，
  * 没有时退回 services/mock 里的演示实现，所以不填 Key 也能逛。
  */
 
@@ -34,7 +34,7 @@ export interface LLMResult {
   thinking: string;
   model: string;
   connectionId: string;
-  /** 主连接失败后用了备用连接 */
+  /** 自己的 API 失败后用了备用 API */
   fellBack: boolean;
   latencyMs?: number;
   tokens?: number;

@@ -11,7 +11,7 @@ import {
   type MessageRole,
   type TogetherMode,
 } from '@app/shared';
-import { errorText, isAbortError } from '@app/ai';
+import { errorReport, errorText, isAbortError } from '@app/ai';
 import { defineStore } from 'pinia';
 import { computed, reactive, ref } from 'vue';
 import { useAppStore } from './app';
@@ -242,6 +242,7 @@ export const useChatStore = defineStore('chat', () => {
       const parsed = parseControlTags(raw, scene.allowedTags);
       msg.text = parsed.visible.trim();
       msg.meta.error = undefined;
+      msg.meta.errorDetail = undefined;
       msg.meta.interrupted = undefined;
       if (!result.demo) {
         msg.meta.model = result.model;
@@ -281,7 +282,10 @@ export const useChatStore = defineStore('chat', () => {
       const msg = find(chatId, id);
       if (msg) {
         if (isAbortError(e) || abort.signal.aborted) msg.meta.interrupted = true;
-        else msg.meta.error = errorText(e);
+        else {
+          msg.meta.error = errorText(e);
+          msg.meta.errorDetail = errorReport(e);
+        }
       }
     } finally {
       delete streams[chatId];
@@ -319,7 +323,7 @@ export const useChatStore = defineStore('chat', () => {
       return;
     }
     const before = findPart();
-    if (before) Object.assign(before, { generated: false, error: undefined });
+    if (before) Object.assign(before, { generated: false, error: undefined, errorDetail: undefined });
     try {
       const out = await services.image.illustrate({
         characterId: character.id,
@@ -338,10 +342,14 @@ export const useChatStore = defineStore('chat', () => {
         model: out.model,
         generated: true,
         error: undefined,
+        errorDetail: undefined,
       });
     } catch (e) {
       const part = findPart();
-      if (part) part.error = errorText(e);
+      if (part) {
+        part.error = errorText(e);
+        part.errorDetail = errorReport(e);
+      }
     }
   }
 

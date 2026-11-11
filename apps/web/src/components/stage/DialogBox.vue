@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue';
+import ErrorDetails from '@/components/common/ErrorDetails.vue';
 
 /** 视觉小说式对话框：名字、正文（流式时带光标）、选项、工具条、回复输入 */
 const props = withDefaults(
@@ -12,8 +13,10 @@ const props = withDefaults(
     voiceOn?: boolean;
     autoOn?: boolean;
     showTools?: boolean;
+    /** 回复失败时的完整报错 */
+    error?: string;
   }>(),
-  { streaming: false, thinking: false, choices: () => [], voiceOn: false, autoOn: false, showTools: true },
+  { streaming: false, thinking: false, choices: () => [], voiceOn: false, autoOn: false, showTools: true, error: '' },
 );
 const emit = defineEmits<{
   (e: 'reply', text: string): void;
@@ -63,6 +66,7 @@ function segments(text: string) {
           <span :class="{ action: s.action }">{{ s.text }}</span>
         </template>
       </p>
+      <ErrorDetails v-if="error" :detail="error" title="回复失败（切到聊天模式可以重新生成）" max-height="160px" />
       <div v-if="replying" class="reply">
         <input
           ref="input"

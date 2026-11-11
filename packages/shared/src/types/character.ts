@@ -34,8 +34,8 @@ export interface StCardFields {
 export type ProactivePersonality = 'clingy' | 'balanced' | 'independent';
 
 export interface CharacterVoice {
-  /** TTS 连接 id（ProviderConnection）；为空时用"语音合成"智能体分配的连接 */
-  connectionId: string | null;
+  /** 以前按连接选 TTS 时的连接 id，已不再使用：语音合成统一用 API 设置里"语音合成"功能的渠道（旧数据里可能还有） */
+  connectionId?: string | null;
   /**
    * 音色：
    * - OpenAI 兼容 / 硅基流动：voice 字段（如 FunAudioLLM/CosyVoice2-0.5B:claire，或上传音色得到的 speech:…）
@@ -48,7 +48,7 @@ export interface CharacterVoice {
   pitch?: number;
   /** 表情 → TTS 情绪参数，例如 { blush: 'shy', sad: 'sad' }。没写的表情按服务商的默认映射 */
   emotionMap: Record<string, string>;
-  /** 这个角色单独用的 TTS 模型；为空时用智能体分配里的模型 */
+  /** 这个角色单独用的 TTS 模型；为空时用 API 设置里"语音合成"的模型 */
   model?: string;
   /** 基础说话风格（CosyVoice 的指令、gpt-4o-mini-tts 的 instructions），例如"温柔、语速稍慢" */
   style?: string;

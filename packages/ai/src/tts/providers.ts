@@ -1,5 +1,5 @@
 import { bearerHeaders, joinUrl, openaiBase, transportOf, trimUrl, type Endpoint } from '../core/endpoint.ts';
-import { AiError, httpError } from '../core/errors.ts';
+import { AiError, httpError, responseContext } from '../core/errors.ts';
 import { readBytes, readText, request, type Bytes } from '../core/http.ts';
 import { hexToBytes } from '../core/util.ts';
 import { dropField, sendFixing } from '../llm/retry.ts';
@@ -50,7 +50,7 @@ async function audioOrError(res: Response, provider: string, format: AudioFormat
   const type = res.headers.get('content-type') ?? '';
   if (/json|text\/(?:plain|html)/i.test(type)) {
     const body = await readText(res);
-    throw httpError(provider, res.status === 200 ? 502 : res.status, body);
+    throw httpError(provider, res.status === 200 ? 502 : res.status, body, res);
   }
   const bytes = await readBytes(res);
   if (bytes.length < 64) throw new AiError('empty', `${provider} 返回的音频是空的`, { retryable: true });
@@ -90,7 +90,7 @@ export async function openaiSpeech(ep: Endpoint, call: TtsCall): Promise<TtsOutp
     dropField(body, 'instructions', /instructions/i),
     dropField(body, 'speed', /speed/i),
   ]);
-  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '');
+  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '', response);
   return { ...(await audioOrError(response, ep.name, format)), model };
 }
 
@@ -119,18 +119,18 @@ export async function minimaxSpeech(ep: Endpoint, call: TtsCall): Promise<TtsOut
   const url = `${joinUrl(base, 't2a_v2')}${group}`;
   const send = () => request(transportOf(ep), ep.name, url, { method: 'POST', headers: bearerHeaders(ep), body: JSON.stringify(body), signal: req.signal });
   const { response, errText } = await sendFixing(url, undefined, undefined, send, [dropField(voiceSetting, 'emotion', /emotion/i)]);
-  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '');
+  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '', response);
   const text = await readText(response);
   let data: any;
   try {
     data = JSON.parse(text);
   } catch {
-    throw new AiError('bad_response', `${ep.name} 的回复看不懂：${text.slice(0, 200)}`, { retryable: true });
+    throw new AiError('bad_response', `${ep.name} 的回复看不懂：${text.slice(0, 200)}`, { retryable: true, detail: text, context: responseContext(response) });
   }
   const code = data?.base_resp?.status_code;
   if (code !== undefined && code !== 0) {
     // 1004 鉴权失败、1008 余额不足、2013 参数错误……
-    throw new AiError('http', `${ep.name} 返回错误 ${code}：${data.base_resp.status_msg ?? ''}`, { status: code === 1004 ? 401 : code === 1008 ? 402 : 400, detail: text.slice(0, 2000) });
+    throw new AiError('http', `${ep.name} 返回错误 ${code}：${data.base_resp.status_msg ?? ''}`, { status: code === 1004 ? 401 : code === 1008 ? 402 : 400, detail: text, context: responseContext(response) });
   }
   const hex = data?.data?.audio;
   if (typeof hex !== 'string' || !hex) throw new AiError('empty', `${ep.name} 没有返回音频`, { retryable: true });
@@ -164,7 +164,7 @@ export async function fishSpeech(ep: Endpoint, call: TtsCall): Promise<TtsOutput
     body: JSON.stringify(body),
     signal: req.signal,
   });
-  if (!res.ok) throw httpError(ep.name, res.status, await readText(res));
+  if (!res.ok) throw httpError(ep.name, res.status, await readText(res), res);
   return { ...(await audioOrError(res, ep.name, format)), model };
 }
 
@@ -190,6 +190,6 @@ export async function sovitsSpeech(ep: Endpoint, call: TtsCall): Promise<TtsOutp
   };
   const url = joinUrl(trimUrl(ep.baseUrl).replace(/\/tts$/i, ''), 'tts');
   const res = await request(transportOf(ep), ep.name, url, { method: 'POST', headers: bearerHeaders(ep), body: JSON.stringify(body), signal: req.signal });
-  if (!res.ok) throw httpError(ep.name, res.status, await readText(res));
+  if (!res.ok) throw httpError(ep.name, res.status, await readText(res), res);
   return { ...(await audioOrError(res, ep.name, format)), model: ep.model || 'gpt-sovits' };
 }

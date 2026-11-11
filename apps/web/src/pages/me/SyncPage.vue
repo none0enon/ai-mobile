@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { showToast } from 'vant';
-import { computed, ref } from 'vue';
+import { ref } from 'vue';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { services, type SyncStatus } from '@/services';
-import { useAiStore } from '@/stores/ai';
 import { hhmm } from '@/utils/time';
 
 /**
@@ -15,8 +14,6 @@ const syncing = ref(false);
 const autoSync = ref(true);
 const encryptKeys = ref(false);
 const dailyBackup = ref(true);
-const ai = useAiStore();
-const hubKeys = computed(() => ai.connections.filter((c) => c.keyStorage === 'hub'));
 
 async function syncNow() {
   syncing.value = true;
@@ -71,7 +68,7 @@ function ago(ts: number | null) {
 
       <div class="group-title">交给 Worker 保管的 Key</div>
       <van-cell-group inset>
-        <van-cell v-for="c in hubKeys" :key="c.id" :title="c.name" label="只能写入、读不回来；后台智能体用" value="已保存">
+        <van-cell title="还没有" label="连上自己的 Worker 后，后台功能（主动消息、夜间总结）的 Key 可以交给它保管：只能写入、读不回来">
           <template #icon><span class="i-lucide-key-round row-icon" /></template>
         </van-cell>
       </van-cell-group>

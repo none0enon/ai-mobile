@@ -1,5 +1,5 @@
 import { bearerHeaders, joinUrl, openaiBase, transportOf, type Endpoint } from '../core/endpoint.ts';
-import { AiError, httpError } from '../core/errors.ts';
+import { AiError, httpError, responseContext } from '../core/errors.ts';
 import { readBytes, readText, request } from '../core/http.ts';
 import { randomSeed } from '../core/util.ts';
 import { dropField, sendFixing } from '../llm/retry.ts';
@@ -68,16 +68,16 @@ export async function openaiImages(ep: Endpoint, req: ImageRequest): Promise<Ima
     dropField(body, 'num_inference_steps', /num_inference_steps|steps/i),
     dropField(body, 'guidance_scale', /guidance/i),
   ]);
-  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '');
+  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '', response);
   const text = await readText(response);
   let data: any;
   try {
     data = JSON.parse(text);
   } catch {
-    throw new AiError('bad_response', `${ep.name} 的回复看不懂：${text.slice(0, 200)}`);
+    throw new AiError('bad_response', `${ep.name} 的回复看不懂：${text.slice(0, 200)}`, { detail: text, context: responseContext(response) });
   }
   const found = extractImage(data);
-  if (!found) throw new AiError('empty', `${ep.name} 没有返回图片`, { retryable: true });
+  if (!found) throw new AiError('empty', `${ep.name} 没有返回图片`, { retryable: true, detail: text, context: responseContext(response) });
   let image: GeneratedImage;
   if ('bytes' in found) {
     image = { bytes: found.bytes, mime: sniffImageMime(found.bytes, found.mime) };

@@ -1,49 +1,40 @@
-import { AGENT_META, API_SLOT_LABEL, type AgentRole, type AgentRoute, type ApiSlot, type ApiSlotSetting, type Capability, type ConnectionKind, type ProviderConnection } from '@app/shared';
+import { AGENT_META, apiKeyId, isTextRole, type AgentRole, type AgentRoute, type Capability, type ConnectionKind, type FeatureApi } from '@app/shared';
+import { apiLabel, kindOf, needsKey } from '../channels.ts';
 import type { Endpoint } from '../core/endpoint.ts';
-import { AiError, errorText, shouldFailover } from '../core/errors.ts';
-import type { Transport } from '../core/http.ts';
+import { AiError, annotateError, errorText, shouldFailover } from '../core/errors.ts';
 import { canEmbed } from '../embedding/client.ts';
 import { canDraw } from '../image/client.ts';
 import { canChat } from '../llm/client.ts';
 import { canSpeak } from '../tts/client.ts';
 
 /**
- * 智能体路由（设计文档 §4.1）：每个智能体单独选"连接 + 模型 + 备用连接"。
- * 路由把分配解析成要试的端点（主连接，再备用连接），按顺序调用：主连接失败且值得换时改用备用（同 math-reader 的 callAI）。
- * 配置从哪里来由调用方决定：App 里是本机的设置，以后的 Worker 里是 D1。
+ * 功能路由：API 设置按功能分，每个功能自己选渠道、填地址、Key、模型，可以再设一个备用 API。
+ * 主对话以外的文本功能默认跟随主对话（用主对话的 API 和备用 API）。
+ * 路由把设置解析成要试的端点（自己的 API，再备用 API），按顺序调用：失败且值得换时改用备用（同 math-reader 的 callAI）。
+ * 设置从哪里来由调用方决定：App 里是本机的设置，以后的 Worker 里是 D1。
  */
 
 export interface AgentConfig {
-  connections(): ProviderConnection[];
   routes(): AgentRoute[];
-  /** 这台设备上保存的 Key；没有返回 null */
-  keyOf(connectionId: string): string | null;
-  /** 经自己的 Worker 转发时用的请求函数；还没连上 Worker 时返回 null */
-  relay?(conn: ProviderConnection): Transport | null;
-  /**
-   * 三套 AI API（主要 / 次要 / 备用，同 math-reader）各用哪个连接、哪个模型。
-   * 给了它，文字类智能体（对话、识图）就按 math-reader 的规则选用这三套，不看分配里的连接和模型
-   */
-  apiSlots?(): Partial<Record<ApiSlot, ApiSlotSetting>>;
-}
-
-/** 文字类智能体（对话、识图）用三套 API */
-export function isSlotCapability(cap: Capability): boolean {
-  return cap === 'chat' || cap === 'vision';
+  /** 这台设备上保存的 Key（键见 apiKeyId）；没有返回 null */
+  keyOf(id: string): string | null;
 }
 
 export interface Attempt {
   endpoint: Endpoint;
-  connection: ProviderConnection;
-  /** 这是备用连接 */
+  /** 用的是哪个功能的设置（跟随主对话时是 main） */
+  source: AgentRole;
+  /** 这是备用 API */
   fallback: boolean;
-  /** 用的是三套 API 中的哪一套（文字类智能体） */
-  slot?: ApiSlot;
+  /** 设置本身（界面显示渠道、模型） */
+  api: FeatureApi;
 }
 
+export type RouteCode = 'no_route' | 'no_key' | 'unsupported' | 'network';
+
 export type RouteStatus =
-  | { live: true; route: AgentRoute; connection: ProviderConnection }
-  | { live: false; reason: string; code: 'no_route' | 'no_key' | 'unsupported' | 'network'; route?: AgentRoute; connection?: ProviderConnection };
+  | { live: true; route: AgentRoute; api: FeatureApi; source: AgentRole }
+  | { live: false; reason: string; code: RouteCode; route?: AgentRoute; api?: FeatureApi; source?: AgentRole };
 
 /** 这种协议能不能做这件事 */
 export function kindCan(kind: ConnectionKind, cap: Capability): boolean {
@@ -64,6 +55,53 @@ export function kindCan(kind: ConnectionKind, cap: Capability): boolean {
   }
 }
 
+function capLabel(cap: Capability): string {
+  return { chat: '对话', vision: '识图', embedding: '向量化', tts: '语音合成', stt: '语音识别', image: '生图', maps: '地图' }[cap];
+}
+
+/**
+ * 用一个功能的 API 设置拼端点：渠道 → 协议，地址、模型、Key 都要有（自建服务、本机和局域网地址可以不填 Key）。
+ * 不能用时说明原因
+ */
+export function endpointOfApi(
+  api: FeatureApi,
+  role: AgentRole,
+  key: string | null,
+  opts: { backup?: boolean; model?: string } = {},
+): { endpoint: Endpoint } | { reason: string; code: RouteCode } {
+  const cap = AGENT_META[role].capability;
+  const kind = kindOf(api, role);
+  const name = `${apiLabel(api, role)}${opts.backup ? '（备用）' : ''}`;
+  if (cap === 'stt') return { reason: '语音识别还没接入，设置会先存着', code: 'unsupported' };
+  if (!kindCan(kind, cap)) return { reason: `${name}不能做${capLabel(cap)}`, code: 'unsupported' };
+  if (!api.baseUrl.trim()) return { reason: `${name}还没填地址`, code: 'no_route' };
+  const model = (opts.model ?? api.model).trim();
+  // 语音合成的模型可以按角色填；Fish Audio、GPT-SoVITS 不填模型也行
+  if (!model && cap !== 'tts') return { reason: `${name}还没选模型`, code: 'no_route' };
+  const k = key?.trim() || null;
+  if (!k && needsKey(api)) return { reason: `${name}还没填 Key`, code: 'no_key' };
+  return {
+    endpoint: {
+      connectionId: apiKeyId(role, opts.backup),
+      name,
+      kind,
+      baseUrl: api.baseUrl.trim(),
+      key: k,
+      model,
+      headers: api.headers,
+      extra: api.extra,
+      promptProcessing: api.promptProcessing,
+      includeBody: api.includeBody,
+      excludeBody: api.excludeBody,
+    },
+  };
+}
+
+/** 出错时补上是哪个 API、哪个模型（完整报错里列出来） */
+export function annotateAttempt(e: unknown, ep: Endpoint): unknown {
+  return annotateError(e, { api: ep.name, kind: ep.kind, model: ep.model || undefined });
+}
+
 export class AgentRouter {
   readonly config: AgentConfig;
 
@@ -75,147 +113,69 @@ export class AgentRouter {
     return this.config.routes().find((r) => r.role === role);
   }
 
-  connection(id: string | null | undefined): ProviderConnection | undefined {
-    return id ? this.config.connections().find((c) => c.id === id && !c.deleted) : undefined;
+  /** 真正提供 API 设置的功能：主对话以外的文本功能跟随主对话时是 main */
+  source(role: AgentRole): AgentRole {
+    return role !== 'main' && isTextRole(role) && this.route(role)?.sameAsMain ? 'main' : role;
+  }
+
+  /** 实际用的设置（跟随主对话时是主对话的） */
+  effective(role: AgentRole): AgentRoute | undefined {
+    return this.route(this.source(role));
+  }
+
+  private problem(role: AgentRole): { reason: string; code: RouteCode } {
+    const source = this.source(role);
+    const follow = source !== role ? '（跟随主对话）' : '';
+    return { reason: `${AGENT_META[source].label}还没设置 API${follow}`, code: 'no_route' };
   }
 
   /**
-   * 一个连接能不能用来做 cap：协议支持、Key 在、需要转发时已连上 Worker。
-   * Key 交给 Worker 而本机没有时，只能经 Worker 转发。
+   * 要试的端点：自己的 API，再备用 API。model 用来临时换模型（例如角色单独填的 TTS 模型，只用在自己的 API 上）。
+   * 不能用的跳过；一个都不能用时报自己的 API 的原因
    */
-  endpointFor(conn: ProviderConnection, model: string, cap: Capability): { endpoint: Endpoint } | { reason: string; code: 'no_key' | 'unsupported' | 'network' } {
-    if (!kindCan(conn.kind, cap)) return { reason: `"${conn.name}" 不能做${capLabel(cap)}`, code: 'unsupported' };
-    const key = this.config.keyOf(conn.id);
-    let transport: Transport | undefined;
-    if (conn.viaWorker || (!key && conn.keyStorage === 'hub')) {
-      const relay = this.config.relay?.(conn) ?? null;
-      if (!relay) {
-        return {
-          reason: conn.viaWorker ? `"${conn.name}" 设置了经 Worker 转发，但还没连上自己的 Worker` : `"${conn.name}" 的 Key 交给了 Worker，这台设备上没有，要经 Worker 转发`,
-          code: 'network',
-        };
-      }
-      transport = relay;
-    } else if (!key && conn.keyStorage !== 'none') {
-      return { reason: `"${conn.name}" 还没在这台设备上填 Key`, code: 'no_key' };
-    }
-    return {
-      endpoint: {
-        connectionId: conn.id,
-        name: conn.name,
-        kind: conn.kind,
-        baseUrl: conn.baseUrl,
-        key,
-        model,
-        headers: conn.extraHeaders,
-        extra: conn.extra,
-        promptProcessing: conn.promptProcessing,
-        includeBody: conn.includeBody,
-        excludeBody: conn.excludeBody,
-        transport,
-      },
-    };
-  }
-
-  /** 这个智能体按 math-reader 的规则用三套 API */
-  usesSlots(role: AgentRole): boolean {
-    return !!this.config.apiSlots && isSlotCapability(AGENT_META[role].capability);
-  }
-
-  /** 一套 API 能用就给出它的端点，不能用说明原因（同 math-reader 的 isAIApiConfigured：连接在、Key 在、模型选了） */
-  slotAttempt(slot: ApiSlot, cap: Capability, fallback = false): Attempt | { reason: string; code: 'no_route' | 'no_key' | 'unsupported' | 'network' } {
-    const label = API_SLOT_LABEL[slot];
-    const s = this.config.apiSlots?.()[slot];
-    if (!s?.connectionId) return { reason: slot === 'primary' ? `${label}还没选连接` : `没设置${label}`, code: 'no_route' };
-    const conn = this.connection(s.connectionId);
-    if (!conn) return { reason: `${label}选的连接已经删除`, code: 'no_route' };
-    if (!s.model.trim()) return { reason: `${label}（${conn.name}）还没选模型`, code: 'no_route' };
-    const r = this.endpointFor(conn, s.model.trim(), cap);
-    if ('reason' in r) return { reason: `${label}：${r.reason}`, code: r.code };
-    return { endpoint: r.endpoint, connection: conn, fallback, slot };
-  }
-
-  /**
-   * 同 math-reader 的 resolveAIRoute：所选的 API 不能用就依次用主要、备用、次要；
-   * 再加一个调用失败后改用的：备用 API（所选的就是备用时改用主要 API）。一套都不能用时返回空数组和主要 API 的原因
-   */
-  slotAttempts(role: AgentRole): { attempts: Attempt[]; reason: string; code: 'no_route' | 'no_key' | 'unsupported' | 'network' } {
-    const cap = AGENT_META[role].capability;
-    const chosen = this.route(role)?.slot ?? 'primary';
-    let first: Attempt | null = null;
-    let problem: { reason: string; code: 'no_route' | 'no_key' | 'unsupported' | 'network' } | null = null;
-    for (const slot of [...new Set<ApiSlot>([chosen, 'primary', 'backup', 'secondary'])]) {
-      const a = this.slotAttempt(slot, cap);
-      if ('reason' in a) {
-        if (slot === 'primary' || !problem) problem = a;
-        continue;
-      }
-      first = a;
-      break;
-    }
-    if (!first) return { attempts: [], reason: problem?.reason ?? '主要 API 还没选连接', code: problem?.code ?? 'no_route' };
-    const next = this.slotAttempt(first.slot === 'backup' ? 'primary' : 'backup', cap, true);
-    return { attempts: 'reason' in next ? [first] : [first, next], reason: '', code: 'no_route' };
-  }
-
-  /** 主连接能不能用；不能时说明原因（界面据此决定用演示模型还是真的调用） */
-  status(role: AgentRole): RouteStatus {
-    if (this.usesSlots(role)) {
-      const route = this.route(role) ?? { role, connectionId: null, model: '', fallbackConnectionId: null, runsOn: 'device' as const };
-      const r = this.slotAttempts(role);
-      const first = r.attempts[0];
-      if (!first) return { live: false, reason: r.reason, code: r.code, route };
-      return { live: true, route, connection: first.connection };
-    }
-    const route = this.route(role);
-    if (!route?.connectionId) return { live: false, reason: `还没给"${AGENT_META[role].label}"分配连接`, code: 'no_route', route };
-    const conn = this.connection(route.connectionId);
-    if (!conn) return { live: false, reason: `"${AGENT_META[role].label}"分配的连接已经删除`, code: 'no_route', route };
-    if (!route.model && role !== 'tts') return { live: false, reason: `"${AGENT_META[role].label}"还没选模型`, code: 'no_route', route, connection: conn };
-    const r = this.endpointFor(conn, route.model, AGENT_META[role].capability);
-    if ('reason' in r) return { live: false, reason: r.reason, code: r.code, route, connection: conn };
-    return { live: true, route, connection: conn };
-  }
-
-  /**
-   * 要试的端点：主连接，再备用连接（模型没填时沿用主模型）。
-   * override 用来临时换连接或模型（例如角色单独选的 TTS 连接）。不能用的连接跳过；一个都不能用时报主连接的原因。
-   */
-  attempts(role: AgentRole, override: { connectionId?: string | null; model?: string } = {}): Attempt[] {
-    if (this.usesSlots(role)) {
-      const r = this.slotAttempts(role);
-      if (!r.attempts.length) throw new AiError(r.code, r.reason);
-      return r.attempts;
-    }
-    const route = this.route(role);
-    const cap = AGENT_META[role].capability;
-    const primaryId = override.connectionId || route?.connectionId;
-    const model = override.model || route?.model || '';
-    const list: { conn: ProviderConnection | undefined; model: string; fallback: boolean }[] = [{ conn: this.connection(primaryId), model, fallback: false }];
-    if (route?.fallbackConnectionId && route.fallbackConnectionId !== primaryId) {
-      list.push({ conn: this.connection(route.fallbackConnectionId), model: route.fallbackModel || model, fallback: true });
+  attempts(role: AgentRole, override: { model?: string } = {}): Attempt[] {
+    const source = this.source(role);
+    const r = this.route(source);
+    const list: { api: FeatureApi; fallback: boolean }[] = [];
+    if (r?.api) list.push({ api: r.api, fallback: false });
+    if (r?.backup) list.push({ api: r.backup, fallback: true });
+    if (!list.length) {
+      const p = this.problem(role);
+      throw new AiError(p.code, p.reason);
     }
     const out: Attempt[] = [];
     let firstProblem: AiError | null = null;
     for (const item of list) {
-      if (!item.conn) {
-        firstProblem ??= new AiError('no_route', item.fallback ? '备用连接已经删除' : `还没给"${AGENT_META[role].label}"分配连接`);
+      const e = endpointOfApi(item.api, role, this.config.keyOf(apiKeyId(source, item.fallback)), {
+        backup: item.fallback,
+        model: item.fallback ? undefined : override.model || undefined,
+      });
+      if ('reason' in e) {
+        firstProblem ??= new AiError(e.code, e.reason);
         continue;
       }
-      const r = this.endpointFor(item.conn, item.model, cap);
-      if ('reason' in r) {
-        firstProblem ??= new AiError(r.code, r.reason);
-        continue;
-      }
-      out.push({ endpoint: r.endpoint, connection: item.conn, fallback: item.fallback });
+      out.push({ endpoint: e.endpoint, source, fallback: item.fallback, api: item.api });
     }
-    if (!out.length) throw firstProblem ?? new AiError('no_route', `还没给"${AGENT_META[role].label}"分配连接`);
+    if (!out.length) throw firstProblem ?? new AiError('no_route', this.problem(role).reason);
     return out;
   }
 
+  /** 能不能真的调用；不能时说明原因（界面据此决定用演示模型还是真的调用） */
+  status(role: AgentRole): RouteStatus {
+    const route = this.route(role);
+    const source = this.source(role);
+    try {
+      const first = this.attempts(role)[0] as Attempt;
+      return { live: true, route: route as AgentRoute, api: first.api, source };
+    } catch (e) {
+      const code = e instanceof AiError && e.code !== 'http' ? (e.code as RouteCode) : 'no_route';
+      return { live: false, reason: errorText(e), code, route, api: this.route(source)?.api ?? undefined, source };
+    }
+  }
+
   /**
-   * 依次试端点：主连接失败、且错误值得换连接时（不是取消、不是超预算）改用下一个，并调用 onFailover。
-   * 全部失败时报最后一个错误，消息里带上主连接的错误。
+   * 依次试端点：失败、且错误值得换时（不是取消、不是超预算）改用下一个，并调用 onFailover。
+   * 每个错误都补上是哪个 API、哪个模型；全部失败时报最后一个错误，消息里带上先失败的那个，完整报错里两边都有。
    */
   async run<T>(
     attempts: Attempt[],
@@ -226,13 +186,21 @@ export class AgentRouter {
     for (let i = 0; i < attempts.length; i += 1) {
       const attempt = attempts[i] as Attempt;
       try {
-        // 主连接不能用（没填 Key 等）时第一个就是备用连接：也算用了备用
+        // 自己的 API 不能用（没填 Key 等）时第一个就是备用：也算用了备用
         return { value: await fn(attempt.endpoint, attempt), attempt, fellBack: i > 0 || attempt.fallback };
-      } catch (e) {
+      } catch (raw) {
+        const e = annotateAttempt(raw, attempt.endpoint);
         const next = attempts[i + 1];
         if (!next || !shouldFailover(e)) {
           if (first !== null && e instanceof AiError) {
-            throw new AiError(e.code, `${errorText(first)}\n备用连接也失败了：${e.message}`, { status: e.status, retryable: e.retryable, detail: e.detail, cause: e });
+            throw new AiError(e.code, `${errorText(first)}\n备用 API 也失败了：${e.message}`, {
+              status: e.status,
+              retryable: e.retryable,
+              detail: e.detail,
+              cause: (e as Error & { cause?: unknown }).cause,
+              context: e.context,
+              previous: first,
+            });
           }
           throw e;
         }
@@ -240,10 +208,6 @@ export class AgentRouter {
         onFailover?.(attempt, next, e);
       }
     }
-    throw new AiError('no_route', '没有可用的连接');
+    throw new AiError('no_route', '没有可用的 API');
   }
-}
-
-function capLabel(cap: Capability): string {
-  return { chat: '对话', vision: '识图', embedding: '向量化', tts: '语音合成', stt: '语音识别', image: '生图', maps: '地图' }[cap];
 }

@@ -124,3 +124,16 @@
 .van-action-sheet__item {
   color: var(--ink);
 }
+
+/* 完整报错的弹窗（utils/errors.ts 的 showErrorDialog）：原文按等宽字体显示，能滚动、能长按选中 */
+.error-dialog .van-dialog__message {
+  max-height: 60vh;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+}

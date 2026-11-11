@@ -90,7 +90,7 @@ export async function vertexAccessToken(ep: Endpoint, sa: ServiceAccount, signal
     body: `grant_type=${encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')}&assertion=${jwt}`,
     signal,
   });
-  if (!res.ok) throw httpError(ep.name, res.status, await readText(res));
+  if (!res.ok) throw httpError(ep.name, res.status, await readText(res), res);
   const data = (await res.json()) as { access_token?: string; expires_in?: number };
   if (!data.access_token) throw new AiError('bad_response', `${ep.name}：换访问令牌时没有拿到 access_token`);
   tokenCache.set(cacheKey, { token: data.access_token, expiresAt: now + (data.expires_in ?? 3600) * 1000 });

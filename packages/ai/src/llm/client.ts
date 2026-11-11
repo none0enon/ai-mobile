@@ -40,8 +40,8 @@ function rejected(e: unknown): boolean {
  * - 有 onDelta 时走流式；流式请求在收到任何正文之前就失败（例如服务端没有流式接口），同一个连接改普通请求再试一次，并报告 fallback；
  * - 只收到思考内容、还没有正文就失败时同样改普通请求；已经有正文了就直接报错（不重复生成）；
  * - 没能流式的（普通请求、服务端忽略流式参数）最后补一次 onDelta，界面拿到的总是全文；
- * - 正文为空算失败（可以换备用连接）。
- * 换备用连接不在这里，在智能体路由（agents/router.ts）。
+ * - 正文为空算失败（可以换备用 API）。
+ * 换备用 API 不在这里，在功能路由（agents/router.ts）。
  */
 export async function chatOnce(ep: Endpoint, req: ChatRequest, opts: ChatOptions = {}): Promise<ChatResult> {
   const provider = providerOf(ep);

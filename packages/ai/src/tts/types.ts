@@ -7,7 +7,7 @@ import type { Bytes } from '../core/http.ts';
  */
 export interface VoiceSpec {
   voiceId: string;
-  /** 这个角色单独用的模型；为空时用连接 / 智能体分配的模型 */
+  /** 这个角色单独用的模型；为空时用"语音合成"功能设置里的模型 */
   model?: string;
   /** 1 为正常语速 */
   speed?: number;

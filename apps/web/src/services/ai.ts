@@ -35,7 +35,7 @@ import { sleep } from '@/utils/id';
 
 /**
  * 服务接口的真实实现：交给 @app/ai 的多智能体（stores/ai.ts 里的 AgentSystem）。
- * 每次调用时看这个智能体能不能真的调用（分配了连接、这台设备上有 Key）；不能就用演示实现。
+ * 每次调用时看这个功能能不能真的调用（API 设置里选了渠道、填了地址和 Key）；不能就用演示实现。
  */
 
 /** 同一类失败提示 20 秒内只弹一次（通话时每句都失败也不会刷屏） */
@@ -79,11 +79,11 @@ export function voiceSpec(c: Character): VoiceSpec {
   return { voiceId: v.voiceId, model: v.model, speed: v.speed, pitch: v.pitch, style: v.style, refText: v.refText, refLang: v.refLang, emotionMap: v.emotionMap };
 }
 
-/** 这个角色的声音能不能真的合成：TTS 连接（角色自己选的或智能体分配的）能用、选了音色 */
+/** 这个角色的声音能不能真的合成："语音合成"功能的 API 能用、选了音色（Fish Audio 不选也有默认音色） */
 export function ttsLiveFor(c: Character | undefined): boolean {
   if (!c) return false;
   try {
-    const attempt = useAiStore().system.router.attempts('tts', { connectionId: c.voice.connectionId })[0];
+    const attempt = useAiStore().system.router.attempts('tts', { model: c.voice.model })[0];
     return !!attempt && (!!c.voice.voiceId || attempt.endpoint.kind === 'fish-audio');
   } catch {
     return false;
@@ -116,7 +116,6 @@ export class RoutedTTS implements TTSClient {
         voice: voiceSpec(c),
         speakerName: c.name,
         expression: opts.expression ?? chars.expression[c.id] ?? null,
-        connectionId: c.voice.connectionId,
         signal: ctrl.signal,
       });
       if (ctrl.signal.aborted) return;
@@ -124,7 +123,8 @@ export class RoutedTTS implements TTSClient {
     } catch (e) {
       if (isAbortError(e) || ctrl.signal.aborted) return;
       if (e instanceof AiError && e.code === 'empty') return;
-      toastOnce('tts', `语音合成失败：${errorText(e)}`);
+      // 完整报错记在 API 设置的"语音合成"上（stores/ai.ts 的 lastErrors）；通话中不弹窗打断
+      toastOnce('tts', `语音合成失败：${errorText(e)}\n完整报错在"我的 → API 设置 → 语音合成"`);
       // 通话还要继续：退回无声的演示（只动声波）
       await this.demo.speak(text, { ...opts, signal: ctrl.signal }).catch(() => undefined);
     } finally {
@@ -152,11 +152,11 @@ export class RoutedEmbedding implements EmbeddingClient {
   }
 
   get model(): string {
-    return this.live ? (useAiStore().routeOf('embedding')?.model ?? '') : this.demo.model;
+    return this.live ? (useAiStore().routeOf('embedding').api?.model ?? '') : this.demo.model;
   }
 
   get dims(): number {
-    return this.live ? (useAiStore().routeOf('embedding')?.dims ?? 0) : this.demo.dims;
+    return this.live ? (useAiStore().routeOf('embedding').dims ?? 0) : this.demo.dims;
   }
 
   async embed(texts: string[], purpose: 'document' | 'query' = 'document'): Promise<Float32Array[]> {
@@ -165,7 +165,7 @@ export class RoutedEmbedding implements EmbeddingClient {
     const r = await ai.system.embed(texts, { purpose });
     // 记下当前维度：换模型后据此判断哪些记忆要重算
     const route = ai.routeOf('embedding');
-    if (route && route.dims !== r.dims) ai.saveRoute({ ...route, dims: r.dims });
+    if (route.dims !== r.dims) ai.saveRoute({ ...route, dims: r.dims });
     return r.vectors;
   }
 }

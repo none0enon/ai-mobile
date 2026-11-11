@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { AgentRoute, Memory, ProviderConnection } from '@app/shared';
-import { AiError } from '../src/core/errors.ts';
+import type { AgentRoute, FeatureApi, Memory } from '@app/shared';
+import { AiError, errorReport } from '../src/core/errors.ts';
 import type { Transport } from '../src/core/http.ts';
 import { encodeVector, l2normalize } from '../src/embedding/vector.ts';
 import { buildImagePromptMessages, parseImagePrompt, toImageRequest } from '../src/agents/imagePrompt.ts';
@@ -13,36 +13,17 @@ import { parseSummary } from '../src/agents/summary.ts';
 import { AgentSystem, MemoryAudioCache } from '../src/agents/system.ts';
 import { bytesResponse, fakeTransport, json } from './helpers.ts';
 
-function conn(id: string, over: Partial<ProviderConnection> = {}): ProviderConnection {
-  return {
-    id,
-    createdAt: 0,
-    updatedAt: 0,
-    name: id,
-    kind: 'openai',
-    baseUrl: `https://${id}.example/v1`,
-    keyStorage: 'device',
-    hasKey: true,
-    capabilities: ['chat'],
-    models: ['m'],
-    viaWorker: false,
-    ...over,
-  };
+function api(id: string, over: Partial<FeatureApi> = {}): FeatureApi {
+  return { channel: 'openai', baseUrl: `https://${id}.example/v1`, model: 'm', models: ['m'], ...over };
 }
 
 function route(role: AgentRoute['role'], over: Partial<AgentRoute> = {}): AgentRoute {
-  return { role, connectionId: null, model: 'm', fallbackConnectionId: null, runsOn: 'device', ...over };
+  return { role, api: null, backup: null, runsOn: 'device', ...over };
 }
 
-/** 一个假的配置：所有连接共用一个假服务端，按地址区分 */
-function setup(connections: ProviderConnection[], routes: AgentRoute[], transport: Transport, keys: Record<string, string> = {}, relay?: Transport): AgentConfig {
-  const withTransport = (c: ProviderConnection) => c;
-  return {
-    connections: () => connections.map(withTransport),
-    routes: () => routes,
-    keyOf: (id) => keys[id] ?? (connections.find((c) => c.id === id)?.keyStorage === 'none' ? null : `key-${id}`),
-    relay: relay ? () => relay : undefined,
-  };
+/** 一个假的配置：每个功能的 Key 默认都有（key-api:main 这样），keys 里写 '' 表示没填 */
+function setup(routes: AgentRoute[], keys: Record<string, string> = {}): AgentConfig {
+  return { routes: () => routes, keyOf: (id) => (id in keys ? keys[id] || null : `key-${id}`) };
 }
 
 /** 路由出来的端点没有 transport（用全局 fetch）：测试里把全局 fetch 换成假的 */
@@ -56,22 +37,38 @@ async function withFetch<T>(t: Transport, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-test('router status explains why an agent cannot run', () => {
-  const t = fakeTransport(() => json({}));
-  const cs = [conn('a'), conn('nai', { kind: 'novelai' }), conn('w', { viaWorker: true }), conn('local', { keyStorage: 'none' })];
-  const r = new AgentRouter({
-    connections: () => cs,
-    routes: () => [route('main'), route('sidestory', { connectionId: 'gone' }), route('imagePrompt', { connectionId: 'nai' }), route('summary', { connectionId: 'w' }), route('proactive', { connectionId: 'a' }), route('vision', { connectionId: 'local' })],
-    keyOf: (id) => (id === 'a' ? null : 'k'),
-  });
-  assert.match((r.status('main') as { reason: string }).reason, /还没给"主对话"分配连接/);
-  assert.match((r.status('sidestory') as { reason: string }).reason, /已经删除/);
-  assert.match((r.status('imagePrompt') as { reason: string }).reason, /不能做对话/);
-  assert.match((r.status('summary') as { reason: string }).reason, /经 Worker 转发.*还没连上/);
-  assert.equal(r.status('proactive').live, false);
+test('router status explains why a feature cannot run; text features follow the main chat', () => {
+  const r = new AgentRouter(
+    setup(
+      [
+        route('main'),
+        route('sidestory', { sameAsMain: true }),
+        route('imagePrompt', { api: api('nai', { channel: 'novelai' }) }),
+        route('summary', { api: api('x', { baseUrl: ' ' }) }),
+        route('proactive', { api: api('a') }),
+        route('vision', { api: api('local', { baseUrl: 'http://192.168.1.5:8787/v1' }) }),
+        route('tts', { api: api('sv', { channel: 'gpt-sovits', baseUrl: 'https://tts.example', model: '' }) }),
+        route('stt', { api: api('sf', { channel: 'siliconflow' }) }),
+      ],
+      { 'api:proactive': '', 'api:vision': '', 'api:tts': '' },
+    ),
+  );
+  assert.match((r.status('main') as { reason: string }).reason, /主对话还没设置 API/);
+  assert.match((r.status('sidestory') as { reason: string }).reason, /主对话还没设置 API（跟随主对话）/);
+  assert.match((r.status('imagePrompt') as { reason: string }).reason, /NovelAI不能做对话/);
+  assert.match((r.status('summary') as { reason: string }).reason, /还没填地址/);
   assert.equal((r.status('proactive') as { code: string }).code, 'no_key');
+  // 局域网地址、自建 GPT-SoVITS 不填 Key 也能用
   assert.equal(r.status('vision').live, true);
-  void t;
+  assert.equal(r.status('tts').live, true);
+  assert.match((r.status('stt') as { reason: string }).reason, /还没接入/);
+  // 自定义渠道的文本功能默认按 Gemini 格式（同 math-reader 的自定义渠道），其他功能按 OpenAI 格式
+  const custom = new AgentRouter(setup([route('main', { api: api('c', { channel: 'custom' }) }), route('summary', { sameAsMain: true }), route('embedding', { api: api('e', { channel: 'custom' }) })]));
+  const a = custom.attempts('summary')[0]!;
+  assert.equal(a.endpoint.kind, 'gemini');
+  assert.equal(a.source, 'main');
+  assert.equal(a.endpoint.key, 'key-api:main');
+  assert.equal(custom.attempts('embedding')[0]!.endpoint.kind, 'openai');
 });
 
 test('chat failover: fallback gets a minimal request (SleepTogether), meta and callbacks report it, output is trimmed', async () => {
@@ -80,9 +77,14 @@ test('chat failover: fallback gets a minimal request (SleepTogether), meta and c
       ? json({ error: { message: 'upstream down' } }, 502)
       : json({ choices: [{ message: { content: '我在想……</think>备用的回复' } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }),
   );
-  const routes = [route('main', { connectionId: 'a', model: 'big', fallbackConnectionId: 'b', fallbackModel: 'small', params: { temperature: 0.8, reasoningEffort: 'high' }, extra: { top_a: 0.2 } })];
+  const routes = [route('main', { api: api('a', { model: 'big' }), backup: api('b', { model: 'small' }), params: { temperature: 0.8, reasoningEffort: 'high' }, extra: { top_a: 0.2 } })];
   const seen: string[] = [];
-  const sys = new AgentSystem({ config: setup([conn('a'), conn('b')], routes, t), onFailover: (role, from, to, e) => seen.push(`${role}:${from.connection.id}→${to.connection.id}:${(e as Error).message}`) });
+  const calls: string[] = [];
+  const sys = new AgentSystem({
+    config: setup(routes),
+    onFailover: (role, from, to, e) => seen.push(`${role}:${from.endpoint.connectionId}→${to.endpoint.connectionId}:${(e as Error).message}`),
+    onCall: (role, o) => calls.push(`${role}:${o.ok ? `ok${o.fellBack ? ' fellBack' : ''}` : 'failed'}`),
+  });
   const r = await withFetch(t, () => sys.chat('main', { messages: [{ role: 'user', content: '在吗' }], topP: 0.9 }));
   // 只有结束标签的思考内容被修剪掉（SleepTogether 的默认规则）
   assert.equal(r.text, '备用的回复');
@@ -93,15 +95,21 @@ test('chat failover: fallback gets a minimal request (SleepTogether), meta and c
   assert.equal(first.reasoning_effort, 'high');
   assert.equal(first.top_a, 0.2);
   assert.deepEqual(Object.keys(t.calls.at(-1)!.body).sort(), ['messages', 'model', 'stream', 'temperature']);
-  assert.match(seen[0]!, /^main:a→b:.*502/);
+  assert.match(seen[0]!, /^main:api:main→api:main:backup:.*502/);
+  assert.deepEqual(calls, ['main:ok fellBack']);
   assert.equal(sys.usedToday('main'), 15);
 });
 
 test('both connections fail: error mentions both; aborted calls never fail over', async () => {
   const t = fakeTransport((req) => json({ error: { message: req.url.includes('a.example') ? 'first broke' : 'second broke' } }, 500));
-  const sys = new AgentSystem({ config: setup([conn('a'), conn('b')], [route('main', { connectionId: 'a', fallbackConnectionId: 'b' })], t) });
+  const sys = new AgentSystem({ config: setup([route('main', { api: api('a'), backup: api('b') })]) });
   await withFetch(t, () =>
-    assert.rejects(sys.chat('main', { messages: [{ role: 'user', content: 'x' }] }), (e: unknown) => e instanceof AiError && /first broke/.test(e.message) && /备用连接也失败了.*second broke/s.test(e.message)),
+    assert.rejects(sys.chat('main', { messages: [{ role: 'user', content: 'x' }] }), (e: unknown) => {
+      if (!(e instanceof AiError) || !/first broke/.test(e.message) || !/备用 API 也失败了.*second broke/s.test(e.message)) return false;
+      // 完整报错：两边的请求地址、状态码、服务端原文都在
+      const report = errorReport(e);
+      return /POST https:\/\/b\.example\/v1\/chat\/completions/.test(report) && /先失败的那个 API[\s\S]*POST https:\/\/a\.example\/v1\/chat\/completions/.test(report) && /"message": "second broke"/.test(report);
+    }),
   );
   const ctrl = new AbortController();
   ctrl.abort();
@@ -112,7 +120,7 @@ test('both connections fail: error mentions both; aborted calls never fail over'
 
 test('daily token budget blocks background agents', async () => {
   const t = fakeTransport(() => json({ choices: [{ message: { content: 'ok' } }], usage: { prompt_tokens: 60, completion_tokens: 50 } }));
-  const sys = new AgentSystem({ config: setup([conn('a')], [route('summary', { connectionId: 'a', dailyTokenBudget: 150 })], t) });
+  const sys = new AgentSystem({ config: setup([route('summary', { api: api('a'), dailyTokenBudget: 150 })]) });
   await withFetch(t, () => sys.chat('summary', { messages: [{ role: 'user', content: '总结一下' }] }));
   assert.equal(sys.usedToday('summary'), 110);
   await withFetch(t, () => assert.rejects(sys.chat('summary', { messages: [{ role: 'user', content: '再来'.repeat(30) }] }), (e: unknown) => e instanceof AiError && e.code === 'budget'));
@@ -121,7 +129,7 @@ test('daily token budget blocks background agents', async () => {
 test('json agent: prose answer gets one reminder, then JSON is parsed', async () => {
   let n = 0;
   const t = fakeTransport(() => json({ choices: [{ message: { content: n++ === 0 ? '好的，我来写一段番外！' : '```json\n{"title":"借充电器","story":"' + '室友又来借充电器了。'.repeat(3) + '","time":"傍晚","place":"宿舍","mood":"无奈","people":["室友"],"hook":"你充电器带了吗","cg":null}\n```' } }] }));
-  const sys = new AgentSystem({ config: setup([conn('a')], [route('sidestory', { connectionId: 'a' })], t) });
+  const sys = new AgentSystem({ config: setup([route('sidestory', { api: api('a') })]) });
   const { value } = await withFetch(t, () => sys.json('sidestory', { messages: [{ role: 'user', content: '写' }] }, parseSidestory));
   assert.equal(value.title, '借充电器');
   assert.equal(value.cg, null);
@@ -131,16 +139,14 @@ test('json agent: prose answer gets one reminder, then JSON is parsed', async ()
   assert.match(t.calls[1]!.body.messages.at(-1).content, /只输出一个符合要求的 JSON/);
 });
 
-test('speak: cached by sentence; character connection override; no cross-provider fallback', async () => {
+test('speak: cached by sentence; character model override; no cross-provider fallback', async () => {
   const mp3 = new Uint8Array([0x49, 0x44, 0x33, ...new Array(100).fill(1)]);
   const t = fakeTransport(() => bytesResponse(mp3, 'audio/mpeg'));
-  const cs = [conn('sf', { capabilities: ['tts'], models: ['FunAudioLLM/CosyVoice2-0.5B'] }), conn('mm', { kind: 'minimax', capabilities: ['tts'], models: ['speech-02-hd'] }), conn('own', { capabilities: ['tts'], models: ['tts-own'] })];
-  const sys = new AgentSystem({
-    config: setup(cs, [route('tts', { connectionId: 'sf', model: 'FunAudioLLM/CosyVoice2-0.5B', fallbackConnectionId: 'mm' })], t),
-    audioCache: new MemoryAudioCache(),
-  });
+  const sf = api('sf', { channel: 'siliconflow', model: 'FunAudioLLM/CosyVoice2-0.5B' });
+  const mm = api('mm', { channel: 'minimax', model: 'speech-02-hd' });
+  const sys = new AgentSystem({ config: setup([route('tts', { api: sf, backup: mm })]), audioCache: new MemoryAudioCache() });
   const voice = { voiceId: 'claire' };
-  const quoted = new AgentSystem({ config: setup(cs, [route('tts', { connectionId: 'sf', model: 'm', ttsText: { quotedOnly: true, asterisks: 'drop', parentheses: 'drop', skipCodeBlocks: true, skipTags: true } })], t) });
+  const quoted = new AgentSystem({ config: setup([route('tts', { api: sf, ttsText: { quotedOnly: true, asterisks: 'drop', parentheses: 'drop', skipCodeBlocks: true, skipTags: true } })]) });
   await withFetch(t, () => quoted.speak({ text: '她小声说：“晚安。”然后关了灯。', voice }));
   assert.equal(t.calls.shift()!.body.input, '晚安。');
   const a = await withFetch(t, () => sys.speak({ text: '晚安', voice, expression: 'sleepy' }));
@@ -148,20 +154,19 @@ test('speak: cached by sentence; character connection override; no cross-provide
   assert.equal(a.cached, false);
   assert.equal(b.cached, true);
   assert.equal(t.calls.length, 1);
-  await withFetch(t, () => sys.speak({ text: '早', voice, connectionId: 'own' }));
-  assert.ok(t.calls.at(-1)!.url.startsWith('https://own.example'));
+  await withFetch(t, () => sys.speak({ text: '早', voice: { ...voice, model: 'tts-own' } }));
+  assert.ok(t.calls.at(-1)!.url.startsWith('https://sf.example'));
   assert.equal(t.calls.at(-1)!.body.model, 'tts-own');
-  // 主连接坏了也不会把 CosyVoice 的音色发给 MiniMax
+  // 自己的 API 坏了也不会把 CosyVoice 的音色发给 MiniMax
   const t2 = fakeTransport(() => json({ error: { message: 'down' } }, 503));
-  const sys2 = new AgentSystem({ config: setup(cs, [route('tts', { connectionId: 'sf', model: 'x', fallbackConnectionId: 'mm' })], t2) });
+  const sys2 = new AgentSystem({ config: setup([route('tts', { api: { ...sf, model: 'x' }, backup: mm })]) });
   await withFetch(t2, () => assert.rejects(sys2.speak({ text: '嗯', voice })));
   assert.equal(t2.calls.length, 1);
 });
 
 test('embed: fallback only within the same model family; query vectors cached', async () => {
   const t = fakeTransport((req) => (req.url.includes('sf.example') ? json({ error: { message: 'busy' } }, 503) : json({ data: req.body.input.map((_: string, i: number) => ({ index: i, embedding: [1, 2, 2] })) })));
-  const cs = [conn('sf', { capabilities: ['embedding'] }), conn('other', { capabilities: ['embedding'] })];
-  const sameFamily = new AgentSystem({ config: setup(cs, [route('embedding', { connectionId: 'sf', model: 'BAAI/bge-m3', fallbackConnectionId: 'other', fallbackModel: 'Pro/BAAI/bge-m3' })], t) });
+  const sameFamily = new AgentSystem({ config: setup([route('embedding', { api: api('sf', { model: 'BAAI/bge-m3' }), backup: api('other', { model: 'Pro/BAAI/bge-m3' }) })]) });
   const r = await withFetch(t, () => sameFamily.embed(['他不吃香菜'], { purpose: 'query' }));
   assert.equal(r.fellBack, true);
   assert.equal(r.space, 'bge-m3@3');
@@ -169,7 +174,7 @@ test('embed: fallback only within the same model family; query vectors cached', 
   const again = await withFetch(t, () => sameFamily.embed(['他不吃香菜'], { purpose: 'query' }));
   assert.equal(again.cached, true);
   assert.equal(t.calls.length, calls);
-  const otherFamily = new AgentSystem({ config: setup(cs, [route('embedding', { connectionId: 'sf', model: 'BAAI/bge-m3', fallbackConnectionId: 'other', fallbackModel: 'text-embedding-3-small' })], t) });
+  const otherFamily = new AgentSystem({ config: setup([route('embedding', { api: api('sf', { model: 'BAAI/bge-m3' }), backup: api('other', { model: 'text-embedding-3-small' }) })]) });
   await withFetch(t, () => assert.rejects(otherFamily.embed(['x']), /503/));
   await withFetch(t, () => assert.rejects(otherFamily.embed(['x'], { family: 'gemini-embedding-001' }), /不是同一个模型/));
 });
@@ -181,9 +186,9 @@ test('illustrate: image prompt agent writes tags, appearance tags go first, Nove
       ? json({ choices: [{ message: { content: '{"caption":"雨夜窗边","tags":"1girl, upper body, 回头, looking back, hugging pillow, bedroom, rainy window, warm lamp light, masterpiece","negative":"bad hands","size":"portrait"}' } }] })
       : bytesResponse(png, 'image/png'),
   );
-  const cs = [conn('ds'), conn('nai', { kind: 'novelai', capabilities: ['image'], baseUrl: 'https://image.novelai.net' })];
+  const nai = api('nai', { channel: 'novelai', baseUrl: 'https://image.novelai.net', model: 'nai-diffusion-4-5-full' });
   const style = { prefix: 'best quality', suffix: '', negative: 'lowres', naiQuality: false, sampler: 'k_euler', schedule: 'native' };
-  const sys = new AgentSystem({ config: setup(cs, [route('imagePrompt', { connectionId: 'ds', model: 'deepseek-chat' }), route('image', { connectionId: 'nai', model: 'nai-diffusion-4-5-full', imageStyle: style })], t) });
+  const sys = new AgentSystem({ config: setup([route('imagePrompt', { api: api('ds', { model: 'deepseek-chat' }) }), route('image', { api: nai, imageStyle: style })]) });
   const stages: string[] = [];
   const input = { character: { name: '苏晚', appearanceTags: 'brown hair, long hair, brown eyes', negativeTags: 'extra fingers' }, caption: '雨夜的窗边，她抱着靠垫回头看' };
   const r = await withFetch(t, () => illustrate(sys, input, { seed: 7, onStage: (s) => stages.push(s) }));
@@ -200,8 +205,8 @@ test('illustrate: image prompt agent writes tags, appearance tags go first, Nove
   assert.equal(draw.body.parameters.sampler, 'k_euler');
   assert.equal(draw.body.parameters.noise_schedule, 'native');
   assert.equal(r.image.provider, 'novelai');
-  // 没分配生图提示词智能体：外观 tags + 原文
-  const sys2 = new AgentSystem({ config: setup(cs, [route('image', { connectionId: 'nai', model: 'nai-diffusion-4-5-full' })], t) });
+  // 没设置生图提示词：外观 tags + 原文
+  const sys2 = new AgentSystem({ config: setup([route('image', { api: nai })]) });
   const r2 = await withFetch(t, () => illustrate(sys2, input));
   assert.equal(r2.promptBy, null);
   assert.equal(r2.request.prompt, 'brown hair, long hair, brown eyes, 雨夜的窗边, 她抱着靠垫回头看');

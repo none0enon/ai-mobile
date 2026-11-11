@@ -9,7 +9,7 @@ import { watch, type WatchSource } from 'vue';
 const DB_NAME = 'ai-mobile';
 const VERSION = 2;
 /**
- * - settings：API 连接、智能体分配等设置（以后随同步走）
+ * - settings：API 设置（按功能）、回复修剪等设置（以后随同步走）
  * - secrets：API Key，只存这台设备，永远不进同步数据
  * - assets：生成的图片、语音（按内容哈希存；以后同步时传到 R2）
  */

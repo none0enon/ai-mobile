@@ -1,6 +1,7 @@
 import type { Capability } from '@app/shared';
 import { anthropicBase, bearerHeaders, deepseekBase, geminiBase, isFullChatUrl, joinUrl, openaiModelsUrl, transportOf, type Endpoint } from './core/endpoint.ts';
-import { AiError, errorText, httpError } from './core/errors.ts';
+import { VERTEX_MODELS } from './channels.ts';
+import { AiError, annotateError, errorReport, errorText, httpError } from './core/errors.ts';
 import { readText, request } from './core/http.ts';
 import { embedTexts } from './embedding/client.ts';
 import { NOVELAI_MODELS } from './image/presets.ts';
@@ -9,20 +10,8 @@ import { chatOnce } from './llm/client.ts';
 import { synthesize } from './tts/client.ts';
 import type { VoiceSpec } from './tts/types.ts';
 
-/** Vertex Agent 的常用模型（Gemini 来自 math-reader 和官方 express 模式的模型表；DeepSeek 来自官方的 DeepSeek 模型页） */
-export const VERTEX_MODELS = [
-  'gemini-3.7-flash',
-  'gemini-3.5-flash',
-  'gemini-3.1-pro-preview',
-  'gemini-3-flash-preview',
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'deepseek-ai/deepseek-v4.1-flash-maas',
-];
-
 /**
- * "API 与智能体"页的两个按钮：拉取模型列表、测试连接（移植自 math-reader 的 fetchModels，扩展到各家）。
+ * API 设置里的两个按钮：拉取模型列表、测试连接（移植自 math-reader 的 fetchModels，扩展到各家）。
  */
 
 export const STATIC_MODELS: Partial<Record<Endpoint['kind'], string[]>> = {
@@ -46,7 +35,16 @@ function hostOf(url: string): string {
   }
 }
 
+/** 拉取模型列表；出错时报错里带上是哪个 API（界面显示完整报错） */
 export async function listModels(ep: Endpoint, signal?: AbortSignal): Promise<string[]> {
+  try {
+    return await fetchModelList(ep, signal);
+  } catch (e) {
+    throw annotate(e, ep);
+  }
+}
+
+async function fetchModelList(ep: Endpoint, signal?: AbortSignal): Promise<string[]> {
   const fixed = STATIC_MODELS[ep.kind];
   if (fixed) return [...fixed];
   let res: Response;
@@ -59,7 +57,7 @@ export async function listModels(ep: Endpoint, signal?: AbortSignal): Promise<st
       headers: { ...(!official && ep.key ? { Authorization: `Bearer ${ep.key}` } : {}), ...(ep.headers ?? {}) },
       signal,
     });
-    if (!res.ok) throw httpError(ep.name, res.status, await readText(res));
+    if (!res.ok) throw httpError(ep.name, res.status, await readText(res), res);
     const data = (await res.json()) as { models?: { name?: string; supportedGenerationMethods?: string[] }[]; data?: { id?: string }[] };
     // 自定义地址也可能按 OpenAI 的写法回 { data: [{ id }] }
     if (!data.models && Array.isArray(data.data)) return data.data.map((m) => (m.id ?? '').replace(/^models\//, '')).filter(Boolean);
@@ -81,7 +79,7 @@ export async function listModels(ep: Endpoint, signal?: AbortSignal): Promise<st
   } else {
     return [];
   }
-  if (!res.ok) throw httpError(ep.name, res.status, await readText(res));
+  if (!res.ok) throw httpError(ep.name, res.status, await readText(res), res);
   const data = (await res.json()) as { data?: unknown[]; models?: unknown[] };
   const rows = data.data ?? data.models ?? [];
   return rows
@@ -93,7 +91,15 @@ export async function listModels(ep: Endpoint, signal?: AbortSignal): Promise<st
 export interface TestResult {
   ok: boolean;
   latencyMs: number;
+  /** 一句话的结果；失败时是报错的摘要 */
   message: string;
+  /** 失败时的完整报错：请求地址、状态码、响应头、服务端返回的原文……（界面完整显示） */
+  detail?: string;
+}
+
+/** 出错时补上是哪个 API、哪个模型 */
+function annotate(e: unknown, ep: Endpoint): unknown {
+  return annotateError(e, { api: ep.name, kind: ep.kind, model: ep.model || undefined });
 }
 
 /** 没有指定音色时，测试用各家的系统音色 */
@@ -111,7 +117,7 @@ function defaultVoice(ep: Endpoint): VoiceSpec | null {
  */
 export async function testConnection(ep: Endpoint, capability: Capability, opts: { voice?: VoiceSpec; signal?: AbortSignal } = {}): Promise<TestResult> {
   const started = Date.now();
-  const done = (ok: boolean, message: string): TestResult => ({ ok, latencyMs: Date.now() - started, message });
+  const done = (ok: boolean, message: string, detail?: string): TestResult => ({ ok, latencyMs: Date.now() - started, message, ...(detail ? { detail } : {}) });
   try {
     switch (capability) {
       case 'chat':
@@ -131,7 +137,7 @@ export async function testConnection(ep: Endpoint, capability: Capability, opts:
       }
       case 'tts': {
         const voice = opts.voice ?? defaultVoice(ep);
-        if (!voice) return done(false, 'GPT-SoVITS 要先在角色的语音里填参考音频，再试听');
+        if (!voice) return done(false, 'GPT-SoVITS 要先在"我的 → 语音"里给角色填参考音频，再试听');
         const a = await synthesize(ep, { text: '你好呀，能听到我吗？', voice, signal: opts.signal });
         return done(true, `收到 ${(a.bytes.length / 1024).toFixed(1)} KB 音频（${a.mime}）`);
       }
@@ -145,10 +151,13 @@ export async function testConnection(ep: Endpoint, capability: Capability, opts:
         const models = await listModels(ep, opts.signal);
         return done(true, `接口正常（${models.length} 个模型）；没有真的出图，免得花钱`);
       }
+      case 'stt':
+        return done(false, '语音识别还没接入，还不能测试');
       default:
-        return done(false, '这类连接还不能测试');
+        return done(false, '这个功能还不能测试');
     }
-  } catch (e) {
-    return done(false, errorText(e));
+  } catch (raw) {
+    const e = annotate(raw, ep);
+    return done(false, errorText(e), errorReport(e));
   }
 }

@@ -21,12 +21,31 @@ export type AiErrorCode =
   /** 被取消（停止生成、挂断、离开页面） */
   | 'aborted';
 
+/** 出错时的现场：哪个 API、哪个地址、服务端回了什么头。完整报错（errorReport）里列出来 */
+export interface ErrorContext {
+  /** 哪个 API（"Claude"、"DeepSeek（备用）"） */
+  api?: string;
+  /** 渠道协议 */
+  kind?: string;
+  model?: string;
+  /** 请求方法和地址（Key 已隐去） */
+  method?: string;
+  url?: string;
+  /** HTTP 状态说明（Unauthorized、Bad Gateway……） */
+  statusText?: string;
+  /** 服务端返回的响应头（浏览器只让读到一部分） */
+  headers?: Record<string, string>;
+}
+
 export interface AiErrorOptions {
   status?: number;
   retryable?: boolean;
-  /** 服务商返回的原文（截断后），排查用 */
+  /** 服务商返回的原文（完整），排查用 */
   detail?: string;
   cause?: unknown;
+  context?: ErrorContext;
+  /** 换备用之前，主 API 的报错 */
+  previous?: unknown;
 }
 
 export class AiError extends Error {
@@ -35,6 +54,9 @@ export class AiError extends Error {
   /** 换个连接或稍后重试可能成功（限流、服务端错误、断网） */
   readonly retryable: boolean;
   readonly detail: string | undefined;
+  /** 出错时的现场（可以事后补上：哪个 API、哪个模型） */
+  readonly context: ErrorContext;
+  readonly previous: unknown;
 
   constructor(code: AiErrorCode, message: string, opts: AiErrorOptions = {}) {
     super(message, opts.cause === undefined ? undefined : { cause: opts.cause });
@@ -43,6 +65,8 @@ export class AiError extends Error {
     this.status = opts.status;
     this.retryable = opts.retryable ?? false;
     this.detail = opts.detail;
+    this.context = { ...(opts.context ?? {}) };
+    this.previous = opts.previous;
   }
 }
 
@@ -109,27 +133,166 @@ const STATUS_HINT: Record<number, string> = {
   504: '网关超时',
 };
 
-export function httpError(provider: string, status: number, body: string): AiError {
+/** 每个响应是哪个请求发出的（http.ts 的 request 记下），报错时列出请求地址 */
+const sentRequests = new WeakMap<Response, { method: string; url: string }>();
+
+export function rememberRequest(res: Response, method: string, url: string): void {
+  try {
+    sentRequests.set(res, { method, url });
+  } catch {
+    // 测试里的假响应可能不是对象
+  }
+}
+
+export function requestOf(res: Response): { method: string; url: string } | undefined {
+  return sentRequests.get(res);
+}
+
+/** 地址里的 Key 换成 ***（Gemini、Vertex 把 Key 放在 ?key=） */
+export function redactUrl(url: string): string {
+  return url.replace(/([?&](?:key|api_key|apikey|access_token|token)=)[^&#]*/gi, '$1***');
+}
+
+/** 一个响应的现场：请求地址（http.ts 的 request 记下的）、状态说明、响应头 */
+export function responseContext(res: Response | undefined): ErrorContext {
+  if (!res) return {};
+  const ctx: ErrorContext = {};
+  const sent = requestOf(res);
+  if (sent) {
+    ctx.method = sent.method;
+    ctx.url = redactUrl(sent.url);
+  } else if (res.url) {
+    ctx.url = redactUrl(res.url);
+  }
+  if (res.statusText) ctx.statusText = res.statusText;
+  const headers: Record<string, string> = {};
+  try {
+    res.headers.forEach((v, k) => (headers[k] = v));
+  } catch {
+    // 有的环境不让遍历
+  }
+  if (Object.keys(headers).length) ctx.headers = headers;
+  return ctx;
+}
+
+/**
+ * 服务商返回了错误状态码。消息里是状态码、大意和服务商说的那句话；
+ * 完整的响应正文放在 detail，地址、状态说明、响应头放在 context（传了 res 时），完整报错里都列出来
+ */
+export function httpError(provider: string, status: number, body: string, res?: Response): AiError {
   const said = extractErrorMessage(body);
   const hint = STATUS_HINT[status] ?? (status >= 500 ? '服务端出错' : '请求失败');
   const retryable = status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
   return new AiError('http', `${provider} 返回 ${status}（${hint}）${said ? `：${said}` : ''}`, {
     status,
     retryable,
-    detail: body.slice(0, 2000),
+    detail: body,
+    context: responseContext(res),
   });
 }
 
-export function networkError(provider: string, cause: unknown): AiError {
+export function networkError(provider: string, cause: unknown, req?: { method?: string; url?: string }): AiError {
   const msg = cause instanceof Error ? cause.message : String(cause);
   return new AiError(
     'network',
-    `连不上 ${provider}（${msg || '网络错误'}）。可能是断网、地址写错，或对方不允许浏览器直连——可以换中转，或在连接里打开"经 Worker 转发"`,
-    { retryable: true, cause },
+    `连不上 ${provider}（${msg || '网络错误'}）。可能是断网、地址写错、证书有问题，或对方不允许浏览器直连（CORS）`,
+    { retryable: true, cause, context: req?.url ? { method: req.method ?? 'GET', url: redactUrl(req.url) } : {} },
   );
 }
 
+/** 一句话的报错（界面上的摘要） */
 export function errorText(e: unknown): string {
   if (e instanceof Error) return e.message;
   return String(e);
+}
+
+/**
+ * 补上出错时的现场（哪个 API、哪个模型）；不是 AiError 的意外错误包成 AiError，原错误放在 cause，
+ * 完整报错里还能看到它的名字、消息和调用栈。取消不包。
+ */
+export function annotateError(e: unknown, ctx: ErrorContext): unknown {
+  if (isAbortError(e)) return e;
+  if (e instanceof AiError) {
+    for (const [k, v] of Object.entries(ctx) as [keyof ErrorContext, never][]) {
+      if (v !== undefined && e.context[k] === undefined) e.context[k] = v;
+    }
+    return e;
+  }
+  return new AiError('bad_response', `${ctx.api ? `${ctx.api}：` : ''}${errorName(e)}${errorText(e) ? `: ${errorText(e)}` : ''}`, { cause: e, context: ctx });
+}
+
+function errorName(e: unknown): string {
+  return e instanceof Error ? e.name || 'Error' : typeof e;
+}
+
+const CODE_LABEL: Record<AiErrorCode, string> = {
+  no_route: '没有设置',
+  no_key: '缺少 Key',
+  unsupported: '这个渠道做不了',
+  http: '服务端返回错误',
+  network: '网络请求失败',
+  bad_response: '返回的内容看不懂',
+  empty: '返回为空',
+  budget: '超过每日上限',
+  aborted: '已取消',
+};
+
+/** 服务端回的正文：是 JSON 就排版一下；太长（几百 KB 的错误页）才截 */
+function prettyBody(body: string): string {
+  const text = body.trim();
+  if (!text) return '（空）';
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2).slice(0, 200_000);
+  } catch {
+    return text.slice(0, 200_000);
+  }
+}
+
+/** 原因链：TypeError: Failed to fetch ← … */
+function causeChain(e: unknown): string[] {
+  const out: string[] = [];
+  let c = e instanceof Error ? (e as Error & { cause?: unknown }).cause : undefined;
+  for (let i = 0; c !== undefined && c !== null && i < 5; i += 1) {
+    if (c instanceof AiError) break;
+    out.push(c instanceof Error ? `${c.name || 'Error'}: ${c.message}` : String(c));
+    if (c instanceof Error && c.stack && !(e instanceof AiError && e.code === 'network')) out.push(c.stack.split('\n').slice(1, 6).join('\n'));
+    c = c instanceof Error ? (c as Error & { cause?: unknown }).cause : undefined;
+  }
+  return out;
+}
+
+const NETWORK_HINT =
+  '浏览器出于安全考虑不会告诉网页具体原因。常见的有：地址写错或少了 https://；断网或需要代理；服务端不允许浏览器直连（没有 CORS 头，换支持网页调用的中转）；https 页面请求 http 地址；证书无效。电脑浏览器按 F12 看 Console / Network 能看到真正的原因。';
+
+/**
+ * 完整报错（"API 连接失败必须展示完整报错"）：一句话的原因，加上请求地址、状态码、响应头、服务端返回的完整正文、
+ * 底层错误和原因链；备用 API 也失败时，两边的报错都列出来。界面原样显示、可以复制。Key 已从地址里隐去。
+ */
+export function errorReport(e: unknown): string {
+  const lines: string[] = [errorText(e)];
+  if (!(e instanceof AiError)) {
+    if (e instanceof Error) {
+      lines.push('', `错误：${errorName(e)}`);
+      if (e.stack) lines.push('', '调用栈：', e.stack);
+      lines.push(...causeChain(e).map((x) => `原因：${x}`));
+    }
+    return lines.join('\n');
+  }
+  const c = e.context;
+  lines.push('');
+  lines.push(`类型：${CODE_LABEL[e.code] ?? e.code}（${e.code}）`);
+  if (c.api) lines.push(`API：${c.api}${c.kind ? `（${c.kind} 协议）` : ''}`);
+  if (c.model) lines.push(`模型：${c.model}`);
+  if (c.url) lines.push(`请求：${c.method ?? 'GET'} ${c.url}`);
+  if (e.status !== undefined) lines.push(`状态：${e.status}${c.statusText ? ` ${c.statusText}` : ''}`);
+  if (c.headers && Object.keys(c.headers).length) {
+    lines.push('响应头：');
+    for (const [k, v] of Object.entries(c.headers)) lines.push(`  ${k}: ${v}`);
+  }
+  if (e.detail !== undefined) lines.push('响应内容：', prettyBody(e.detail));
+  const chain = causeChain(e);
+  if (chain.length) lines.push(...chain.map((x) => `底层错误：${x}`));
+  if (e.code === 'network') lines.push('', NETWORK_HINT);
+  if (e.previous !== undefined) lines.push('', '—— 先失败的那个 API ——', errorReport(e.previous));
+  return lines.join('\n');
 }

@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { errorText } from '@app/ai';
 import { AGENT_META, type AgentRole } from '@app/shared';
-import { closeToast, showLoadingToast, showToast } from 'vant';
+import { closeToast, showLoadingToast } from 'vant';
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
 import { personas } from '@/mock/characters';
+import { pwa } from '@/pwa';
 import { useLibraryStore } from '@/stores/library';
 import { memories, album } from '@/mock/memories';
 import { todayTouchpoints } from '@/mock/settings';
@@ -15,6 +15,7 @@ import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { showErrorDialog } from '@/utils/errors';
 
 const router = useRouter();
 const app = useAppStore();
@@ -45,9 +46,9 @@ const groups = computed(() => [
     rows: [
       {
         icon: 'i-lucide-cpu',
-        label: 'API 与智能体',
-        value: `${ai.connections.length} 个连接`,
-        desc: liveAgents.value ? `${liveAgents.value} 个智能体已接通 · 主对话、番外、生图、向量化……` : '还没填 Key，现在用演示模型',
+        label: 'API 设置',
+        value: liveAgents.value ? `${liveAgents.value} 个功能已接通` : '',
+        desc: liveAgents.value ? '按功能设置：主对话、番外、生图、语音、向量化……' : '还没填 Key，现在用演示模型',
         to: '/me/api',
       },
       { icon: 'i-lucide-audio-lines', label: '语音', value: '', desc: '她们的声音、语音识别、通话', to: '/me/voice' },
@@ -65,6 +66,13 @@ const groups = computed(() => [
     rows: [
       { icon: 'i-lucide-refresh-cw', label: '同步与备份', value: sync.mode === 'hub' ? '已连接 Worker' : '仅本机', to: '/me/sync' },
       { icon: 'i-lucide-palette', label: '外观', value: THEME_LABEL[app.themeSetting], to: '/me/appearance' },
+      {
+        icon: 'i-lucide-smartphone',
+        label: '装成 App',
+        value: pwa.standalone ? '已安装' : pwa.canPrompt ? '可以安装' : '',
+        desc: '添加到主屏幕；卸载后装不回去时在这里修复',
+        to: '/me/install',
+      },
     ],
   },
 ]);
@@ -98,7 +106,7 @@ async function runSidestory() {
     closeToast();
   } catch (e) {
     closeToast();
-    showToast({ message: `没写出来：${errorText(e)}`.slice(0, 140), duration: 3500 });
+    showErrorDialog('番外没写出来', e);
   } finally {
     storyBusy = false;
   }
@@ -160,7 +168,7 @@ function drawStory() {
         <van-cell-group inset>
           <van-cell
             title="写一段她的番外"
-            :label="ai.isLive('sidestory') ? `你不在的时候，${storyCharacter().name}那边发生了什么` : '演示故事；设置好主要 API 后真的写'"
+            :label="ai.isLive('sidestory') ? `你不在的时候，${storyCharacter().name}那边发生了什么` : '演示故事；在 API 设置里设置好主对话后真的写'"
             is-link
             center
             @click="runSidestory"

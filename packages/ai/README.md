@@ -8,8 +8,9 @@ src/llm/        文本对话：OpenAI 兼容 / DeepSeek / Claude / Gemini（AI S
 src/tts/        语音合成：OpenAI 兼容（硅基流动 CosyVoice）/ MiniMax / 火山引擎（含声音复刻）/ Fish Audio / GPT-SoVITS
 src/image/      生图：NovelAI（V4.5 / V4 / V3）/ OpenAI 兼容 /images/generations；生图风格
 src/embedding/  向量化：OpenAI 兼容 / Gemini / Workers AI；float16 编码、向量空间
-src/agents/     多智能体：路由与备用连接、每日上限、各智能体的提示词与解析、配图流水线、记忆检索
-src/connection.ts  拉取模型列表、测试连接
+src/channels.ts    渠道表：每个功能能选的渠道（文本：自定义、Claude、OpenAI 兼容、Gemini、Vertex Agent、DeepSeek）、对应的协议、默认地址和常用模型
+src/agents/     多智能体：按功能路由与备用 API、每日上限、各智能体的提示词与解析、配图流水线、记忆检索
+src/connection.ts  拉取模型列表、测试连接（失败时给完整报错）
 ```
 
 测试：`pnpm --filter @app/ai test`（`test/` 里三个文件：文本对话、语音和生图、多智能体；用假的 fetch，覆盖分块边界、各家返回格式、各种报错重试）。
@@ -24,7 +25,7 @@ src/connection.ts  拉取模型列表、测试连接
 - **流式失败改普通请求**（`llm/client.ts`）：收到正文前失败，同一个连接改普通请求再试；Key 不对、没余额、404 这类不重试。
 - **按报错调整参数**（`llm/retry.ts`）：输出 token 超上限时读出上限重试并记住；400 / 422 提到某个可选参数（`thinking`、`temperature`、`top_k`、`response_format`……）就去掉再发；OpenAI 推理模型要 `max_completion_tokens` 时自动换。
 - **Claude**：`claudeModelInfo` 判断不接受 temperature、默认会思考的型号。修了一处：原来的正则会把 `claude-3-5-sonnet-20241022` 的日期当成大版本号。
-- **比 math-reader 多的**：可以取消（AbortSignal）；记录用量和结束原因；空回复算失败（可以换备用连接）；消息格式统一转换（开头的系统消息合成 system、中途的系统消息改 user、同角色合并、示例对话的 `example_user` / `example_assistant` 换成真名，同 SillyTavern）。
+- **比 math-reader 多的**：可以取消（AbortSignal）；记录用量和结束原因；空回复算失败（可以换备用 API）；消息格式统一转换（开头的系统消息合成 system、中途的系统消息改 user、同角色合并、示例对话的 `example_user` / `example_assistant` 换成真名，同 SillyTavern）。
 
 ## 文本对话（参考 SillyTavern、SleepTogether）
 
@@ -33,7 +34,7 @@ src/connection.ts  拉取模型列表、测试连接
 - **Claude 型号表**（`llm/claude.ts`）：哪些型号会思考、哪些不接受 temperature / top_p、哪些不能预填 assistant（预填改成 user 消息合并），同 ST 的规则；预设里的 `assistant_prefill` 会接上。
 - **Gemini**：同 math-reader 的 doGeminiRequest，不带安全设置；地址只填域名时只有官方域名补 `/v1beta`，自定义地址原样用；要思考过程时带 `includeThoughts`。
 - **额外请求参数**：连接上可以并入、去掉请求体的字段（ST 的 Include / Exclude Body Parameters），给只认某些字段的中转用。
-- **备用连接发最简请求**（同 SleepTogether 的备用 API）：只带 model / messages / temperature / max_tokens / stream，不带思考参数和额外字段，换过去更容易成功。
+- **备用 API 发最简请求**（同 SleepTogether 的备用 API）：只带 model / messages / temperature / max_tokens / stream，不带思考参数和额外字段，换过去更容易成功。
 - **回复修剪**（`llm/filter.ts`，SleepTogether 的全局正则）：所有文本智能体的回复过一遍正则，默认去掉 `<think>…</think>`、只剩结束标签的半截思考、`<!-- consider: … -->`；流式时每次更新都修剪。修剪完是空的算失败。
 - **流式兼容**：有的中转在流里给 `message.content` 或 `text` 而不是 `delta.content`，都认。
 
@@ -53,7 +54,7 @@ Google 的 Gemini Enterprise Agent Platform（原 Vertex AI），math-reader 里
 - **DeepSeek 等开源模型**：要用服务账号授权（官方：OpenAI 兼容接口只认 Google Cloud 授权）。走 `…/endpoints/openapi/chat/completions`，模型名带发布方前缀（`deepseek-ai/deepseek-v4.1-flash-maas`，只写 `deepseek-v4.1-flash-maas` 会自动补上）；官方要求第一条是 user、user 和 assistant 轮流，默认按"严格"整理消息。
 - `thinkingLevel` 写成大写枚举。
 
-**math-reader 的"自定义"渠道**走的是 Gemini 原生协议（任意地址，Key 放在 key 参数）；这里对应"自定义 Gemini 协议"模板。任意地址的 OpenAI 格式用"自定义 OpenAI 兼容"模板，粘 math-reader 习惯的完整地址（…/v1/chat/completions）也行。
+**math-reader 的"自定义"渠道**走的是 Gemini 原生协议（任意地址，Key 放在 key 参数）；文本功能选"自定义"时默认就是这个，也可以把请求格式换成 OpenAI 或 Claude。其他功能的"自定义"是 OpenAI 格式（/embeddings、/audio/speech、/images/generations）。任意地址的 OpenAI 格式对话也可以选"OpenAI 兼容"，粘 math-reader 习惯的完整地址（…/v1/chat/completions）也行。
 
 ## 语音合成、生图（参考 SleepTogether、SillyTavern）
 
@@ -69,12 +70,13 @@ Google 的 Gemini Enterprise Agent Platform（原 Vertex AI），math-reader 里
 - 记忆用 `document`、检索的查询用 `query`：e5 加 `query:` / `passage:`，Qwen3-Embedding 的查询加指令，Gemini 带 `taskType`；分配的 `extra.queryPrefix` / `documentPrefix` 可以覆盖。
 - 分批（OpenAI 兼容 32、Gemini 100）、单位化、检查条数和维度；`extra.dimensions` 作为输出维度。Workers AI 直连时走 Cloudflare 的 OpenAI 兼容接口（同 ST）。
 - 检索可以设最低相似度（ST 默认 0.25），太不相关的记忆不带。
-- **向量空间** = 模型族 + 维度（`BAAI/bge-m3` 和 `@cf/baai/bge-m3` 是同一族）。只会换到同一族的备用连接，不同模型的向量不能比较；换模型后 `staleMemories` 找出要重算的记忆。
+- **向量空间** = 模型族 + 维度（`BAAI/bge-m3` 和 `@cf/baai/bge-m3` 是同一族）。只会换到同一族的备用 API，不同模型的向量不能比较；换模型后 `staleMemories` 找出要重算的记忆。
 - 向量存成 float16 小端序 base64（1024 维约 2 KB），`rankMemories` 按设计文档 §6.1 打分：`0.6·相似度 + 0.2·e^(−天数/30) + 0.2·重要度/10`，置顶和到期的待跟进必带。
 
 ## 多智能体（`agents/`）
 
-- **路由**：每个智能体按"连接 + 模型 + 备用连接"调用。`status(role)` 说明为什么不能用（没分配、连接删了、没填 Key、协议不支持、要经 Worker 但没连上），App 据此决定真调用还是用演示模型。主连接失败且值得换时改用备用并回调 `onFailover`；取消和超预算不换。
-- **AgentSystem**：`chat` / `json`（解析失败把原输出和提醒发回去再要一次）/ `speak` / `draw` / `embed`。分配里的参数只补请求没写的；每日 token 上限；语音只换同一种协议的备用连接（音色 id 只在同一家有效）。
+- **路由**：按功能分。每个功能（`AgentRoute`）有自己的 API（`FeatureApi`：渠道 + 地址 + 模型）和可选的备用 API，Key 在调用方那里按 `apiKeyId(role)` 存（`api:main`、`api:main:backup`）。主对话以外的文本功能可以 `sameAsMain`，用主对话的 API 和备用 API。`status(role)` 说明为什么不能用（没设置、没填地址、没选模型、没填 Key、渠道做不了这件事），App 据此决定真调用还是用演示模型。本机、局域网地址和自建 GPT-SoVITS 不填 Key 也能用。失败且值得换时改用备用并回调 `onFailover`；取消和超预算不换。
+- **AgentSystem**：`chat` / `json`（解析失败把原输出和提醒发回去再要一次）/ `speak` / `draw` / `embed`。功能设置里的参数只补请求没写的；每日 token 上限；语音只换同一种协议的备用 API（音色 id 只在同一家有效）；`onCall` 报告每次调用成功还是失败（App 在设置页显示最近一次失败的完整报错）。
+- **完整报错**（`core/errors.ts` 的 `errorReport`）：一句话的原因，加上 API 和模型、请求方法和地址（`key=` 换成 `***`）、状态码和说明、响应头、服务商返回的完整正文（JSON 排版）、底层错误和原因链；网络错误附上常见原因；备用 API 也失败时两边的报错都列出来。`request()` 记下每个响应是哪个请求发的，`httpError(…, res)` 据此带上地址和响应头。
 - **智能体**：番外（`sidestory.ts`，你不在时她那边发生的事，可以引出主动消息 `hook` 和配图 `cg`）、生图提示词（`imagePrompt.ts`，外观 tags 由程序放最前面）、总结 / 记忆（`summary.ts`，设计文档 §4.2 的 JSON，好感变化截到 ±3）。
 - **配图流水线**（`illustrate.ts`）：画面描述 → 生图提示词智能体 → 生图智能体，分阶段报告；没分配生图提示词智能体时用外观 tags + 原文。

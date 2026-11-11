@@ -1,6 +1,6 @@
 import type { ConnectionKind } from '@app/shared';
 import { bearerHeaders, geminiBase, joinUrl, openaiBase, transportOf, trimUrl, type Endpoint } from '../core/endpoint.ts';
-import { AiError, httpError } from '../core/errors.ts';
+import { AiError, httpError, responseContext } from '../core/errors.ts';
 import { readText, request } from '../core/http.ts';
 import { dropField, sendFixing } from '../llm/retry.ts';
 import { decodeFloat32Base64, l2normalize } from './vector.ts';
@@ -11,7 +11,7 @@ import { decodeFloat32Base64, l2normalize } from './vector.ts';
  * - Gemini：…/models/{model}:batchEmbedContents，按用途带 taskType；
  * - Workers AI：…/accounts/{id}/ai/v1/embeddings（OpenAI 兼容，同 SillyTavern；浏览器不能直连，要经自己的 Worker）。
  * 记忆和查询的写法有的模型不同（e5 的 query: / passage:、Qwen3 的查询指令、Gemini 的 taskType），这里按模型自动加；
- * 智能体分配的 extra 里可以用 queryPrefix / documentPrefix 覆盖。
+ * 功能设置（AgentRoute）的 extra 里可以用 queryPrefix / documentPrefix 覆盖。
  */
 
 export type EmbedPurpose = 'document' | 'query';
@@ -47,7 +47,7 @@ const openaiBatch: Batch = async (ep, inputs, req, extra) => {
     dropField(body, 'encoding_format', /encoding_format/i),
     dropField(body, 'dimensions', /dimension/i),
   ]);
-  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '');
+  if (!response.ok) throw httpError(ep.name, response.status, errText ?? '', response);
   const data = await parseJson(response, ep.name);
   const rows = Array.isArray(data?.data) ? [...data.data] : [];
   rows.sort((a: any, b: any) => (a?.index ?? 0) - (b?.index ?? 0));
@@ -68,7 +68,7 @@ const geminiBatch: Batch = async (ep, inputs, req) => {
     })),
   };
   const res = await request(transportOf(ep), ep.name, url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(ep.headers ?? {}) }, body: JSON.stringify(body), signal: req.signal });
-  if (!res.ok) throw httpError(ep.name, res.status, await readText(res));
+  if (!res.ok) throw httpError(ep.name, res.status, await readText(res), res);
   const data = await parseJson(res, ep.name);
   return { vectors: (data?.embeddings ?? []).map((e: any) => e?.values ?? []) };
 };
@@ -89,7 +89,7 @@ async function parseJson(res: Response, provider: string): Promise<any> {
   try {
     return JSON.parse(text);
   } catch {
-    throw new AiError('bad_response', `${provider} 的回复看不懂：${text.slice(0, 200)}`, { retryable: true });
+    throw new AiError('bad_response', `${provider} 的回复看不懂：${text.slice(0, 200)}`, { retryable: true, detail: text, context: responseContext(res) });
   }
 }
 

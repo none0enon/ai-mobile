@@ -170,7 +170,7 @@ function slotNote(position: string): string | null {
 
       <div v-else class="px-4">
         <pre class="json" data-testid="inspect-request">{{ json }}</pre>
-        <p class="text-[12px] text-ink-3 mt-2 mb-0 leading-relaxed">OpenAI 兼容的 /v1/chat/completions 请求体。接上真实 API 后就发这个；模型名来自"API 与智能体"里主对话的设置。</p>
+        <p class="text-[12px] text-ink-3 mt-2 mb-0 leading-relaxed">OpenAI 兼容的 /v1/chat/completions 请求体。接上真实 API 后就发这个；模型名来自"API 设置"里主对话的设置。</p>
       </div>
     </div>
   </div>

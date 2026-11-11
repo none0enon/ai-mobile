@@ -30,7 +30,7 @@ export const DEMO_SIDESTORIES: Record<string, Sidestory> = {
 export function genericSidestory(name: string): Sidestory {
   return {
     title: '（演示）她的一天',
-    story: `这里会是${name}在自己的世界里、你不在场时发生的一小段故事。在"我的 → API 与智能体"里给"番外 · 她的生活"分配一个能对话的连接并填好 Key，就会按${name}的角色卡、作息和你们最近聊过的事来写。`,
+    story: `这里会是${name}在自己的世界里、你不在场时发生的一小段故事。在"我的 → API 设置"里设置好主对话（番外默认跟随它），或者给"番外 · 她的生活"单独选渠道、填好 Key，就会按${name}的角色卡、作息和你们最近聊过的事来写。`,
     time: '',
     place: '',
     mood: '',

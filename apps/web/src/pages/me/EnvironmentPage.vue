@@ -42,7 +42,7 @@ const homeDraft = ref(real.address);
       <div class="group-title">你的真实世界</div>
       <van-cell-group inset>
         <van-field v-model="homeDraft" label="家的地址" placeholder="门牌号 + 街道，例如 1 Main St" input-align="right" @blur="real.setAddress(homeDraft)" />
-        <van-cell title="地图" :label="real.mapsReady ? 'Google 地图已接入' : '还没接入 Google 地图：去 API 与智能体 → 连接 里填 Key'" is-link to="/me/api" />
+        <van-cell title="地图" :label="real.mapsReady ? 'Google 地图已接入' : '还没接入 Google 地图，现在是示意图'" />
         <van-cell title="用定位" label="只在打开 App 时看一眼：你在不在家、离家多远（不在后台定位）" center>
           <template #right-icon><van-switch v-model="env.useLocation" size="22px" /></template>
         </van-cell>
