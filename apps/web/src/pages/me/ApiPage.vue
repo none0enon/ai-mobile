@@ -1,11 +1,8 @@
 <script setup lang="ts">
-import { compileFilter, DEFAULT_IMAGE_STYLE, DEFAULT_OUTPUT_FILTERS, encodeVector, errorText, isSlotCapability, kindCan, listModels, testConnection, type VoiceSpec } from '@app/ai';
+import { compileFilter, DEFAULT_IMAGE_STYLE, DEFAULT_OUTPUT_FILTERS, encodeVector, errorText, kindCan, listModels, testConnection, type VoiceSpec } from '@app/ai';
 import {
   AGENT_META,
-  API_SLOT_LABEL,
-  API_SLOTS,
   type AgentRole,
-  type ApiSlot,
   type AgentRoute,
   type Capability,
   type ConnectionKind,
@@ -26,12 +23,9 @@ import { useAiStore } from '@/stores/ai';
 import { useCharacterStore } from '@/stores/characters';
 
 /**
- * API 与智能体：
- * - 主要 / 次要 / 备用 API（同 math-reader 的 API Setting）：各选一个连接和模型；
- *   对话、番外、总结等文字类智能体选用其中一套（同 math-reader 的 AI 功能分配），失败时改用备用 API；
- * - 连接 = 一个地址 + Key（OpenAI 兼容、Claude、Gemini、DeepSeek……）；
- * - 语音合成、生图、向量化等智能体单独选连接、模型、备用连接。
- * 设置存在本机，Key 单独存、只在这台设备上。能用的智能体真的调用，其余继续用演示模型。
+ * API 与智能体（参考 math-reader 的"槽位 + 按功能路由"，扩展成"任意个连接 + 每个智能体单独分配"）。
+ * 连接 = 一个地址 + Key；智能体 = 一项工作，选用哪个连接、哪个模型、失败时用哪个备用。
+ * 连接和分配存在本机，Key 单独存、只在这台设备上。主连接有 Key 的智能体真的调用，其余继续用演示模型。
  */
 const ai = useAiStore();
 const chars = useCharacterStore();
@@ -192,11 +186,7 @@ const MODEL_HINT: Partial<Record<Capability, RegExp>> = {
 const NOT_CHAT = /embed|bge|rerank|tts|voice|speech|sensevoice|whisper|kolors|flux|diffusion|nai-|dall-e|image/i;
 /** 测试某项能力时用哪个模型：先看分配到这个连接的智能体用的模型，再按名字猜 */
 function modelFor(c: ProviderConnection, cap: Capability): string {
-  if (cap === 'chat') {
-    const fromSlot = API_SLOTS.map((s) => ai.apiSlots[s]).find((x) => x.connectionId === c.id && x.model)?.model;
-    if (fromSlot) return fromSlot;
-  }
-  const fromRoute = ai.routes.find((r) => r.connectionId === c.id && AGENT_META[r.role].capability === cap && r.model && (!isSlotCapability(cap) || c.models.includes(r.model)))?.model;
+  const fromRoute = ai.routes.find((r) => r.connectionId === c.id && AGENT_META[r.role].capability === cap && r.model)?.model;
   if (fromRoute) return fromRoute;
   const hint = MODEL_HINT[cap];
   const guess = hint ? c.models.find((m) => hint.test(m)) : c.models.find((m) => !NOT_CHAT.test(m));
@@ -303,92 +293,6 @@ const cosyEmotion = computed({
   get: () => editing.value?.extra?.emotion !== 'off',
   set: (on: boolean) => setExtra('emotion', on ? '' : 'off'),
 });
-
-// —— 主要 / 次要 / 备用 API（同 math-reader）——
-const chatConns = computed(() => ai.connections.filter((c) => kindCan(c.kind, 'chat') && (c.capabilities.includes('chat') || c.capabilities.includes('vision'))));
-const slotEditing = ref<{ slot: ApiSlot; connectionId: string | null; model: string } | null>(null);
-const slotOpen = computed({ get: () => !!slotEditing.value, set: (v) => !v && (slotEditing.value = null) });
-const slotConn = computed(() => ai.byId(slotEditing.value?.connectionId));
-const slotFetching = ref(false);
-const slotTesting = ref(false);
-const slotTest = ref<{ ok: boolean; text: string } | null>(null);
-
-function slotLine(slot: ApiSlot): string {
-  const x = ai.apiSlots[slot];
-  const c = ai.byId(x.connectionId);
-  if (!c) return slot === 'primary' ? '未选择' : '不使用';
-  return `${c.name} · ${x.model || '未选模型'}`;
-}
-/** 这套 API 能不能用：同 math-reader 的"未配置" */
-function slotState(slot: ApiSlot): { ok: boolean; text: string } {
-  const r = ai.system.router.slotAttempt(slot, 'chat');
-  return 'reason' in r ? { ok: false, text: r.reason } : { ok: true, text: '可以用' };
-}
-function openSlot(slot: ApiSlot) {
-  const x = ai.apiSlots[slot];
-  slotEditing.value = { slot, connectionId: x.connectionId, model: x.model };
-  slotTest.value = null;
-}
-function pickSlotConn(c: ProviderConnection | null) {
-  const e = slotEditing.value;
-  if (!e) return;
-  e.connectionId = c?.id ?? null;
-  if (!c) e.model = '';
-  else if (!c.models.includes(e.model)) e.model = c.models.find((m) => !NOT_CHAT.test(m)) ?? '';
-  slotTest.value = null;
-}
-/** 同 math-reader 的"拉取模型"：用这个连接的地址和 Key 拉，拉到的存进连接 */
-async function fetchSlotModels() {
-  const c = slotConn.value;
-  if (!c) return;
-  slotFetching.value = true;
-  try {
-    const list = await listModels(ai.endpointOf(c, ai.keyOf(c.id)));
-    if (!list.length) {
-      showToast('没有拉到模型，可以在下面手动填');
-      return;
-    }
-    ai.saveConnection({ ...c, models: c.kind === 'vertex' ? [...new Set([...c.models, ...list])] : list });
-    showToast(`拉取到 ${list.length} 个模型`);
-  } catch (e) {
-    showToast({ message: `拉取失败：${errorText(e)}`.slice(0, 140), duration: 3500 });
-  } finally {
-    slotFetching.value = false;
-  }
-}
-async function testSlot() {
-  const e = slotEditing.value;
-  const c = slotConn.value;
-  if (!e || !c) return;
-  if (!e.model.trim()) {
-    showToast('先选模型');
-    return;
-  }
-  slotTesting.value = true;
-  const r = await testConnection(ai.endpointOf(c, ai.keyOf(c.id), e.model.trim()), 'chat');
-  slotTest.value = { ok: r.ok, text: r.ok ? `连接正常 ${r.latencyMs}ms · ${r.message}` : r.message };
-  slotTesting.value = false;
-}
-function saveSlot() {
-  const e = slotEditing.value;
-  if (!e) return;
-  ai.saveApiSlot(e.slot, { connectionId: e.connectionId, model: e.model });
-  slotEditing.value = null;
-  showToast('已保存');
-}
-/** 文字类智能体选用哪一套（同 math-reader 的 AI 功能分配） */
-const usesSlot = (role: AgentRole) => isSlotCapability(AGENT_META[role].capability);
-function setSlot(role: AgentRole, slot: ApiSlot) {
-  ai.saveRoute({ ...routeOf(role), slot: slot === 'primary' ? undefined : slot });
-  if (routeEditing.value?.role === role) routeEditing.value.slot = slot === 'primary' ? undefined : slot;
-}
-/** 卡片上写实际用的是哪套（所选的没设置时同 math-reader 改用别的） */
-function slotUsed(role: AgentRole): string {
-  const s = ai.status(role);
-  if (!s.live) return '';
-  const a = ai.system.router.attempts(role)[0];
-  return a?.slot ? `${API_SLOT_LABEL[a.slot]} · ${a.connection.name} · ${a.endpoint.model}` : '';
-}
 
 // —— 智能体分配 ——
 const routeEditing = ref<AgentRoute | null>(null);
@@ -526,20 +430,6 @@ async function runReindex() {
   <div class="page" data-page="api">
     <PageHeader title="API 与智能体" subtitle="连接 = 地址 + Key；智能体 = 一项工作用哪个连接" fallback="/me" />
     <div class="page-scroll pb-10">
-      <div class="group-title">主要 / 次要 / 备用 API</div>
-      <div class="px-4 grid gap-2">
-        <button v-for="slot in API_SLOTS" :key="slot" class="agent flex items-center gap-3 w-full text-left press" :data-slot="slot" @click="openSlot(slot)">
-          <span class="agent-icon"><span :class="slot === 'primary' ? 'i-lucide-star' : slot === 'secondary' ? 'i-lucide-layers' : 'i-lucide-life-buoy'" /></span>
-          <div class="flex-1 min-w-0">
-            <div class="text-[14.5px] font-600">{{ API_SLOT_LABEL[slot] }}</div>
-            <div class="text-[12.5px] text-ink-2 truncate">{{ slotLine(slot) }}</div>
-            <div v-if="ai.apiSlots[slot].connectionId || slot === 'primary'" class="live-line" :class="slotState(slot).ok ? 'on' : 'off'">{{ slotState(slot).text }}</div>
-          </div>
-          <span class="i-lucide-chevron-right text-ink-3" />
-        </button>
-      </div>
-      <p class="note">同 math-reader：对话、番外、总结、生图提示词、主动消息、视觉默认用主要 API；每个可以在下面改用次要或备用。所选的没设置时依次用主要、备用、次要；调用失败时改用备用 API（所选的是备用时改用主要 API）。</p>
-
       <div class="group-title">连接<button class="action" @click="openConn()"><span class="i-lucide-plus" />添加</button></div>
       <div class="px-4 grid gap-2.5">
         <button v-for="c in ai.connections" :key="c.id" class="conn press" @click="openConn(c)">
@@ -574,35 +464,17 @@ async function runReindex() {
                 <span class="text-[14.5px] font-600">{{ AGENT_META[role].label }}</span>
                 <span class="tag">{{ RUNS_LABEL[routeOf(role).runsOn] }}</span>
               </div>
-              <template v-if="usesSlot(role)">
-                <div class="text-[12.5px] text-ink-2 truncate">用{{ API_SLOT_LABEL[routeOf(role).slot ?? 'primary'] }}</div>
-              </template>
-              <template v-else>
-                <div class="text-[12.5px] text-ink-2 truncate">{{ connName(routeOf(role).connectionId) }} · {{ routeOf(role).model || '未选模型' }}</div>
-                <div v-if="routeOf(role).fallbackConnectionId" class="text-[11.5px] text-ink-3 truncate">
-                  失败时改用 {{ connName(routeOf(role).fallbackConnectionId) }}{{ routeOf(role).fallbackModel ? ` · ${routeOf(role).fallbackModel}` : '' }}
-                </div>
-              </template>
+              <div class="text-[12.5px] text-ink-2 truncate">{{ connName(routeOf(role).connectionId) }} · {{ routeOf(role).model || '未选模型' }}</div>
+              <div v-if="routeOf(role).fallbackConnectionId" class="text-[11.5px] text-ink-3 truncate">
+                失败时改用 {{ connName(routeOf(role).fallbackConnectionId) }}{{ routeOf(role).fallbackModel ? ` · ${routeOf(role).fallbackModel}` : '' }}
+              </div>
               <div class="live-line" :class="ai.status(role).live ? 'on' : 'off'">
-                <template v-if="ai.status(role).live">已接通{{ usesSlot(role) ? ` · ${slotUsed(role)}` : '' }}</template>
+                <template v-if="ai.status(role).live">已接通</template>
                 <template v-else>演示模型 · {{ (ai.status(role) as { reason: string }).reason }}</template>
               </div>
             </div>
             <span class="i-lucide-chevron-right text-ink-3" />
           </button>
-          <div v-if="usesSlot(role)" class="slot-seg mt-2 ml-[48px]">
-            <button
-              v-for="s in API_SLOTS"
-              :key="s"
-              type="button"
-              class="slot-seg-btn"
-              :class="{ on: (routeOf(role).slot ?? 'primary') === s }"
-              :aria-pressed="(routeOf(role).slot ?? 'primary') === s"
-              @click="setSlot(role, s)"
-            >
-              {{ API_SLOT_LABEL[s].replace(' API', '') }}
-            </button>
-          </div>
           <div v-if="role === 'embedding'" class="embed-tools">
             <span class="text-[12px] text-ink-3 num">
               {{ services.embedding.live ? `${services.embedding.model} · ${services.embedding.dims || '—'} 维` : '演示用假向量' }} · {{ memories.length }} 条记忆 · 检索在本机
@@ -615,7 +487,7 @@ async function runReindex() {
           </div>
         </div>
       </div>
-      <p class="note">文字类智能体选用主要 / 次要 / 备用 API（同 math-reader 的 AI 功能分配）。语音合成、生图、向量化单独选连接和模型，并设一个备用连接；向量化只会换到同一个模型的备用连接：不同模型的向量不能互相比较，换了模型要重算向量。</p>
+      <p class="note">每个智能体单独选连接和模型，并设一个备用连接（主连接失败时自动改用，同 math-reader）。向量化只会换到同一个模型的备用连接：不同模型的向量不能互相比较，换了模型要重算向量。</p>
 
       <div class="group-title">回复修剪</div>
       <div class="px-4">
@@ -762,23 +634,6 @@ async function runReindex() {
       <div v-if="routeEditing" class="sheet">
         <div class="sheet-title">{{ AGENT_META[routeEditing.role].label }}</div>
         <div class="text-[12.5px] text-ink-3 mt-0.5">{{ AGENT_META[routeEditing.role].desc }}</div>
-        <template v-if="usesSlot(routeEditing.role)">
-          <label class="field-label">用哪套 API</label>
-          <div class="slot-seg">
-            <button
-              v-for="s in API_SLOTS"
-              :key="s"
-              type="button"
-              class="slot-seg-btn"
-              :class="{ on: (routeEditing.slot ?? 'primary') === s }"
-              @click="routeEditing.slot = s === 'primary' ? undefined : s"
-            >
-              {{ API_SLOT_LABEL[s].replace(' API', '') }}
-            </button>
-          </div>
-          <p class="text-[12px] text-ink-3 mt-1.5 mb-0">连接和模型在页面最上面的主要 / 次要 / 备用 API 里选。</p>
-        </template>
-        <template v-else>
         <label class="field-label">用哪个连接（只列出能做"{{ CAP_LABEL[AGENT_META[routeEditing.role].capability] }}"的）</label>
         <div class="grid gap-1.5">
           <button v-for="c in candidates" :key="c.id" class="pick" :class="{ on: routeEditing.connectionId === c.id }" @click="pickConn(c)">
@@ -792,7 +647,6 @@ async function runReindex() {
           <button v-for="m in routeConn?.models ?? []" :key="m" class="opt" :class="{ on: routeEditing.model === m }" @click="routeEditing.model = m">{{ m }}</button>
         </div>
         <input id="route-model" v-model="routeEditing.model" class="input mt-2" placeholder="或者直接填模型名" autocomplete="off" />
-        </template>
         <template v-if="AGENT_META[routeEditing.role].capability === 'chat' && routeEditing.role !== 'main'">
           <label class="field-label">温度 {{ temperature.toFixed(2) }}（越高越有想象力）</label>
           <van-slider v-model="temperature" :min="0" :max="1.5" :step="0.05" bar-height="4px" button-size="16px" />
@@ -870,7 +724,6 @@ async function runReindex() {
           </div>
           <button class="text-[13px] text-accent-ink mt-2.5" @click="resetStyle">恢复默认风格</button>
         </template>
-        <template v-if="!usesSlot(routeEditing.role)">
         <label class="field-label">失败时改用</label>
         <div class="flex flex-wrap gap-1.5">
           <button class="opt" :class="{ on: !routeEditing.fallbackConnectionId }" @click="routeEditing.fallbackConnectionId = null">不用备用</button>
@@ -881,7 +734,6 @@ async function runReindex() {
           <div class="flex flex-wrap gap-1.5 max-h-[96px] overflow-y-auto">
             <button v-for="m in fallbackConn.models" :key="m" class="opt" :class="{ on: routeEditing.fallbackModel === m }" @click="routeEditing.fallbackModel = m">{{ m }}</button>
           </div>
-        </template>
         </template>
         <template v-if="BUDGETED.has(routeEditing.role)">
           <label class="field-label" for="route-budget">每天最多用多少 token（空着不限）</label>
@@ -906,37 +758,6 @@ async function runReindex() {
         />
         <p class="text-[12px] text-ink-3 mt-2 mb-0">选"Worker"或"自动"时，App 关着也能跑，但这个连接的 Key 要交给 Worker（M2 做好同步后可用）。</p>
         <van-button round block type="primary" class="!mt-4" @click="saveRoute">保存</van-button>
-      </div>
-    </van-popup>
-
-    <!-- 主要 / 次要 / 备用 API -->
-    <van-popup v-model:show="slotOpen" position="bottom" round :style="{ maxHeight: '90%' }">
-      <div v-if="slotEditing" class="sheet">
-        <div class="sheet-title">{{ API_SLOT_LABEL[slotEditing.slot] }}</div>
-        <div class="text-[12.5px] text-ink-3 mt-0.5">{{ slotEditing.slot === 'backup' ? '所选 API 调用失败时使用' : slotEditing.slot === 'secondary' ? '在下面的智能体里按功能选用' : '文字类智能体默认用它' }}</div>
-        <label class="field-label">用哪个连接（地址和 Key 在连接里填）</label>
-        <div class="grid gap-1.5">
-          <button v-if="slotEditing.slot !== 'primary'" class="pick" :class="{ on: !slotEditing.connectionId }" @click="pickSlotConn(null)">
-            <span class="flex-1 text-left">不使用{{ slotEditing.slot === 'backup' ? '备用' : '次要' }}</span>
-          </button>
-          <button v-for="c in chatConns" :key="c.id" class="pick" :class="{ on: slotEditing.connectionId === c.id }" @click="pickSlotConn(c)">
-            <span class="flex-1 text-left truncate">{{ c.name }}</span>
-            <span class="text-[12px] shrink-0" :class="c.hasKey || c.keyStorage === 'none' ? 'text-ink-3' : 'text-warn'">{{ c.hasKey || c.keyStorage === 'none' ? KIND_LABEL[c.kind] : '未填 Key' }}</span>
-          </button>
-          <span v-if="!chatConns.length" class="text-[12px] text-ink-3">还没有能对话的连接：先在下面"连接"里添加一个</span>
-        </div>
-        <template v-if="slotConn">
-          <label class="field-label" for="slot-model">模型 <button class="text-accent-ink ml-2" @click="fetchSlotModels">{{ slotFetching ? '拉取中…' : '拉取模型列表' }}</button></label>
-          <div class="flex flex-wrap gap-1.5 max-h-[112px] overflow-y-auto">
-            <button v-for="m in slotConn.models" :key="m" class="opt" :class="{ on: slotEditing.model === m }" @click="slotEditing.model = m">{{ m }}</button>
-          </div>
-          <input id="slot-model" v-model="slotEditing.model" class="input mt-2" placeholder="或者直接填模型名" autocomplete="off" spellcheck="false" />
-          <div v-if="slotTest" class="test-result" :class="slotTest.ok ? 'ok' : 'bad'">{{ slotTest.text }}</div>
-        </template>
-        <div class="flex gap-2.5 mt-4">
-          <van-button v-if="slotConn" round block :loading="slotTesting" loading-text="测试中" @click="testSlot">测试连接</van-button>
-          <van-button round block type="primary" @click="saveSlot">保存</van-button>
-        </div>
       </div>
     </van-popup>
 
@@ -1033,24 +854,6 @@ async function runReindex() {
 }
 .live-line.off {
   color: var(--ink-3);
-}
-.slot-seg {
-  display: inline-flex;
-  padding: 2px;
-  border-radius: 10px;
-  background: var(--panel);
-}
-.slot-seg-btn {
-  height: 28px;
-  padding: 0 14px;
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--ink-2);
-}
-.slot-seg-btn.on {
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
 }
 .embed-tools {
   margin-top: 10px;

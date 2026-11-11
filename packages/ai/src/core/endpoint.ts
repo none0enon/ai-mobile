@@ -56,21 +56,6 @@ export function openaiBase(url: string): string {
   return originOnly(u) ? `${u}/v1` : u;
 }
 
-/** URL 已经写到 …/chat/completions（math-reader 的填法） */
-export function isFullChatUrl(url: string): boolean {
-  return /\/chat\/completions$/i.test(trimUrl(url).replace(/[?#].*$/, ''));
-}
-
-/** OpenAI 格式的对话地址：写到 …/chat/completions 的原样用（同 math-reader 的 fetch(config.url)），只填 Base URL 的按上面的规则拼 */
-export function openaiChatUrl(url: string): string {
-  return isFullChatUrl(url) ? trimUrl(url) : joinUrl(openaiBase(url), 'chat/completions');
-}
-
-/** OpenAI 格式的模型列表地址：同 math-reader 的 fetchModels，把 /chat/completions 换成 /models */
-export function openaiModelsUrl(url: string): string {
-  return isFullChatUrl(url) ? trimUrl(url).replace(/\/chat\/completions$/i, '/models') : joinUrl(openaiBase(url), 'models');
-}
-
 export const DEEPSEEK_DEFAULT_URL = 'https://api.deepseek.com';
 
 /**
@@ -109,13 +94,12 @@ export function anthropicBase(url: string): string {
 }
 
 /**
- * Gemini 原生接口的 Base URL（同 math-reader 的 geminiBaseUrl）：
- * 兼容 …/v1beta/、…/v1beta/models、…/models/gemini-2.5-flash:generateContent?key=… 这几种粘法。
- * 自定义地址原样用（math-reader 的"自定义"渠道不补 /v1beta）；只有官方域名只填了域名时补 /v1beta。
+ * Gemini 原生接口的 Base URL（https://generativelanguage.googleapis.com/v1beta）。
+ * 兼容 …/v1beta/、…/v1beta/models、…/models/gemini-2.5-flash:generateContent?key=… 这几种粘法（同 math-reader）。
  */
 export function geminiBase(url: string): string {
   const u = trimUrl(trimUrl(url.replace(/[?#].*$/, '')).replace(/\/models(?:\/.*)?$/i, ''));
-  return originOnly(u) && /^https?:\/\/generativelanguage\.googleapis\.com$/i.test(u) ? `${u}/v1beta` : u;
+  return originOnly(u) ? `${u}/v1beta` : u;
 }
 
 /** Bearer 鉴权头（有 Key 才带）+ 连接里的额外请求头 */

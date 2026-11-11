@@ -1,9 +1,9 @@
 import type { PromptProcessing } from '@app/shared';
-import { anthropicBase, bearerHeaders, deepseekBase, geminiBase, isDeepSeekOfficial, isFullChatUrl, joinUrl, openaiChatUrl, transportOf, trimUrl, type Endpoint } from '../core/endpoint.ts';
+import { anthropicBase, bearerHeaders, deepseekBase, geminiBase, isDeepSeekOfficial, joinUrl, openaiBase, transportOf, type Endpoint } from '../core/endpoint.ts';
 import { httpError } from '../core/errors.ts';
 import { request } from '../core/http.ts';
 import { claudeModelInfo } from './claude.ts';
-import { inlineNames, postProcessMessages, toClaude, toGemini, toOpenAIMessage } from './messages.ts';
+import { postProcessMessages, toClaude, toGemini, toOpenAIMessage } from './messages.ts';
 import { claudeThinking, deepseekThinking, geminiHasThinkingConfig, geminiThinking, openaiReasoningEffort, thinkingAlias } from './reasoning.ts';
 import { dropField, sendFixing, type RequestFix } from './retry.ts';
 import { readAIStream, readWhole } from './stream.ts';
@@ -45,10 +45,8 @@ export interface OpenAIDialect {
  */
 export async function openaiCompatible(ep: Endpoint, req: ChatRequest, call: ProviderCall, d: OpenAIDialect): Promise<ChatResult> {
   const url = d.url;
+  const messages = postProcessMessages(req.messages, req.processing ?? ep.promptProcessing ?? d.processing, req.names).map(toOpenAIMessage);
   const minimal = !!req.minimal;
-  // 最简请求同 math-reader：不发 name 字段，名字写进正文
-  const source = minimal ? inlineNames(req.messages, req.names) : req.messages;
-  const messages = postProcessMessages(source, req.processing ?? ep.promptProcessing ?? d.processing, req.names).map(toOpenAIMessage);
   const body: Record<string, unknown> = {
     ...(minimal ? {} : (req.extraBody ?? {})),
     model: d.model ?? ep.model,
@@ -116,42 +114,46 @@ export async function openaiCompatible(ep: Endpoint, req: ChatRequest, call: Pro
   return readWhole(response, ep.name, opts);
 }
 
-/** OpenAI 兼容：URL 写到 …/chat/completions 的原样用（同 math-reader），只填 Base URL 的拼上 /chat/completions */
-export const openaiChat: ChatProvider = (ep, req, call) => openaiCompatible(ep, req, call, { url: openaiChatUrl(ep.baseUrl), headers: bearerHeaders(ep) });
+/** OpenAI 兼容：…/chat/completions */
+export const openaiChat: ChatProvider = (ep, req, call) =>
+  openaiCompatible(ep, req, call, { url: joinUrl(openaiBase(ep.baseUrl), 'chat/completions'), headers: bearerHeaders(ep) });
 
 /**
- * DeepSeek：同 math-reader 的 deepseek 渠道，OpenAI 格式，模型名原样发（deepseek-chat / deepseek-reasoner…），
- * URL 写到 …/chat/completions 的原样用。
- * 只有在智能体里设了推理强度时才发思考开关和 reasoning_effort；开了思考时回复上限也算思考的 token，留出空间。
- * 预设里有助手预填时走官方的前缀续写（Beta）：地址换成 /beta，最后一条 assistant 带 prefix: true；被拒时自动按最简请求重发。
+ * DeepSeek 官方（按官网文档，2026-11）：
+ * - 地址 https://api.deepseek.com/chat/completions，模型 deepseek-flash（V4.1 Flash，能看图）/ deepseek-v4-pro；
+ * - 思考模式默认开、强度 high：推理强度换成 thinking 开关和 reasoning_effort（low / high / max），"关闭"发 thinking: disabled；
+ * - 思考模式下回复上限也算思考的 token（官网默认 64K），给思考留出空间，免得只有思考、没有正文；
+ * - 预设的助手预填走前缀续写（Beta）：地址换成 /beta，最后一条 assistant 带 prefix: true；
+ * - 旧模型名 deepseek-chat / deepseek-reasoner 已在 2026-07-24 停用：换成 deepseek-flash 的非思考 / 思考模式。
  */
 export const deepseekChat: ChatProvider = (ep, req, call) => {
   const base = deepseekBase(ep.baseUrl);
   const official = isDeepSeekOfficial(base);
-  const think = req.minimal ? {} : deepseekThinking(req.reasoningEffort);
+  const legacy = official ? (/^deepseek-chat$/i.test(ep.model) ? 'chat' : /^deepseek-reasoner$/i.test(ep.model) ? 'reasoner' : undefined) : undefined;
+  const think = req.minimal ? {} : deepseekThinking(req.reasoningEffort, legacy);
+  const thinkingOn = think.thinking?.type !== 'disabled';
   const prefill = official && !req.minimal ? req.prefill?.trimEnd() : undefined;
-  const url = prefill ? `${new URL(base).origin}/beta/chat/completions` : isFullChatUrl(ep.baseUrl) ? trimUrl(ep.baseUrl) : joinUrl(base, 'chat/completions');
+  const url = prefill ? `${new URL(base).origin}/beta/chat/completions` : joinUrl(base, 'chat/completions');
   return openaiCompatible(ep, req, call, {
     url,
     headers: bearerHeaders(ep),
+    model: legacy ? 'deepseek-flash' : ep.model,
     noAlias: true,
     tweak: (body, messages) => {
       delete body.reasoning_effort;
       if (think.thinking) body.thinking = think.thinking;
       if (think.effort) body.reasoning_effort = think.effort;
       if (prefill) messages.push({ role: 'assistant', content: prefill, prefix: true });
-      if (think.thinking?.type === 'enabled') return { maxTokens: Math.max(req.maxTokens ?? 0, think.effort === 'max' ? 65536 : 16384) };
+      if (thinkingOn) return { maxTokens: Math.max(req.maxTokens ?? 0, think.effort === 'max' ? 65536 : 16384) };
     },
   });
 };
 
 /**
- * Claude Messages：…/messages（官方，或兼容 Anthropic 原生协议的中转），请求同 math-reader 的 doClaudeRequest。
- * 中转站上的 Claude 多数只认 OpenAI 格式：URL 填中转给的 …/chat/completions 就按 OpenAI 格式发（同 math-reader 的 claude 渠道）。
+ * Claude Messages：…/messages（官方，或兼容 Anthropic 原生协议的中转）。
+ * 中转站上的 Claude 多数只认 OpenAI 格式（不接受 x-api-key、anthropic-version 这些请求头，浏览器预检就会失败），那种选 OpenAI 兼容。
  */
 export const anthropicChat: ChatProvider = async (ep, req, call) => {
-  // 同 math-reader 的 claude 渠道：中转给的 …/chat/completions 按 OpenAI 格式发
-  if (isFullChatUrl(ep.baseUrl)) return openaiCompatible(ep, req, call, { url: trimUrl(ep.baseUrl), headers: bearerHeaders(ep) });
   const url = joinUrl(anthropicBase(ep.baseUrl), 'messages');
   const info = claudeModelInfo(ep.model);
   const minimal = !!req.minimal;
@@ -221,10 +223,25 @@ export const anthropicChat: ChatProvider = async (ep, req, call) => {
 /** 会思考的 Gemini 模型（2.5 及以后）：要思考内容时请求摘要 */
 const GEMINI_THINKS = /gemini-(?:2\.5|[3-9])|gemini-(?:pro|flash)(?:-lite)?-latest|thinking/i;
 
+/** 角色扮演关掉 Gemini 的安全过滤（这是你自己的 Key）。接口不认时自动去掉 */
+const GEMINI_SAFETY_OFF = [
+  'HARM_CATEGORY_HARASSMENT',
+  'HARM_CATEGORY_HATE_SPEECH',
+  'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+  'HARM_CATEGORY_DANGEROUS_CONTENT',
+  'HARM_CATEGORY_CIVIC_INTEGRITY',
+].map((category) => ({ category, threshold: 'OFF' }));
+
+/** Vertex 的官方文档只列了这四类（没有 CIVIC_INTEGRITY） */
+export const VERTEX_SAFETY_OFF = ['HARM_CATEGORY_HARASSMENT', 'HARM_CATEGORY_HATE_SPEECH', 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'HARM_CATEGORY_DANGEROUS_CONTENT'].map(
+  (category) => ({ category, threshold: 'OFF' }),
+);
+
 /** Gemini 原生协议的一次请求里，AI Studio 和 Vertex 不同的部分 */
 export interface GeminiTarget {
   /** 按流式与否给出地址和鉴权头（Vertex 用服务账号时要先换访问令牌，所以是异步的） */
   target(stream: boolean): Promise<{ url: string; headers: Record<string, string> }>;
+  safety: { category: string; threshold: string }[];
   /** thinkingLevel 写成大写枚举（Vertex 文档的写法） */
   upperLevel?: boolean;
   /** 记住这个地址 + 模型的输出上限用 */
@@ -253,8 +270,7 @@ export async function geminiGenerate(ep: Endpoint, req: ChatRequest, call: Provi
       generationConfig.thinkingConfig = { ...(include && effort.thinkingBudget !== 0 ? { includeThoughts: true } : {}), ...effort };
     }
   }
-  // 同 math-reader 的 doGeminiRequest：contents / systemInstruction / generationConfig，不带 safetySettings
-  const body: Record<string, unknown> = { contents, generationConfig };
+  const body: Record<string, unknown> = { contents, generationConfig, safetySettings: t.safety };
   if (systemInstruction) body.systemInstruction = systemInstruction;
 
   const fixes = [
@@ -264,6 +280,7 @@ export async function geminiGenerate(ep: Endpoint, req: ChatRequest, call: Provi
     dropField(generationConfig, 'seed', /seed/i),
     dropField(generationConfig, 'presencePenalty', /presence_?penalty/i),
     dropField(generationConfig, 'frequencyPenalty', /frequency_?penalty/i),
+    dropField(body, 'safetySettings', /safety|harm/i),
   ];
   const send = async (max: number | undefined) => {
     if (max === undefined) delete generationConfig.maxOutputTokens;
@@ -298,6 +315,7 @@ export const geminiChat: ChatProvider = (ep, req, call) => {
       url: `${base}/models/${encodeURIComponent(model)}${stream ? `:streamGenerateContent?alt=sse&key=${key}` : `:generateContent?key=${key}`}`,
       headers: {},
     }),
+    safety: GEMINI_SAFETY_OFF,
     cacheKey: `${base}|${model}`,
   });
 };

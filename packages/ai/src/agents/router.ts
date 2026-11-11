@@ -1,4 +1,4 @@
-import { AGENT_META, API_SLOT_LABEL, type AgentRole, type AgentRoute, type ApiSlot, type ApiSlotSetting, type Capability, type ConnectionKind, type ProviderConnection } from '@app/shared';
+import { AGENT_META, type AgentRole, type AgentRoute, type Capability, type ConnectionKind, type ProviderConnection } from '@app/shared';
 import type { Endpoint } from '../core/endpoint.ts';
 import { AiError, errorText, shouldFailover } from '../core/errors.ts';
 import type { Transport } from '../core/http.ts';
@@ -20,16 +20,6 @@ export interface AgentConfig {
   keyOf(connectionId: string): string | null;
   /** 经自己的 Worker 转发时用的请求函数；还没连上 Worker 时返回 null */
   relay?(conn: ProviderConnection): Transport | null;
-  /**
-   * 三套 AI API（主要 / 次要 / 备用，同 math-reader）各用哪个连接、哪个模型。
-   * 给了它，文字类智能体（对话、识图）就按 math-reader 的规则选用这三套，不看分配里的连接和模型
-   */
-  apiSlots?(): Partial<Record<ApiSlot, ApiSlotSetting>>;
-}
-
-/** 文字类智能体（对话、识图）用三套 API */
-export function isSlotCapability(cap: Capability): boolean {
-  return cap === 'chat' || cap === 'vision';
 }
 
 export interface Attempt {
@@ -37,8 +27,6 @@ export interface Attempt {
   connection: ProviderConnection;
   /** 这是备用连接 */
   fallback: boolean;
-  /** 用的是三套 API 中的哪一套（文字类智能体） */
-  slot?: ApiSlot;
 }
 
 export type RouteStatus =
@@ -117,56 +105,8 @@ export class AgentRouter {
     };
   }
 
-  /** 这个智能体按 math-reader 的规则用三套 API */
-  usesSlots(role: AgentRole): boolean {
-    return !!this.config.apiSlots && isSlotCapability(AGENT_META[role].capability);
-  }
-
-  /** 一套 API 能用就给出它的端点，不能用说明原因（同 math-reader 的 isAIApiConfigured：连接在、Key 在、模型选了） */
-  slotAttempt(slot: ApiSlot, cap: Capability, fallback = false): Attempt | { reason: string; code: 'no_route' | 'no_key' | 'unsupported' | 'network' } {
-    const label = API_SLOT_LABEL[slot];
-    const s = this.config.apiSlots?.()[slot];
-    if (!s?.connectionId) return { reason: slot === 'primary' ? `${label}还没选连接` : `没设置${label}`, code: 'no_route' };
-    const conn = this.connection(s.connectionId);
-    if (!conn) return { reason: `${label}选的连接已经删除`, code: 'no_route' };
-    if (!s.model.trim()) return { reason: `${label}（${conn.name}）还没选模型`, code: 'no_route' };
-    const r = this.endpointFor(conn, s.model.trim(), cap);
-    if ('reason' in r) return { reason: `${label}：${r.reason}`, code: r.code };
-    return { endpoint: r.endpoint, connection: conn, fallback, slot };
-  }
-
-  /**
-   * 同 math-reader 的 resolveAIRoute：所选的 API 不能用就依次用主要、备用、次要；
-   * 再加一个调用失败后改用的：备用 API（所选的就是备用时改用主要 API）。一套都不能用时返回空数组和主要 API 的原因
-   */
-  slotAttempts(role: AgentRole): { attempts: Attempt[]; reason: string; code: 'no_route' | 'no_key' | 'unsupported' | 'network' } {
-    const cap = AGENT_META[role].capability;
-    const chosen = this.route(role)?.slot ?? 'primary';
-    let first: Attempt | null = null;
-    let problem: { reason: string; code: 'no_route' | 'no_key' | 'unsupported' | 'network' } | null = null;
-    for (const slot of [...new Set<ApiSlot>([chosen, 'primary', 'backup', 'secondary'])]) {
-      const a = this.slotAttempt(slot, cap);
-      if ('reason' in a) {
-        if (slot === 'primary' || !problem) problem = a;
-        continue;
-      }
-      first = a;
-      break;
-    }
-    if (!first) return { attempts: [], reason: problem?.reason ?? '主要 API 还没选连接', code: problem?.code ?? 'no_route' };
-    const next = this.slotAttempt(first.slot === 'backup' ? 'primary' : 'backup', cap, true);
-    return { attempts: 'reason' in next ? [first] : [first, next], reason: '', code: 'no_route' };
-  }
-
   /** 主连接能不能用；不能时说明原因（界面据此决定用演示模型还是真的调用） */
   status(role: AgentRole): RouteStatus {
-    if (this.usesSlots(role)) {
-      const route = this.route(role) ?? { role, connectionId: null, model: '', fallbackConnectionId: null, runsOn: 'device' as const };
-      const r = this.slotAttempts(role);
-      const first = r.attempts[0];
-      if (!first) return { live: false, reason: r.reason, code: r.code, route };
-      return { live: true, route, connection: first.connection };
-    }
     const route = this.route(role);
     if (!route?.connectionId) return { live: false, reason: `还没给"${AGENT_META[role].label}"分配连接`, code: 'no_route', route };
     const conn = this.connection(route.connectionId);
@@ -182,11 +122,6 @@ export class AgentRouter {
    * override 用来临时换连接或模型（例如角色单独选的 TTS 连接）。不能用的连接跳过；一个都不能用时报主连接的原因。
    */
   attempts(role: AgentRole, override: { connectionId?: string | null; model?: string } = {}): Attempt[] {
-    if (this.usesSlots(role)) {
-      const r = this.slotAttempts(role);
-      if (!r.attempts.length) throw new AiError(r.code, r.reason);
-      return r.attempts;
-    }
     const route = this.route(role);
     const cap = AGENT_META[role].capability;
     const primaryId = override.connectionId || route?.connectionId;

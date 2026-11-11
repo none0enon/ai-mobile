@@ -160,7 +160,7 @@ function drawStory() {
         <van-cell-group inset>
           <van-cell
             title="写一段她的番外"
-            :label="ai.isLive('sidestory') ? `你不在的时候，${storyCharacter().name}那边发生了什么` : '演示故事；设置好主要 API 后真的写'"
+            :label="ai.isLive('sidestory') ? `你不在的时候，${storyCharacter().name}那边发生了什么` : '演示故事；给番外智能体分配连接并填 Key 后真的写'"
             is-link
             center
             @click="runSidestory"

@@ -18,23 +18,6 @@ export type ConnectionKind =
 export type Capability = 'chat' | 'vision' | 'embedding' | 'tts' | 'stt' | 'image' | 'maps';
 
 /**
- * 同 math-reader 的三套 AI API：主要 / 次要 / 备用。对话、番外、总结这些文字类智能体每个选用其中一套（默认主要）；
- * 所选的没设置就依次用主要、备用、次要；调用失败改用备用（所选的是备用时改用主要）。
- */
-export type ApiSlot = 'primary' | 'secondary' | 'backup';
-
-export const API_SLOTS: readonly ApiSlot[] = ['primary', 'secondary', 'backup'];
-
-export const API_SLOT_LABEL: Record<ApiSlot, string> = { primary: '主要 API', secondary: '次要 API', backup: '备用 API' };
-
-/** 一套 API 用哪个连接、哪个模型（math-reader 的渠道、URL、密钥在这里是连接） */
-export interface ApiSlotSetting {
-  /** null = 未选择（次要、备用 = 不使用） */
-  connectionId: string | null;
-  model: string;
-}
-
-/**
  * Key 存在哪里（按连接设置，不按智能体）：
  * - device：只存本机（默认）。同步记录里永远没有 Key；可选用同步密码加密后在设备间传递
  * - hub：交给自己的 Worker 保管，只能写入、不能读回（用 Worker secret 加密）。
@@ -137,11 +120,6 @@ export type AgentRole =
 
 export interface AgentRoute {
   role: AgentRole;
-  /**
-   * 文字类智能体（对话、识图）用三套 API 中的哪一套（同 math-reader 的 AI 功能分配），不写 = 主要 API。
-   * 这类智能体不看下面的 connectionId / model / fallbackConnectionId
-   */
-  slot?: ApiSlot;
   connectionId: string | null;
   model: string;
   fallbackConnectionId: string | null;
