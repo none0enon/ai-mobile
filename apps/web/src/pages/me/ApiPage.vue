@@ -2,7 +2,8 @@
 import { apiLabel, channelsFor, compileFilter, DEFAULT_IMAGE_STYLE, DEFAULT_OUTPUT_FILTERS, encodeVector, errorReport, kindOf, newFeatureApi, type VoiceSpec } from '@app/ai';
 import { AGENT_META, apiKeyId, isTextRole, type AgentRole, type AgentRoute, type FeatureApi, type ReasoningEffort } from '@app/shared';
 import { showToast } from 'vant';
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import ErrorDetails from '@/components/common/ErrorDetails.vue';
 import Segmented from '@/components/common/Segmented.vue';
 import ApiForm from '@/components/settings/ApiForm.vue';
@@ -95,6 +96,15 @@ function openFeature(role: AgentRole) {
   keys.api = ai.keyOf(apiKeyId(role)) ?? '';
   keys.backup = ai.keyOf(apiKeyId(role, true)) ?? '';
 }
+// 从别处直接跳到某个功能的设置（例如聊天里"生成配图"没接通时 → ?feature=image）；已经在这一页时换个功能也跟着换
+const route = useRoute();
+watch(
+  () => route.query.feature,
+  (f) => {
+    if (typeof f === 'string' && f in AGENT_META && ai.routeOf(f as AgentRole)) openFeature(f as AgentRole);
+  },
+  { immediate: true },
+);
 const followModel = computed({
   get: () => (draftFollow.value ? 'main' : 'own'),
   set: (v: string) => {

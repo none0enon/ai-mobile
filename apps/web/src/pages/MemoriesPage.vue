@@ -4,6 +4,7 @@ import { showToast } from 'vant';
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Avatar from '@/components/common/Avatar.vue';
+import HScroll from '@/components/common/HScroll.vue';
 import Segmented from '@/components/common/Segmented.vue';
 import CgArt from '@/components/figure/CgArt.vue';
 import { album, diaries, memories, MEMORY_TYPE_META, timeline, type AlbumItem } from '@/mock/memories';
@@ -68,7 +69,7 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
       <h1 class="m-0 text-[28px] font-700">回忆</h1>
     </header>
     <!-- 看谁的回忆 -->
-    <div class="flex gap-2 overflow-x-auto hide-scrollbar px-4 pt-1 pb-1 shrink-0" role="tablist" aria-label="看谁的回忆">
+    <HScroll :active="character.id" class="gap-2 px-4 pt-1 pb-1" role="tablist" aria-label="看谁的回忆">
       <button
         v-for="c in chars.list"
         :key="c.id"
@@ -81,7 +82,7 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
       >
         <Avatar :character="c" :size="26" />{{ c.name }}
       </button>
-    </div>
+    </HScroll>
 
     <div class="page-scroll pb-6">
       <!-- 关系状态（由总结智能体维护） -->
@@ -100,9 +101,9 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
           </div>
         </div>
       </div>
-      <div v-if="rel.anniversaries.length" class="flex gap-2 px-4 mt-2.5 overflow-x-auto hide-scrollbar">
+      <HScroll v-if="rel.anniversaries.length" class="gap-2 px-4 mt-2.5">
         <span v-for="a in rel.anniversaries" :key="a.label" class="chip"><span class="i-lucide-calendar-heart text-accent-ink" />{{ a.label }} · {{ a.date }}</span>
-      </div>
+      </HScroll>
 
       <Segmented
         v-model="tab"
@@ -164,9 +165,9 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
             <input v-model="keyword" :placeholder="`搜${character.pronoun}记得的事（本机向量检索）`" aria-label="搜索记忆" />
           </div>
         </div>
-        <div class="flex gap-2 overflow-x-auto hide-scrollbar px-4 py-2.5">
-          <button v-for="f in FILTERS" :key="f.value" class="filter" :class="{ on: filter === f.value }" @click="filter = f.value">{{ f.label }}</button>
-        </div>
+        <HScroll :active="filter" class="gap-2 px-4 py-2.5" aria-label="按类型筛选">
+          <button v-for="f in FILTERS" :key="f.value" type="button" class="filter" :class="{ on: filter === f.value }" :aria-pressed="filter === f.value" @click="filter = f.value">{{ f.label }}</button>
+        </HScroll>
         <div class="px-4 grid gap-2">
           <div v-for="m in shown" :key="m.id" class="mem" :style="{ '--tone': MEMORY_TYPE_META[m.type].color }">
             <span class="mem-icon"><span :class="MEMORY_TYPE_META[m.type].icon" /></span>

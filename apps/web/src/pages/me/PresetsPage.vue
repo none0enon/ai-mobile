@@ -4,6 +4,7 @@ import { showToast } from 'vant';
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Avatar from '@/components/common/Avatar.vue';
+import HScroll from '@/components/common/HScroll.vue';
 import PresetPicker from '@/components/settings/PresetPicker.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { useCharacterStore } from '@/stores/characters';
@@ -73,7 +74,7 @@ function pick(id: string | null) {
         <RouterLink to="/import" class="icon-btn" aria-label="导入预设"><span class="i-lucide-file-down text-[20px]" /></RouterLink>
       </template>
     </PageHeader>
-    <div class="cats hide-scrollbar px-4 pt-1 pb-2" role="tablist" aria-label="预设分类">
+    <HScroll :active="cat" class="gap-2 px-4 pt-1 pb-2" role="tablist" aria-label="预设分类">
       <button
         v-for="c in PRESET_CATEGORY_ORDER"
         :key="c"
@@ -87,7 +88,7 @@ function pick(id: string | null) {
       >
         <span :class="PRESET_CATEGORIES[c].icon" />{{ PRESET_CATEGORIES[c].label }}<span class="num text-ink-3 text-[12px]">{{ lib.presetsOf(c).length }}</span>
       </button>
-    </div>
+    </HScroll>
 
     <div class="page-scroll px-4 pb-8 grid gap-3 content-start">
       <p class="text-[12.5px] text-ink-3 m-0 leading-relaxed">{{ PRESET_CATEGORIES[cat].desc }}</p>
@@ -160,12 +161,6 @@ function pick(id: string | null) {
 </template>
 
 <style scoped>
-.cats {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  flex-shrink: 0;
-}
 .cat {
   display: inline-flex;
   align-items: center;

@@ -6,6 +6,7 @@ import {
   substituteMacros,
   type Character,
   type Chat,
+  type ImageMode,
   type Message,
   type MessagePart,
   type MessageRole,
@@ -62,7 +63,17 @@ export const useChatStore = defineStore('chat', () => {
       chats.value.push(c);
     }
     for (const { key: chatId, value: list } of ms) {
-      if (Array.isArray(list)) messages.value[chatId] = list;
+      if (!Array.isArray(list)) continue;
+      // 上次画到一半 App 关了 / 刷新了：卡片别一直"生成中"
+      for (const m of list) {
+        for (const p of m.parts ?? []) {
+          if (p.type === 'image' && !p.generated && !p.error) {
+            p.error = '上次没画完（App 关了或刷新了）';
+            p.errorDetail = '点开这张图，按"重新生成"再画一次。';
+          }
+        }
+      }
+      messages.value[chatId] = list;
     }
     await Promise.all([
       write('chats', chats.value.map((c) => ({ key: c.id, value: JSON.parse(JSON.stringify(c)) }))),
@@ -284,7 +295,7 @@ export const useChatStore = defineStore('chat', () => {
       } else {
         msg.swipes = [swipe];
       }
-      // 配图：生图提示词智能体写 tags → 生图智能体出图；没有生图连接时演示一下
+      // 配图：生图预设写 tags → 生图 API 出图；生图 API 没接通时卡片上写原因
       for (const part of parts) if (part.type === 'image') void drawPart(chatId, id, part.caption);
       // 攒够了就在后台整理一段（"总结"预设）
       setTimeout(() => void maybeSummarize(chatId), 0);
@@ -349,7 +360,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * 给一条消息里的配图出图。await 之后按 id 重新取消息和卡片（设计文档 §3.1 的教训：生成期间对象可能被替换）
+   * 给一条消息里的配图出图：生图预设写 tags（生图提示词）→ 生图 API 出图 → 存进本机素材库。
+   * 生图 API 没接通时卡片上直接写原因，不拿占位画冒充"画好了"。
+   * await 之后按 id 重新取消息和卡片（设计文档 §3.1 的教训：生成期间对象可能被替换）
    */
   async function drawPart(chatId: string, messageId: string, caption: string) {
     const chat = chatById(chatId);
@@ -360,19 +373,24 @@ export const useChatStore = defineStore('chat', () => {
       return p?.type === 'image' ? p : undefined;
     };
     if (!chat || !character) return;
+    const before = findPart();
+    if (!before) return;
     if (!services.image.live) {
-      // 演示：过一会儿"画好"，用占位画
-      await new Promise((r) => setTimeout(r, 2400));
-      const part = findPart();
-      if (part) Object.assign(part, { generated: true, seed: 20261110, prompt: `${character.appearanceTags}, ${caption}` });
+      const s = useAiStore().status('image');
+      Object.assign(before, {
+        generated: false,
+        error: '生图 API 还没接通',
+        errorDetail: `${s.live ? '' : `${s.reason}\n\n`}在"我的 → API 设置 → 生图"里选渠道（NovelAI、硅基流动或自定义）、填地址和 Key，测试连接通过后，点这张图重新生成。`,
+      });
       return;
     }
-    const before = findPart();
-    if (before) Object.assign(before, { generated: false, error: undefined, errorDetail: undefined });
+    // 重画时旧图先留着（画失败了也还在），画好了再换
+    Object.assign(before, { generated: false, error: undefined, errorDetail: undefined });
     try {
       const out = await services.image.illustrate({
         characterId: character.id,
         caption,
+        mode: before.mode,
         place: getLocation(chat.togetherAt ?? character.locationId)?.name,
         expression: chars.expression[character.id],
         recent: recentLines(chatId),
@@ -381,6 +399,7 @@ export const useChatStore = defineStore('chat', () => {
       if (!part) return;
       Object.assign(part, {
         assetKey: out.assetKey ?? out.url ?? null,
+        title: out.caption && out.caption !== caption ? out.caption : undefined,
         prompt: out.prompt,
         negative: out.negative,
         seed: out.seed ?? undefined,
@@ -396,6 +415,28 @@ export const useChatStore = defineStore('chat', () => {
         part.errorDetail = errorReport(e);
       }
     }
+  }
+
+  /**
+   * "生成配图"：不经过对话模型，直接按"生图"预设写 tags、调生图 API。
+   * 画好的图作为她发来的一张图放进聊天（发给模型的聊天记录里是"[图片：标题]"）。
+   * caption 不写时按这次画什么、她在哪、最近的聊天画。
+   */
+  function drawImage(chatId: string, req: { mode: ImageMode; caption: string }) {
+    const chat = chatById(chatId);
+    const character = useCharacterStore().byId(chat?.characterId);
+    if (!chat || !character) return;
+    const place = getLocation(chat.togetherAt ?? character.locationId)?.name;
+    const auto: Record<ImageMode, string> = {
+      scene: '按最近的聊天，画此刻的画面',
+      portrait: `${character.name}此刻的全身像`,
+      face: `${character.name}此刻的脸部特写`,
+      background: place ? `${place}，${character.name}此刻所在的地方` : `${character.name}此刻所在的地方`,
+    };
+    const caption = req.caption.trim() || auto[req.mode];
+    const msg = push(chatId, 'assistant', [{ type: 'image', assetKey: null, caption, mode: req.mode, generated: false }]);
+    msg.meta.agent = 'image';
+    void drawPart(chatId, msg.id, caption);
   }
 
   /** 重画一张配图（失败后、或者想换一张） */
@@ -637,6 +678,7 @@ export const useChatStore = defineStore('chat', () => {
     editMessage,
     deleteMessage,
     redraw,
+    drawImage,
     recentLines,
     summarizing,
     summarizeNow,

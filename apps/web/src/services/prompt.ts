@@ -1,6 +1,7 @@
 import {
   assemblePrompt,
   buildChatRequest,
+  CONTROL_TAG_DOCS,
   estimateTokens,
   formatEnvironmentBlock,
   getLocation,
@@ -48,7 +49,7 @@ function partToText(p: MessagePart, character: Character, user: string): string 
     case 'voice':
       return `[语音] ${p.transcript}`;
     case 'image':
-      return `[图片：${p.caption}]`;
+      return `[图片：${p.title || p.caption}]`;
     case 'music':
       return `[分享歌曲：${p.title} - ${p.artist}]`;
     case 'poke':
@@ -147,8 +148,10 @@ function appFills(chat: Chat, character: Character, history: Message[]): Record<
   };
 }
 
+/** 这个场景能用的标签：每个都写清楚写法和什么时候用（只给名字的话模型写不对，比如 [cg] 后面不带画面就画不出来） */
 function tagsLine(scene: ReturnType<typeof getScene>): string {
-  return `可用标签：${scene.allowedTags.map((t) => `[${t}]`).join(' ')}；可用表情：neutral smile laugh blush shy pout surprised sad angry sleepy sleep`;
+  const tags = scene.allowedTags.map((t) => `- ${CONTROL_TAG_DOCS[t].syntax}：${CONTROL_TAG_DOCS[t].desc}`);
+  return `回复里可以夹带这些隐藏标签（对方看不到，程序会执行）：\n${tags.join('\n')}\n可用表情：neutral smile laugh blush shy pout surprised sad angry sleepy sleep`;
 }
 
 /** 功能预设自己写了场景规则时，程序那块只填这个场景能用的标签和表情 */

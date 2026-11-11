@@ -14,6 +14,19 @@ const showTranscript = ref(false);
 const playing = ref(false);
 const MEAL: Record<string, string> = { breakfast: '早饭', lunch: '午饭', dinner: '晚饭', snack: '加餐' };
 
+/** 配图卡片右下角：画到哪一步；画好的写实际出图的模型，没有真图的（演示聊天里的）写"示意图" */
+const imageState = computed<'error' | 'drawing' | 'done' | 'placeholder'>(() => {
+  const p = props.part;
+  if (p.type !== 'image' || p.error) return 'error';
+  if (!p.generated) return 'drawing';
+  return p.assetKey ? 'done' : 'placeholder';
+});
+const imageLabel = computed(() => {
+  const p = props.part;
+  if (p.type !== 'image') return '';
+  return { error: '点开重画', drawing: '生成中', done: p.model || '已生成', placeholder: '示意图' }[imageState.value];
+});
+
 const bars = computed(() => {
   if (props.part.type !== 'voice') return [];
   const n = Math.min(18, Math.max(6, Math.round(props.part.durationMs / 600)));
@@ -71,12 +84,12 @@ async function playVoice() {
   </div>
 
   <!-- 图片 / 配图 -->
-  <button v-else-if="part.type === 'image'" class="pcard image" @click="emit('open-image')">
+  <button v-else-if="part.type === 'image'" class="pcard image" :data-image-state="imageState" @click="emit('open-image')">
     <GenImage :part="part" :character="character" class="rounded-[14px]" />
     <div class="flex items-center gap-1.5 mt-2 text-[12.5px] text-ink-2">
-      <span class="i-lucide-wand-sparkles text-accent-ink" />
-      <span class="truncate">{{ part.caption }}</span>
-      <span class="ml-auto shrink-0" :class="part.error ? 'text-bad' : 'text-ink-3'">{{ part.error ? '点开重画' : part.generated ? (part.model?.includes('nai') || !part.model ? 'NovelAI' : '已生成') : '生成中' }}</span>
+      <span class="i-lucide-wand-sparkles text-accent-ink shrink-0" />
+      <span class="truncate">{{ part.title || part.caption }}</span>
+      <span class="ml-auto shrink-0 max-w-[48%] truncate" :class="part.error ? 'text-bad' : 'text-ink-3'">{{ imageLabel }}</span>
     </div>
   </button>
 

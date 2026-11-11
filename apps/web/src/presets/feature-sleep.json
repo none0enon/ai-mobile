@@ -185,7 +185,7 @@
       "identifier": "tagDirective",
       "name": "控制标签说明",
       "role": "system",
-      "content": "在情绪变化处插入隐藏标签，例如 [expr:smile]；只能用下面列出的表情。用户看不到这些标签。",
+      "content": "在情绪变化处插入隐藏标签切换表情，例如 [expr:smile]，只能用列出的表情；其他标签（发图、分享歌曲、打电话……）照「当前场景规则 + 可用标签」里列出的写法用。用户看不到这些标签。",
       "marker": false,
       "enabled": true,
       "injection": {

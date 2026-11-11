@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { showToast } from 'vant';
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import Avatar from '@/components/common/Avatar.vue';
+import HScroll from '@/components/common/HScroll.vue';
 import ImagePick from '@/components/common/ImagePick.vue';
 import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
 import Segmented from '@/components/common/Segmented.vue';
@@ -40,22 +41,12 @@ const ROWS = computed<{ which: Which; label?: string }[]>(() =>
   split.value ? [{ which: 'day', label: '白天' }, { which: 'night', label: '夜里' }] : [{ which: 'both' }],
 );
 
-/** 配色一行放不下时横着滑；选中的那个总是滑到看得见的地方 */
-const rowEls = ref<HTMLElement[]>([]);
-function revealSelected() {
-  void nextTick(() => {
-    for (const row of rowEls.value) {
-      const on = row.querySelector<HTMLElement>('.pal.on');
-      if (!on) continue;
-      const r = row.getBoundingClientRect();
-      const o = on.getBoundingClientRect();
-      if (o.right > r.right - 8) row.scrollLeft += o.right - r.right + 16;
-      else if (o.left < r.left + 8) row.scrollLeft -= r.left - o.left + 16;
-    }
-  });
+/** 配色一行放不下时横着滑（手指、鼠标滚轮、拖动、箭头都行）；这一行选中的变了就把它滑到看得见的地方 */
+function activeOf(which: Which): string {
+  if (which === 'night') return looks.settings.nightPalette;
+  if (which === 'day') return looks.settings.dayPalette;
+  return `${looks.settings.dayPalette}|${looks.settings.nightPalette}`;
 }
-onMounted(revealSelected);
-watch(() => [looks.settings.dayPalette, looks.settings.nightPalette, split.value], revealSelected);
 
 function hasAvatar(owner: AvatarOwner, id: string) {
   return !!looks.imageUrl(looks.avatarKey(owner, id));
@@ -108,7 +99,7 @@ const reduceMotion = ref(false);
       <div class="group-title">配色</div>
       <template v-for="row in ROWS" :key="row.which">
         <div v-if="row.label" class="pal-label">{{ row.label }}</div>
-        <div ref="rowEls" class="flex gap-2.5 overflow-x-auto hide-scrollbar px-4 pt-1 pb-1">
+        <HScroll :active="activeOf(row.which)" class="gap-2.5 px-4 pt-1 pb-1" :aria-label="`${row.label ?? ''}配色`">
           <button
             v-for="p in PALETTES"
             :key="p.id"
@@ -128,7 +119,7 @@ const reduceMotion = ref(false);
             </span>
             <span class="pal-name">{{ p.name }}</span>
           </button>
-        </div>
+        </HScroll>
       </template>
       <van-cell-group inset class="!mt-2">
         <van-cell title="白天和夜里用不同配色" center>

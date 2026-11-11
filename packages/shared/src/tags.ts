@@ -26,16 +26,23 @@ export type ControlTag =
 
 export type TagStreamEvent = { type: 'text'; text: string } | { type: 'tag'; tag: ControlTag };
 
+/**
+ * 每种标签的写法和什么时候用。写给模型看：拼进提示词的"当前场景规则 + 可用标签"那一块（只列这个场景能用的），
+ * 所以导入的 SillyTavern 预设也知道怎么用。
+ */
 export const CONTROL_TAG_DOCS: Record<ControlTagKind, { syntax: string; desc: string }> = {
-  expr: { syntax: '[expr:smile]', desc: '切换立绘表情（只允许立绘套装里有的表情）' },
-  pose: { syntax: '[pose:sit]', desc: '切换姿势' },
-  outfit: { syntax: '[outfit:pajama]', desc: '切换服装' },
-  bg: { syntax: '[bg:cafe]', desc: '切换背景' },
-  cg: { syntax: '[cg:画面描述]', desc: '请求一张配图' },
+  expr: { syntax: '[expr:表情]', desc: '情绪变化时切换立绘表情，只能用下面列出的表情' },
+  pose: { syntax: '[pose:姿势]', desc: '换一个姿势（sit、stand……）' },
+  outfit: { syntax: '[outfit:服装]', desc: '换一身衣服（pajama、casual……）' },
+  bg: { syntax: '[bg:地点]', desc: '换背景（cafe、library……）' },
+  cg: {
+    syntax: '[cg:画面描述]',
+    desc: '发一张图给对方：对方想看你（照片、自拍、你现在的样子），或者你想让对方看到眼前的画面时用。冒号后面用中文写清楚画面：谁、在哪、在做什么、什么光线。程序会照着画出来发过去；一次回复最多一个',
+  },
   music: { syntax: '[music:歌名-歌手]', desc: '分享一首歌' },
-  call: { syntax: '[call]', desc: '想打电话' },
-  choice: { syntax: '[choice:选项A|选项B]', desc: '给出约会选项' },
-  poke: { syntax: '[poke:部位]', desc: '回戳你' },
+  call: { syntax: '[call]', desc: '想和对方打电话时用' },
+  choice: { syntax: '[choice:选项A|选项B]', desc: '给对方几个选项，显示成可以直接点的回复' },
+  poke: { syntax: '[poke:部位]', desc: '回戳对方' },
 };
 
 const KIND_ALT = CONTROL_TAG_KINDS.join('|');

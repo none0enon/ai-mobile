@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import type { Character } from '@app/shared';
 import Avatar from './Avatar.vue';
+import HScroll from './HScroll.vue';
 
 /**
  * 一排头像 + 名字，选一个角色（主动消息页、"我的 → 试一试"用）。所有角色都在里面，包括导入的。
- * off(c) 为真时这一个显示成灰的（例如没打开主动消息）
+ * off(c) 为真时这一个显示成灰的（例如没打开主动消息）。放不下时手指横划、鼠标滚轮或拖动、两头的箭头都能滚
  */
 defineProps<{ characters: Character[]; label: string; off?: (c: Character) => boolean }>();
 const model = defineModel<string>({ required: true });
 </script>
 
 <template>
-  <div class="tabs hide-scrollbar" role="tablist" :aria-label="label">
+  <HScroll :active="model" class="gap-2" role="tablist" :aria-label="label">
     <button
       v-for="c in characters"
       :key="c.id"
@@ -26,15 +27,10 @@ const model = defineModel<string>({ required: true });
     >
       <Avatar :character="c" :size="26" />{{ c.name }}
     </button>
-  </div>
+  </HScroll>
 </template>
 
 <style scoped>
-.tabs {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-}
 .person-tab {
   display: inline-flex;
   align-items: center;

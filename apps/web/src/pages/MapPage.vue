@@ -17,6 +17,7 @@ import {
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Avatar from '@/components/common/Avatar.vue';
+import HScroll from '@/components/common/HScroll.vue';
 import WorldMap from '@/components/map/WorldMap.vue';
 import { mockToday, weather } from '@/mock/activity';
 import { useAppStore } from '@/stores/app';
@@ -210,7 +211,7 @@ watch(
     </header>
 
     <!-- 看谁的世界 -->
-    <div class="flex gap-2 overflow-x-auto hide-scrollbar px-4 pt-1.5 pb-1 shrink-0" role="tablist" aria-label="看谁的世界">
+    <HScroll :active="worldKey" class="gap-2 px-4 pt-1.5 pb-1" role="tablist" aria-label="看谁的世界">
       <button
         v-for="c in worldOwners"
         :key="c.id"
@@ -226,7 +227,7 @@ watch(
       <button role="tab" :aria-selected="worldKey === 'me'" class="world-tab press" :class="{ on: worldKey === 'me' }" data-world="me" @click="switchWorld('me')">
         <span class="globe"><span class="i-lucide-earth" /></span>我的世界
       </button>
-    </div>
+    </HScroll>
 
     <div class="page-scroll pb-6">
       <!-- 她的世界 -->
