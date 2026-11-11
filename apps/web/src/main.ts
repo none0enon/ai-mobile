@@ -28,6 +28,11 @@ try {
   // 忽略
 }
 
+// 正式构建注册 Service Worker：可以"添加到主屏幕"当 App 用，断网也能打开（单文件预览版不注册）
+if (import.meta.env.PROD && import.meta.env.MODE !== 'preview' && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => void navigator.serviceWorker.register('./sw.js').catch(() => undefined));
+}
+
 const app = createApp(App).use(createPinia()).use(router);
 
 // 先读本机数据库（导入的角色、世界书、预设、聊天），再挂载：刷新后直接打开导入角色的聊天也找得到
