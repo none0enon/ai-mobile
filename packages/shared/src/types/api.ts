@@ -253,7 +253,7 @@ export const AGENT_META: Record<
   },
   vision: {
     label: '识图',
-    desc: '看饭照、识别运动截图（模型要能看图）',
+    desc: '看饭照、识别运动截图、一起看书时读扫描页和公式（模型要能看图）',
     capability: 'vision',
     runsOn: 'client',
     icon: 'i-lucide-scan-eye',

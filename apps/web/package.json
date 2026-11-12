@@ -13,6 +13,7 @@
   "dependencies": {
     "@app/ai": "workspace:*",
     "@app/shared": "workspace:*",
+    "katex": "0.19.1",
     "pdfjs-dist": "4.10.38",
     "pinia": "^4.1.0",
     "vant": "^4.10.2",

@@ -51,6 +51,9 @@ importers:
       '@app/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      katex:
+        specifier: 0.19.1
+        version: 0.19.1
       pdfjs-dist:
         specifier: 4.10.38
         version: 4.10.38
@@ -1059,6 +1062,10 @@ packages:
   colorette@2.0.20:
     resolution: {integrity: sha512-IfEDxwoWIjkeXL1eXcDiow4UbKjhLdq6/EuSVR9GMN7KVH3r9gQ83e73hsz1Nd1T3ijd5xv1wcWRYO+D6kCI2w==}
 
+  commander@15.1.0:
+    resolution: {integrity: sha512-cgnQ88TRrWcC7pVq46RzJVRMktu3W2RcbnoidnfBsl1bmDCBwJS/udcIZpKoCrbAYYaCqsz1yZCVIgbIaU3ddQ==}
+    engines: {node: '>=22.12.0'}
+
   confbox@0.1.8:
     resolution: {integrity: sha512-RMtmw0iFkeR4YV+fUOSucriAQNb9g8zFR52MWCtl+cCZOFRNL6zeB395vPzFhEjjn4fMxXudmELnl/KF/WrK6w==}
 
@@ -1169,6 +1176,10 @@ packages:
 
   jiti@2.7.0:
     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
+    hasBin: true
+
+  katex@0.19.1:
+    resolution: {integrity: sha512-jG8uKntjSEcm2EpQOh0XturpPuuC9r3Sq5HLHdsFdWZT27E672SF19QEi+of0/YeOy15lDgRhKvr5614uRrEfA==}
     hasBin: true
 
   kleur@4.1.5:
@@ -2455,6 +2466,8 @@ snapshots:
 
   colorette@2.0.20: {}
 
+  commander@15.1.0: {}
+
   confbox@0.1.8: {}
 
   confbox@0.3.2: {}
@@ -2554,6 +2567,10 @@ snapshots:
   import-meta-resolve@4.2.0: {}
 
   jiti@2.7.0: {}
+
+  katex@0.19.1:
+    dependencies:
+      commander: 15.1.0
 
   kleur@4.1.5: {}
 

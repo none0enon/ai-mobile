@@ -20,5 +20,6 @@ export * from './proactive.ts';
 export * from './presetUses.ts';
 export * from './presetFile.ts';
 export * from './lrc.ts';
+export * from './math.ts';
 export * from './st/index.ts';
 export * from './subtitles.ts';

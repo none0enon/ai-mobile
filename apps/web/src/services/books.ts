@@ -1,10 +1,14 @@
 import { listZip, readZipEntry } from '@app/ai';
 import { useAiStore } from '@/stores/ai';
+import { useBookStore } from '@/stores/books';
+import { compressImage } from '@/utils/image';
 import { decodeTextFile } from '@/utils/text';
 
 /**
  * 一起看书的书（设计文档 §9.10）：EPUB、TXT、PDF、粘贴的文章、拍下的纸质书页，读成"章 → 段"。
  * 书只存在本机；发给模型的只有当前这几页。
+ * 专业书（教材、讲义、论文）的公式一律写成 LaTeX（$…$、$$…$$），显示时交给 KaTeX（utils/math.ts）：
+ * 扫描页和有公式的页交给"识图"读成 Markdown + LaTeX；EPUB 里的 MathML 取它带的 TeX 原文。
  */
 export interface BookChapter {
   title: string;
@@ -25,6 +29,9 @@ export interface BookNote {
   at: number;
 }
 
+/** PDF 的两种看法：原版页面（教材、论文、扫描版）、重排成文字（小说） */
+export type BookView = 'page' | 'text';
+
 export interface Book {
   id: string;
   title: string;
@@ -32,23 +39,99 @@ export interface Book {
   chapters: BookChapter[];
   createdAt: number;
   updatedAt: number;
-  /** 你读到哪 */
-  pos: { chapter: number; para: number };
+  /** 你读到哪；看原版页面时 page 是 PDF 的第几页 */
+  pos: { chapter: number; para: number; page?: number };
   /** 前情提要：读到这里为止发生了什么 */
   summary?: string;
   notes?: BookNote[];
+  /** PDF：一共几页 */
+  pageCount?: number;
+  /** PDF：扫描页、公式页占三成以上（教材、讲义、论文、扫描书） */
+  technical?: boolean;
+  /** PDF：现在用哪种看法；没选过时宽屏上的专业书看原版，其余看文字 */
+  view?: BookView;
 }
 
-/** PDF 里没有文字层（扫描版）或读出来是乱码的页：段落里放这个占位，界面上显示"交给识图读这一页" */
+/**
+ * PDF 里要交给识图读的页：没有文字层（扫描版）、读出来是乱码，或者有公式（文字层读出来的公式是乱的）。
+ * 段落里放这个占位：\u0000scan:页码；有公式的页后面再接 \u0000 和文字层读出来的文字（识图没接通时先给她看这个）。
+ * 界面上这一页先按原样显示，识图读完换成读出来的段落
+ */
 export const SCAN_MARK = '\u0000scan:';
-export const scanPageOf = (para: string): number | null => (para.startsWith(SCAN_MARK) ? Number(para.slice(SCAN_MARK.length)) : null);
+export function scanPageOf(para: string): number | null {
+  if (!para.startsWith(SCAN_MARK)) return null;
+  const n = parseInt(para.slice(SCAN_MARK.length), 10);
+  return Number.isFinite(n) ? n : null;
+}
+/** 占位里存的文字层文字（有公式的页才有） */
+export function scanFallbackOf(para: string): string {
+  const i = para.indexOf('\u0000', 1);
+  return i > 0 ? para.slice(i + 1) : '';
+}
+export function scanMark(page: number, fallback = ''): string {
+  return `${SCAN_MARK}${page}${fallback ? `\u0000${fallback}` : ''}`;
+}
 
 const CHAPTER_HEAD = /^\s*(第\s*[0-9０-９零〇一二两三四五六七八九十百千万]+\s*[章回节卷集部篇]|序章|序言|楔子|引子|尾声|后记|番外)/;
 const CJK = /[　-鿿＀-￯]/;
 
+/**
+ * 一行一段，但跨行的公式（$$ … $$、\[ … \]、\begin{…} … \end{…}）和表格并成一段，免得公式被拆开
+ */
+export function groupLines(rawLines: string[]): string[] {
+  const out: string[] = [];
+  let block: string[] = [];
+  let waitFor = '';
+  for (const raw of rawLines) {
+    const line = raw.trim();
+    if (waitFor) {
+      block.push(line);
+      if (line.includes(waitFor)) {
+        out.push(block.join('\n').trim());
+        block = [];
+        waitFor = '';
+      }
+      continue;
+    }
+    if (!line) continue;
+    if (line.startsWith('|') && out.at(-1)?.startsWith('|')) {
+      out[out.length - 1] += `\n${line}`;
+      continue;
+    }
+    waitFor = unclosedMath(line);
+    if (waitFor) block = [line];
+    else out.push(line);
+  }
+  // 没等到结束记号：按行放回去
+  out.push(...block.filter(Boolean));
+  return out;
+}
+
+/** 这一行开了公式没关上：返回要等的结束记号 */
+function unclosedMath(line: string): string {
+  if ((line.match(/(?<!\\)\$\$/g) ?? []).length % 2 === 1) return '$$';
+  if (line.lastIndexOf('\\[') > line.lastIndexOf('\\]')) return '\\]';
+  let open = '';
+  let depth = 0;
+  for (const m of line.matchAll(/\\(begin|end)\{([a-zA-Z*]+)\}/g)) {
+    if (!open && m[1] === 'begin') open = m[2]!;
+    if (m[2] === open) depth += m[1] === 'begin' ? 1 : -1;
+  }
+  return open && depth > 0 ? `\\end{${open}}` : '';
+}
+
+/** 识图读出来的一页（Markdown + LaTeX）→ 段。模型把结果包在代码块里时先拆掉 */
+export function splitBookParas(text: string): string[] {
+  const body = text
+    .replace(/\r\n?/g, '\n')
+    .trim()
+    .replace(/^```[a-zA-Z]*\n([\s\S]*?)\n```$/, '$1');
+  return groupLines(body.split('\n'));
+}
+
 /** 一大段纯文字 → 章：认"第 X 章 / 回 / 节……"；认不出时每 3000 字左右分一段 */
 export function chaptersFromText(text: string): BookChapter[] {
-  const lines = text.replace(/\r\n?/g, '\n').split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = groupLines(text.replace(/\r\n?/g, '\n').split('\n'));
   const chapters: BookChapter[] = [];
   for (const line of lines) {
     if (CHAPTER_HEAD.test(line) && line.length <= 40) chapters.push({ title: line, paras: [] });
@@ -105,6 +188,7 @@ export async function parseEpub(file: Blob): Promise<{ title: string; chapters: 
     if (!html) continue;
     let doc = xml(html, 'application/xhtml+xml');
     if (doc.querySelector('parsererror')) doc = xml(html, 'text/html');
+    keepEpubMath(doc);
     const paras = [...doc.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,blockquote')].map((el) => (el.textContent ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean);
     const body = paras.length ? paras : (doc.body?.textContent ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
     if (!body.length) continue;
@@ -113,6 +197,27 @@ export async function parseEpub(file: Blob): Promise<{ title: string; chapters: 
   }
   if (!chapters.length) throw new Error('这个 EPUB 里没有读出正文');
   return { title, chapters };
+}
+
+/**
+ * EPUB 里的公式：MathML 带着 TeX 原文（<annotation encoding="application/x-tex">，或 alttext）时换成 $…$；
+ * 公式图片（pandoc 的 img.math）用 alt 里的 TeX。都没有的照旧取文字
+ */
+function keepEpubMath(doc: Document) {
+  for (const m of [...doc.getElementsByTagNameNS('*', 'math')]) {
+    const tex =
+      [...m.getElementsByTagNameNS('*', 'annotation')].find((a) => /tex/i.test(a.getAttribute('encoding') ?? ''))?.textContent?.trim() ||
+      m.getAttribute('alttext')?.trim();
+    if (!tex) continue;
+    const block = m.getAttribute('display') === 'block' || m.getAttribute('mode') === 'display';
+    m.replaceWith(doc.createTextNode(block ? ` $$${tex}$$ ` : ` $${tex}$ `));
+  }
+  for (const img of [...doc.getElementsByTagName('img')]) {
+    const alt = img.getAttribute('alt')?.trim();
+    const cls = img.getAttribute('class') ?? '';
+    if (!alt || !/\bmath\b/.test(cls)) continue;
+    img.replaceWith(doc.createTextNode(/\bdisplay\b/.test(cls) ? ` $$${alt}$$ ` : ` $${alt}$ `));
+  }
 }
 
 // —— PDF：pdf.js 用到时才加载 ——
@@ -136,11 +241,20 @@ interface Line {
   h: number;
 }
 
+/** pdf.js 读出来的文字块 */
+interface TextItem {
+  str: string;
+  transform: number[];
+  width: number;
+  height: number;
+}
+const itemHeight = (it: TextItem) => Math.abs(it.height) || Math.hypot(it.transform[2] ?? 0, it.transform[3] ?? 0) || 10;
+
 /** 一页的文字块 → 行（同一高度的合成一行），双栏按栏排 */
-function pageLines(items: { str: string; transform: number[]; width: number; height: number }[], pageWidth: number): Line[] {
+function pageLines(items: TextItem[], pageWidth: number): Line[] {
   const raw = items
     .filter((it) => it.str.trim())
-    .map((it) => ({ str: it.str, x: it.transform[4] ?? 0, y: it.transform[5] ?? 0, w: it.width, h: Math.abs(it.height) || Math.hypot(it.transform[2] ?? 0, it.transform[3] ?? 0) || 10 }))
+    .map((it) => ({ str: it.str, x: it.transform[4] ?? 0, y: it.transform[5] ?? 0, w: it.width, h: itemHeight(it) }))
     .sort((a, b) => b.y - a.y || a.x - b.x);
   const lines: (Line & { parts: typeof raw })[] = [];
   for (const it of raw) {
@@ -205,26 +319,56 @@ function looksGarbled(s: string): boolean {
   return bad / s.length > 0.3;
 }
 
-export async function parsePdf(file: Blob, askPassword: () => Promise<string | null>): Promise<{ title: string; chapters: BookChapter[] }> {
+/** 数学符号：希腊字母、箭头、运算符、数学字母（𝑥 𝑦） */
+const MATH_SYMBOL = /[Α-Ωα-ω←-⇿∀-⋿⟀-⟯⦀-⫿′″]|[\u{1d400}-\u{1d7ff}]/gu;
+
+/**
+ * 这一页有公式：文字层读出来的公式是乱的（上下标拆成一行一行、分数没了分数线、积分号丢了），交给识图重新读。
+ * 看数学符号的个数，加上比正文小一圈的短小文字块（上标、下标）
+ */
+function looksMathy(items: TextItem[], text: string): boolean {
+  const symbols = (text.match(MATH_SYMBOL) ?? []).length;
+  const sized = items.filter((it) => it.str.trim()).map((it) => ({ s: it.str.trim(), h: itemHeight(it) }));
+  const heights = sized.map((x) => x.h).sort((a, b) => a - b);
+  const body = heights[Math.floor(heights.length / 2)] ?? 10;
+  const scripts = sized.filter((x) => x.s.length <= 3 && /[\p{L}\p{N}]/u.test(x.s) && x.h < body * 0.8).length;
+  const score = symbols + scripts / 2;
+  return score >= 8 || (score >= 4 && score / Math.max(1, text.length) > 0.01);
+}
+
+export interface ParsedPdf {
+  title: string;
+  chapters: BookChapter[];
+  pageCount: number;
+  /** 扫描页、公式页占三成以上（教材、讲义、论文、扫描书） */
+  technical: boolean;
+  /** 打开时用的密码（这次打开 App 期间记住，翻页、识图时不用再问） */
+  password?: string;
+}
+
+export async function parsePdf(file: Blob, askPassword: () => Promise<string | null>): Promise<ParsedPdf> {
   const pdfjs = await loadPdfjs();
   const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
+  let password: string | undefined;
   task.onPassword = async (update: (pw: string) => void) => {
     const pw = await askPassword();
     if (pw === null) void task.destroy();
-    else update(pw);
+    else update((password = pw));
   };
   const pdf = await task.promise;
   const meta = await pdf.getMetadata().catch(() => null);
   const title = ((meta?.info as { Title?: string } | undefined)?.Title ?? '').trim();
   // 每页的行
-  const pageLinesList: { page: number; lines: Line[]; scanned: boolean }[] = [];
+  const pageLinesList: { page: number; lines: Line[]; scanned: boolean; math: boolean }[] = [];
   for (let n = 1; n <= pdf.numPages; n += 1) {
     const page = await pdf.getPage(n);
     const vp = page.getViewport({ scale: 1 });
     const tc = await page.getTextContent();
-    const lines = pageLines(tc.items as { str: string; transform: number[]; width: number; height: number }[], vp.width);
+    const items = tc.items as TextItem[];
+    const lines = pageLines(items, vp.width);
     const text = lines.map((l) => l.text).join('');
-    pageLinesList.push({ page: n, lines, scanned: text.replace(/\s/g, '').length < 20 || looksGarbled(text) });
+    const scanned = text.replace(/\s/g, '').length < 20 || looksGarbled(text);
+    pageLinesList.push({ page: n, lines, scanned, math: !scanned && looksMathy(items, text) });
   }
   // 页眉页脚：同样的首两行 / 末两行（去掉数字）在很多页重复出现就去掉；单独的页码也去掉。在分段之前去掉，免得粘进正文
   const norm = (s: string) => s.replace(/\d+/g, '#').trim();
@@ -234,7 +378,7 @@ export async function parsePdf(file: Blob, askPassword: () => Promise<string | n
   const repeated = new Set([...count].filter(([, c]) => c >= 2 && c >= pageLinesList.length * 0.4).map(([k]) => k));
   const pageParas = pageLinesList.map((p) => {
     const kept = p.lines.filter((l, i) => !(i < 2 || i >= p.lines.length - 2) || (!repeated.has(norm(l.text)) && !/^[\s\-–—·第页]*\d+[\s\-–—·页]*$/.test(l.text)));
-    return { page: p.page, scanned: p.scanned, paras: p.scanned ? [] : linesToParas(kept) };
+    return { page: p.page, scanned: p.scanned, math: p.math, paras: p.scanned ? [] : linesToParas(kept) };
   });
   // 目录 → 章的起始页；没有目录就每 10 页一章
   const starts: { page: number; title: string }[] = [];
@@ -262,8 +406,9 @@ export async function parsePdf(file: Blob, askPassword: () => Promise<string | n
   };
   for (const p of pageParas) {
     const ch = chapters[chapterOf(p.page)]!;
-    if (p.scanned) {
-      ch.paras.push(`${SCAN_MARK}${p.page}`);
+    // 扫描页、公式页：整页一个占位，先按原样显示，交给识图读（公式页留着文字层的文字，识图没接通时先给她看）
+    if (p.scanned || p.math) {
+      ch.paras.push(scanMark(p.page, p.math ? p.paras.join('\n') : ''));
       ch.pages!.push(p.page);
       continue;
     }
@@ -278,38 +423,88 @@ export async function parsePdf(file: Blob, askPassword: () => Promise<string | n
       ch.pages!.push(p.page);
     });
   }
-  return { title, chapters: chapters.filter((c) => c.paras.length) };
+  const pageCount = pdf.numPages;
+  const special = pageParas.filter((p) => p.scanned || p.math).length;
+  void pdf.destroy();
+  return { title, chapters: chapters.filter((c) => c.paras.length), pageCount, technical: special >= pageCount * 0.3, password };
 }
 
-/** PDF 的一页画成 JPEG（交给识图读扫描页） */
-export async function renderPdfPage(file: Blob, pageNo: number): Promise<{ mime: string; data: string }> {
-  const pdfjs = await loadPdfjs();
-  const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+// —— 书架上的 PDF：原版页面和识图都从本机存的原文件画 ——
+type PdfDoc = Awaited<ReturnType<PdfJs['getDocument']>['promise']>;
+
+/** 打开过的 PDF（最近两本）：翻页时不用每次重新解析整本 */
+const openDocs = new Map<string, Promise<PdfDoc>>();
+/** 这次打开 App 期间用过的密码 */
+const passwords = new Map<string, string>();
+
+export function rememberPdfPassword(bookId: string, password: string | undefined) {
+  if (password) passwords.set(bookId, password);
+}
+
+export function pdfOf(bookId: string): Promise<PdfDoc> {
+  let doc = openDocs.get(bookId);
+  if (doc) return doc;
+  doc = (async () => {
+    const file = await useBookStore().fileOf(bookId);
+    if (!file) throw new Error('找不到这本 PDF 的原文件，重新导入一次试试');
+    const pdfjs = await loadPdfjs();
+    const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), password: passwords.get(bookId) });
+    task.onPassword = (update: (pw: string) => void, reason: number) => {
+      const pw = window.prompt(reason === 2 ? '密码不对，再输一次：' : '这个 PDF 有密码，请输入：');
+      if (pw === null) void task.destroy();
+      else update(pw);
+      if (pw) passwords.set(bookId, pw);
+    };
+    return task.promise;
+  })();
+  doc.catch(() => openDocs.delete(bookId));
+  openDocs.set(bookId, doc);
+  for (const [id, old] of openDocs) {
+    if (openDocs.size <= 2) break;
+    openDocs.delete(id);
+    void old.then((d) => d.destroy()).catch(() => undefined);
+  }
+  return doc;
+}
+
+/** 从书架上拿走时关掉 */
+export function closePdf(bookId: string) {
+  const doc = openDocs.get(bookId);
+  openDocs.delete(bookId);
+  void doc?.then((d) => d.destroy()).catch(() => undefined);
+}
+
+/** PDF 的一页画成 JPEG 交给识图读：长边约 2000 像素，公式的上下标也看得清 */
+export async function pdfPageImage(bookId: string, pageNo: number): Promise<{ mime: string; data: string }> {
+  const pdf = await pdfOf(bookId);
   const page = await pdf.getPage(pageNo);
-  const vp = page.getViewport({ scale: 1.6 });
+  const base = page.getViewport({ scale: 1 });
+  const vp = page.getViewport({ scale: Math.min(3, 2000 / Math.max(base.width, base.height)) });
   const canvas = document.createElement('canvas');
-  canvas.width = vp.width;
-  canvas.height = vp.height;
+  canvas.width = Math.round(vp.width);
+  canvas.height = Math.round(vp.height);
   await page.render({ canvasContext: canvas.getContext('2d')!, viewport: vp }).promise;
-  const url = canvas.toDataURL('image/jpeg', 0.82);
+  const url = canvas.toDataURL('image/jpeg', 0.85);
+  // iOS 上 canvas 占的内存要手动放掉
+  canvas.width = 0;
+  canvas.height = 0;
   return { mime: 'image/jpeg', data: url.slice(url.indexOf(',') + 1) };
 }
 
-/** 照片 → base64（拍下的纸质书页） */
+/** 照片 → 压到长边 2000 像素（拍下的纸质书页；手机原图太大，有的接口不收） */
 export async function imageFileData(file: Blob): Promise<{ mime: string; data: string }> {
-  const buf = new Uint8Array(await file.arrayBuffer());
-  let bin = '';
-  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-  return { mime: file.type || 'image/jpeg', data: btoa(bin) };
+  const url = await compressImage(file, { max: 2000, quality: 0.85 });
+  return { mime: url.slice(5, url.indexOf(';')), data: url.slice(url.indexOf(',') + 1) };
 }
 
 /**
- * 交给"识图"功能读出图片里的文字。读法（说明文字）来自"一起看书"功能预设里的"识图读书页"一块，不写在代码里
+ * 交给"识图"读出一页书（PDF 的一页或拍的照片）。读法（说明文字）来自"一起看书"功能预设里的"识图读书页"一块，不写在代码里。
+ * 读出来是 Markdown，公式是 LaTeX；按段切开（跨行的公式、表格不切开）。一页公式多，输出上限给到 4096
  */
-export async function readImageText(image: { mime: string; data: string }, instruction: string): Promise<string[]> {
+export async function readPageText(image: { mime: string; data: string }, instruction: string, signal?: AbortSignal): Promise<string[]> {
   const ai = useAiStore();
   const st = ai.status('vision');
   if (!st.live) throw new Error(`识图还没接通：${st.reason}`);
-  const r = await ai.system.chat('vision', { messages: [{ role: 'user', content: [{ type: 'image', mime: image.mime, data: image.data }, { type: 'text', text: instruction }] }] });
-  return r.text.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+  const r = await ai.system.chat('vision', { messages: [{ role: 'user', content: [{ type: 'image', mime: image.mime, data: image.data }, { type: 'text', text: instruction }] }], maxTokens: 4096 }, { signal });
+  return splitBookParas(r.text);
 }
