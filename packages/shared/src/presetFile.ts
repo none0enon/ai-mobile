@@ -1,4 +1,5 @@
 import { PRESET_USES, type PresetUseId } from './presetUses.ts';
+import { normalizeRegexScript } from './st/regex.ts';
 import {
   DEFAULT_PRESET_FORMATS,
   PRESET_CATEGORIES,
@@ -95,14 +96,7 @@ export function parsePresetFile(json: unknown, fileName = ''): ParsedPresetFile 
     stream: s.stream !== false,
     ...(typeof s.seed === 'number' ? { seed: s.seed } : {}),
   };
-  const regex: RegexScript[] = (Array.isArray(j.regex) ? j.regex : []).filter(isObj).map((r, i) => ({
-    id: str(r.id, `regex-${i}`),
-    name: str(r.name, `正则 ${i + 1}`),
-    find: str(r.find),
-    replace: str(r.replace),
-    placement: (Array.isArray(r.placement) ? r.placement : []).filter((p): p is 'user_input' | 'ai_output' => p === 'user_input' || p === 'ai_output'),
-    enabled: r.enabled !== false,
-  }));
+  const regex: RegexScript[] = (Array.isArray(j.regex) ? j.regex : []).map((r, i) => normalizeRegexScript(r, i)).filter((r): r is RegexScript => !!r);
   const defaultFor = (Array.isArray(j.defaultFor) ? j.defaultFor : []).filter((u): u is PresetUseId => PRESET_USES.some((x) => x.id === u && x.category === category));
   const name = str(j.name).trim() || fileName.replace(/\.json$/i, '') || '预设';
   return {

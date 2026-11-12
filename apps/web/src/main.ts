@@ -27,6 +27,7 @@ import { useEnvironmentStore } from './stores/environment';
 import { useGalleryStore } from './stores/gallery';
 import { useRhythmStore } from './stores/rhythm';
 import { useVoiceStore } from './stores/voice';
+import { useMessageSettingsStore } from './stores/messageSettings';
 import { useServicesStore } from './stores/services';
 import { useRealWorldStore } from './stores/realworld';
 import { useWeatherStore } from './stores/weather';
@@ -65,6 +66,8 @@ const hydrated = Promise.allSettled([
   useRhythmStore().hydrate(),
   useGalleryStore().hydrate(),
   useVoiceStore().hydrate(),
+  // 消息设置：发送条数、显示条数、HTML 渲染
+  useMessageSettingsStore().hydrate(),
 ]);
 // 上次在场景页里直接关了 App 的，那件事算结束（等角色也读出来，她才能回到原来的地方）。
 // 排在挂载前面：打开的正好是场景页时，场景页挂载后照常再进入

@@ -2,6 +2,7 @@ import {
   characterFromCard,
   detectStFile,
   looksLikePresetFile,
+  looksLikeRegexFile,
   parseCardFile,
   parseLorebook,
   parsePreset,
@@ -120,7 +121,7 @@ export async function readImport(file: File): Promise<PendingImport> {
       `新聊天提示：${f.newChatPrompt || '（空）'} · 示例对话提示：${f.newExampleChatPrompt || '（空）'}`,
       `已在"聊天记录"前后补上 App 自己的：${parsed.blocks.filter((b) => b.origin === 'app').map((b) => PROMPT_MARKERS[b.identifier as keyof typeof PROMPT_MARKERS] ?? b.name).join(' / ')}（在预设里可以关掉）`,
     ];
-    if (parsed.regex.length) lines.push(`正则 ${parsed.regex.length} 条（先保存，还没执行）`);
+    if (parsed.regex.length) lines.push(`正则脚本 ${parsed.regex.length} 条`);
     return { kind: 'preset', fileName: file.name, parsed, appFile: false, lines, warnings: parsed.warnings };
   }
 
@@ -130,6 +131,8 @@ export async function readImport(file: File): Promise<PendingImport> {
   }
 
   if (kind === 'chat') throw new Error('聊天记录（.jsonl）的导入还没做，下一步加');
+  // 正则脚本属于预设：在预设编辑页导入
+  if (looksLikeRegexFile(json)) throw new Error('这是 SillyTavern 正则脚本，请在「我的 → 预设 → 正则」中导入');
   throw new Error('认不出这个文件：不是角色卡、世界书或 Chat Completion 预设');
 }
 

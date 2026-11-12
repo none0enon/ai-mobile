@@ -322,7 +322,7 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 - `marker: true` 的块：ST 的 `main / worldInfoBefore / charDescription / charPersonality / scenario / worldInfoAfter / personaDescription / dialogueExamples / chatHistory / jailbreak` 一一对应。导入时自动在"聊天记录"附近补上本 App 的 `memory / environment / sceneRules`。补进去的块，以及场景规则、可用标签的文字，来自一个预设文件（"导入补块"），不是代码里的文字（§5.5）。
 - `injection_position = 1`（in-chat）→ `injection.position = 'absolute'` + `depth`。
 - 采样参数：`temperature top_p top_k frequency_penalty presence_penalty openai_max_tokens openai_max_context stream_openai`。
-- 正则脚本：在用户输入 / AI 输出上执行。
+- 正则脚本（`extensions.regex_scripts`）：字段全部保留，按 ST 的规则执行，见 §5.6。
 
 **聊天记录**：ST 的 `.jsonl`（第一行是元数据，之后每行一条消息，含 `swipes` / `swipe_id`）可以导入，也可以导出。
 
@@ -362,6 +362,19 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 | `packages/shared/src/locations.ts` 的 `WORLDS`（地点、作息、三餐） | 每个角色 id 下的数据。演示角色的世界放在她的卡片文件里，导入的角色由"建世界"生成 |
 | 各场景和 `usePoke` 里写死的台词；`services/mock` 的演示回复 | 每个角色的台词池（模型生成后存下来，演示角色的放在卡片文件里） |
 | `apps/web/src/mock/` 的演示角色（固定 id `suwan`、`jiangyu`）、演示聊天和记忆 | 演示角色改成 `src/characters/` 里的卡片文件，导入时生成唯一 id。演示聊天和记忆不再带：和导入别的卡一样，第一条是开场白 |
+
+### 5.6 正则、消息条数和 HTML（我的 → 消息设置）
+
+- **正则随预设保存**（`packages/shared/src/st/regex.ts`，对应 ST 的 `extensions/regex/engine.js`）：预设编辑 → 正则中导入（ST 正则脚本单个或数组，或包含正则的 ST 预设、角色卡、App 预设文件）、新建、编辑、启用 / 停用、拖动排序（按列表顺序依次执行）。
+  - 查找写成 `/正则/标志`；未写斜杠时整串作为正则、无标志，仅替换第一处（ST 的 `regexFromString`）。替换支持 `$1`、`$<name>`、`{{match}}`；捕获内容先移除 trimStrings，最后替换宏。
+  - 作用范围：用户输入 / AI 输出（斜杠命令、世界信息、推理导入时保留、导出时写回，不执行）。
+  - 仅格式显示（markdownOnly）在聊天显示时执行；仅格式提示词（promptOnly）在拼装提示词时执行（世界书扫描修改后的文本，本机和云端主动消息一致）；均不勾选时在收到回复、发送消息、编辑消息（runOnEdit）时修改消息原文。
+  - 深度：0 为最后一条，显示和发送时按 minDepth ~ maxDepth 判断（修改原文时不判断，同 ST）。发送时按交给拼装器的聊天记录计数，显示时按整条聊天计数。
+- **发送条数**（0–100，0 表示不发送聊天记录）：交给拼装器之前截取，之后仍按上下文长度截取；查看提示词中显示"仅发送最近 N 条，共 M 条"和正则修改条数。云端主动消息上传的上下文同样截取。
+- **显示条数**（1–100）：聊天顶部按钮每次再展开同样条数，切换聊天后复原。
+- **HTML 渲染**（默认开启）：消息中的 HTML 按白名单重建节点（`utils/html.ts`，未知标签只移除标签、保留文本，同 ST 的 DOMPurify）；正文换行转为 `<br>`，HTML 结构中的缩进和换行按网页规则合并。
+  - 代码块中的完整 HTML 页面（含 `html>`、`<head>`、`<body>`，同酒馆助手的判断）在沙盒 iframe 中运行（`utils/frames.ts`，`allow-scripts` 不含 `allow-same-origin`，无法访问应用数据和 Key），仅渲染最近 N 条（0–50，默认 5），更早的和生成中的折叠为代码。
+  - 页面头部注入桥接脚本：上报高度（vh 换算为固定像素，避免高度循环增长）；提供酒馆助手的 `getCurrentMessageId` / `getLastMessageId`（从 0 计数）和 `eventOn` / `eventOnce` / `eventEmit` / `eventRemoveListener`（转发给所有页面）。新消息、切换主题通过 postMessage 通知，不重新加载。
 
 ---
 
@@ -1341,6 +1354,6 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
 2. TTS 想用哪家，有没有想要的音色？是否需要训练 / 克隆音色？
 3. ~~NovelAI 是什么档位？~~ 已定：Opus，小图不限量；每月按 1000 点算要花点的地方（§10.5）。
 4. Worker 用哪个域名？需要时是否接受 5 美元/月的付费版？
-5. 是否需要 SillyTavern 的正则脚本和 HTML 状态栏（"前端卡"）？
+5. ~~是否需要 SillyTavern 的正则脚本和 HTML 状态栏（"前端卡"）？~~ 已定：需要。预设中的正则按 ST 规则执行，HTML 和前端卡在"我的 → 消息设置"中设置（§5.6）。
 6. 内容尺度与锁屏通知的隐私偏好。
 7. 要不要"朋友圈"（她发动态）、群聊这类扩展？

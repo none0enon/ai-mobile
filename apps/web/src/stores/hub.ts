@@ -11,6 +11,7 @@ import { useCharacterStore } from './characters';
 import { useChatStore } from './chat';
 import { useEnvironmentStore } from './environment';
 import { useLibraryStore } from './library';
+import { lastN, useMessageSettingsStore } from './messageSettings';
 import { useRhythmStore } from './rhythm';
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -114,7 +115,8 @@ export const useHubStore = defineStore('hub', () => {
       return [{ character: { ...character, avatar: null }, chat, persona: { ...personaOf(chat), avatar: null },
         preset: lib.presetForUse('proactive', character) ?? null,
         lorebooks: character.lorebookIds.map((id) => lib.lorebookById(id)).filter((b) => !!b),
-        history: chats.list(chat.id).filter((m) => !m.meta.error && !m.meta.interrupted).slice(-200),
+        // 消息设置 → 发送条数：云端主动消息的上下文同样截取
+        history: lastN(chats.list(chat.id).filter((m) => !m.meta.error && !m.meta.interrupted), useMessageSettingsStore().sendCount()).slice(-200),
         memories: memories.filter((m) => m.characterId === character.id && m.status === 'active').map(({ id, content, dueAt, type }) => ({ id, content, ...(dueAt ? { dueAt } : {}), type })),
         environment: useEnvironmentStore().settings, rules: DEFAULT_PROACTIVE_RULES,
         busyUntil: ['study', 'sleep'].includes(chat.currentScene ?? '') ? chat.lastMessageAt + 4 * 3_600_000 : 0,

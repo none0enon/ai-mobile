@@ -1,6 +1,6 @@
 import { AgentSystem, fromOpenAIBody } from '@app/ai';
 import {
-  assemblePrompt, buildChatRequest, estimateTokens, formatEnvironmentBlock, FREE_SCENE,
+  applyRegexScripts, assemblePrompt, buildChatRequest, estimateTokens, formatEnvironmentBlock, FREE_SCENE,
   parseControlTags, substituteMacros, wallDate,
   type Message, type MessagePart, type ProactiveContext, type ProactiveCredentials, type Touchpoint,
 } from '@app/shared';
@@ -18,13 +18,18 @@ export function proactivePrompt(context: ProactiveContext, t: Touchpoint, now: n
   const date = wallDate(now, context.environment.timezone);
   const hint = substituteMacros(t.hint, { char: c.name, user: persona.name, now: date });
   const quiet = `【主动消息】${persona.name}还没有来找你，由${c.name}先开口。这一次要做的事：${hint}。`;
+  // 预设里"只改发给 AI 的"正则按深度改（0 = 最后一条），同 App 里发消息时
+  const live = history.filter((m) => !m.deleted).map((m) => ({ m, text: messageText(m) })).filter((x) => x.text);
   const result = assemblePrompt({
     character: c, preset, user: persona, lorebooks: context.lorebooks,
-    history: history.filter((m) => !m.deleted).map((m) => ({
-      role: m.role === 'user' || m.role === 'assistant' ? m.role : 'system',
-      name: m.role === 'user' ? persona.name : m.role === 'assistant' ? c.name : '',
-      content: messageText(m),
-    })),
+    history: live.map(({ m, text }, i) => {
+      const placement = m.role === 'user' ? 'user_input' : m.role === 'assistant' ? 'ai_output' : null;
+      return {
+        role: m.role === 'user' || m.role === 'assistant' ? m.role : 'system',
+        name: m.role === 'user' ? persona.name : m.role === 'assistant' ? c.name : '',
+        content: placement ? applyRegexScripts(preset.regex, text, { target: 'prompt', placement, depth: live.length - 1 - i, char: c.name, user: persona.name }) : text,
+      };
+    }),
     app: {
       summary: { content: (chat.summaries ?? []).slice(-6).map((s) => s.text).join('\n'), source: '聊天摘要' },
       memory: { content: context.memories.map((m) => `- ${m.content}`).join('\n') + `\n关系：${JSON.stringify(c.relationship)}`, source: '记忆和关系' },
@@ -56,7 +61,9 @@ export async function generateMessage(context: ProactiveContext, credentials: Pr
     const request = proactivePrompt(context, t, now, attempt.endpoint.model);
     request.names = { user: context.persona.name, char: c.name };
     const r = await system.chat('proactive', request, { stream: false, signal: AbortSignal.timeout(120_000) });
-    const parsed = parseControlTags(r.text, FREE_SCENE.allowedTags.filter((k) => ['expr', 'music'].includes(k)));
+    // 预设里改存下来的消息的正则（作用在"她的回复"上的），同 App 里的回复
+    const reply = applyRegexScripts(context.preset?.regex, r.text, { target: 'store', placement: 'ai_output', char: c.name, user: context.persona.name });
+    const parsed = parseControlTags(reply, FREE_SCENE.allowedTags.filter((k) => ['expr', 'music'].includes(k)));
     text = parsed.visible.trim();
     parts = text ? [{ type: 'text', text }] : [];
     for (const { tag } of parsed.tags) {

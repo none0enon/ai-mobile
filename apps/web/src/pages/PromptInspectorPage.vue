@@ -105,8 +105,8 @@ function slotNote(position: string): string | null {
         <div class="stack">
           <span v-for="(m, i) in p.messages" :key="i" :class="m.role" :style="{ flexGrow: Math.max(1, m.content.length) }" :title="m.label" />
         </div>
-        <p class="text-[12px] text-ink-3 mt-2 mb-0 leading-relaxed">
-          聊天记录放了 {{ p.historyIncluded }} / {{ p.historyTotal }} 条 · 世界书触发 {{ loreHits }} 条<template v-if="p.overBudget"> · <b class="text-[var(--bad)]">必带的块已经超出上下文预算</b></template>。
+        <p class="text-[12px] text-ink-3 mt-2 mb-0 leading-relaxed" data-testid="inspect-history">
+          聊天记录放了 {{ p.historyIncluded }} / {{ p.historyTotal }} 条<template v-if="p.turnStats.last !== undefined">（仅发送最近 {{ p.turnStats.last }} 条，共 {{ p.turnStats.total }} 条）</template><template v-if="p.turnStats.regexed"> · 正则修改 {{ p.turnStats.regexed }} 条</template> · 世界书触发 {{ loreHits }} 条<template v-if="p.overBudget"> · <b class="text-[var(--bad)]">必带的块已经超出上下文预算</b></template>。
           {{ which === 'last' ? '这是上一次实际发给模型的内容。' : '预览不推进世界书的粘性 / 冷却；真正发送时用的是同一个拼装函数。' }}
         </p>
       </div>

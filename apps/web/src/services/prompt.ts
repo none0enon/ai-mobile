@@ -1,4 +1,5 @@
 import {
+  applyRegexScripts,
   assemblePrompt,
   buildChatRequest,
   CONTROL_TAG_DOCS,
@@ -22,6 +23,7 @@ import {
   type AgentRole,
   type Persona,
   type Preset,
+  type RegexScript,
 } from '@app/shared';
 import type { LLMChatMessage } from './types';
 import { mockToday, todayLine } from '@/mock/activity';
@@ -29,6 +31,7 @@ import { personas } from '@/mock/characters';
 import { memories } from '@/mock/memories';
 import { useAiStore } from '@/stores/ai';
 import { useLibraryStore } from '@/stores/library';
+import { lastN, useMessageSettingsStore } from '@/stores/messageSettings';
 import { useRealWorldStore } from '@/stores/realworld';
 import { useRhythmStore } from '@/stores/rhythm';
 import { useWeatherStore } from '@/stores/weather';
@@ -45,10 +48,10 @@ export function personaOf(chat: Chat | undefined): Persona {
   return personas.find((p) => p.id === chat?.personaId) ?? personas.find((p) => p.isDefault) ?? (personas[0] as Persona);
 }
 
-function partToText(p: MessagePart, character: Character, user: string): string {
+function partToText(p: MessagePart, character: Character, user: string, mapText?: (text: string) => string): string {
   switch (p.type) {
     case 'text':
-      return p.text;
+      return mapText ? mapText(p.text) : p.text;
     case 'voice':
       return `[语音] ${p.transcript}`;
     case 'image':
@@ -89,23 +92,59 @@ function partToText(p: MessagePart, character: Character, user: string): string 
   }
 }
 
-export function messageToText(m: Message, character: Character, user = personas[0]?.name ?? '你'): string {
-  return m.parts.map((p) => partToText(p, character, user)).join(' ').trim();
+/** mapText：只改文字部分（正则只改你写的、她说的，不动卡片的描述） */
+export function messageToText(m: Message, character: Character, user = personas[0]?.name ?? '你', mapText?: (text: string) => string): string {
+  return m.parts.map((p) => partToText(p, character, user, mapText)).join(' ').trim();
+}
+
+export interface TurnOptions {
+  /** 只发送最近几条（消息设置 → 发送条数）；不给不限 */
+  last?: number;
+  /** 预设里的正则：只跑"只改发给 AI 的"，按这条在发出去的聊天记录里的深度（0 = 最后一条） */
+  regex?: readonly RegexScript[];
+  /** 统计：有内容的消息一共几条、按条数截掉几条、正则改了几条 */
+  stats?: { total: number; dropped: number; regexed: number };
 }
 
 /** 聊天记录 → 拼装器要的格式：旁白 / 场景分隔当系统消息（同 ST 的 narrator） */
-export function toTurns(history: Message[], character: Character, user: string): ChatTurn[] {
+export function toTurns(history: Message[], character: Character, user: string, opts: TurnOptions = {}): ChatTurn[] {
+  const all = history.filter((m) => messageToText(m, character, user));
+  const items = lastN(all, opts.last);
+  if (opts.stats) Object.assign(opts.stats, { total: all.length, dropped: all.length - items.length, regexed: 0 });
   const out: ChatTurn[] = [];
-  for (const m of history) {
-    const text = messageToText(m, character, user);
-    if (!text) continue;
+  items.forEach((m, i) => {
+    const placement = m.role === 'user' ? 'user_input' : m.role === 'assistant' ? 'ai_output' : null;
+    const plain = messageToText(m, character, user);
+    const text =
+      placement && opts.regex?.length
+        ? messageToText(m, character, user, (t) => applyRegexScripts(opts.regex, t, { target: 'prompt', placement, depth: items.length - 1 - i, char: character.name, user }))
+        : plain;
+    if (opts.stats && text !== plain) opts.stats.regexed++;
+    // 正则把整条都删掉了：这一条不发（同空消息）
+    if (!text) return;
     // 一起做事时说的话带上位置（第几个番茄、片内时间……），她知道是在哪一刻说的
     const content = m.meta?.cue ? `（${m.meta.cue}）${text}` : text;
     if (m.role === 'user') out.push({ role: 'user', name: user, content });
     else if (m.role === 'assistant') out.push({ role: 'assistant', name: character.name, content });
     else out.push({ role: 'system', name: '', content });
-  }
+  });
   return out;
+}
+
+/**
+ * 预设里改存下来的消息的正则（"只改显示""只改发给 AI 的"都没勾的）：她回复写完、你发送、改消息时执行（同 ST）。
+ * 用这一轮的预设（聊天页是这个角色的对话预设）
+ */
+export function storeRegex(chat: Chat, character: Character, text: string, role: 'user' | 'assistant', opts: { edit?: boolean; preset?: Preset } = {}): string {
+  const preset = opts.preset ?? presetForTurn(chat, character).preset;
+  if (!preset?.regex.length) return text;
+  return applyRegexScripts(preset.regex, text, {
+    target: 'store',
+    placement: role === 'user' ? 'user_input' : 'ai_output',
+    edit: opts.edit,
+    char: character.name,
+    user: personaOf(chat).name,
+  });
 }
 
 /** 演示角色还没总结过时的摘要；总结过（总结智能体写进 chat.summaries）就用写的 */
@@ -237,6 +276,8 @@ export interface ChatPrompt extends AssembleResult {
   use: ChatPresetUse;
   persona: Persona;
   request: Record<string, unknown>;
+  /** 交给拼装器之前的聊天记录：有内容的总条数、按发送条数截掉的条数、正则修改的条数 */
+  turnStats: { total: number; dropped: number; regexed: number; last?: number };
 }
 
 export interface ChatAssembleOptions {
@@ -277,12 +318,16 @@ export function assembleForChat(chat: Chat, character: Character, history: Messa
   if (opts.task) app.sceneTask = { content: opts.task.input, source: `场景任务：${opts.task.name}` };
   // 功能预设里写了自己的"场景规则"：程序那块只填能用的标签和表情，不再重复场景规则
   if (preset.blocks.some((b) => b.identifier === 'sceneRule' && !b.marker && b.enabled) && app.sceneRules) app.sceneRules = sceneTagsOnly(chat);
+  // 聊天记录：按消息设置的发送条数截取；预设中"仅格式提示词"的正则按深度执行（世界书扫描修改后的文本）
+  const last = useMessageSettingsStore().sendCount();
+  const turnStats = { total: 0, dropped: 0, regexed: 0 };
+  const turns = toTurns(history, character, persona.name, { last, regex: preset.regex, stats: turnStats });
   const result = assemblePrompt({
     preset,
     character,
     user: { name: persona.name, description: persona.description },
     lorebooks: books,
-    history: toTurns(history, character, persona.name),
+    history: turns,
     app,
     type: opts.type,
     now: new Date(),
@@ -301,7 +346,7 @@ export function assembleForChat(chat: Chat, character: Character, history: Messa
     result.messages.push({ role: 'system', content: opts.task.input, source: 'sceneTask', label: '场景任务：这一次的输入（预设里没有这一块，接在最后）' });
     result.tokens += estimateTokens(opts.task.input);
   }
-  return { ...result, preset, use, persona, request: buildChatRequest(result, preset, model) };
+  return { ...result, preset, use, persona, request: buildChatRequest(result, preset, model), turnStats: { ...turnStats, last } };
 }
 
 /** 发给模型的消息（去掉来源说明） */

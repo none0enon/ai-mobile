@@ -9,6 +9,7 @@ import {
   type SamplerParams,
 } from '../types/preset.ts';
 import { isObj } from './lorebook.ts';
+import { normalizeRegexScript, regexToSt } from './regex.ts';
 
 /**
  * SillyTavern Chat Completion 预设：prompts[] + prompt_order + 采样参数 + 拼装用的文字。
@@ -103,20 +104,11 @@ export function appBlocks(): { before: PromptBlock[]; after: PromptBlock[] } {
   };
 }
 
+/** 预设里带的正则脚本（ST 的 extensions.regex_scripts），字段全部保留 */
 function regexFrom(json: Obj): RegexScript[] {
   const ext = isObj(json.extensions) ? json.extensions : {};
-  const list = Array.isArray(ext.regex_scripts) ? ext.regex_scripts.filter(isObj) : [];
-  return list.map((r, i) => {
-    const placement = Array.isArray(r.placement) ? r.placement.map(Number) : [];
-    return {
-      id: str(r.id, `regex-${i}`),
-      name: str(r.scriptName, `正则 ${i + 1}`),
-      find: str(r.findRegex),
-      replace: str(r.replaceString),
-      placement: [...(placement.includes(1) ? ['user_input' as const] : []), ...(placement.includes(2) ? ['ai_output' as const] : [])],
-      enabled: r.disabled !== true,
-    };
-  });
+  const list = Array.isArray(ext.regex_scripts) ? ext.regex_scripts : [];
+  return list.map((r, i) => normalizeRegexScript(r, i)).filter((r): r is RegexScript => !!r);
 }
 
 export function parsePreset(json: unknown, fileName = '导入的预设'): ParsedPreset {
@@ -207,9 +199,10 @@ export function parsePreset(json: unknown, fileName = '导入的预设'): Parsed
   };
 }
 
-/** 导出回 ST 预设：改过的块写回 prompts，顺序和开关写回导入时用的那套 prompt_order；App 自己的块不导出 */
-export function presetToSt(preset: Pick<Preset, 'blocks' | 'sampler' | 'formats' | 'extra' | 'source'>): Obj {
+/** 导出回 ST 预设：改过的块写回 prompts，顺序和开关写回导入时用的那套 prompt_order；App 自己的块不导出；正则写回 extensions.regex_scripts */
+export function presetToSt(preset: Pick<Preset, 'blocks' | 'sampler' | 'formats' | 'extra' | 'source'> & Partial<Pick<Preset, 'regex'>>): Obj {
   const out: Obj = { ...(preset.extra ?? {}) };
+  if (preset.regex) out.extensions = { ...(isObj(out.extensions) ? out.extensions : {}), regex_scripts: preset.regex.map(regexToSt) };
   const prompts: Obj[] = Array.isArray(out.prompts) ? (out.prompts as Obj[]).map((p) => ({ ...p })) : [];
   const own = preset.blocks.filter((b) => b.origin !== 'app');
   for (const b of own) {

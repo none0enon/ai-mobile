@@ -17,6 +17,7 @@ import EnvironmentPage from '@/pages/me/EnvironmentPage.vue';
 import InstallPage from '@/pages/me/InstallPage.vue';
 import LorebookEditPage from '@/pages/me/LorebookEditPage.vue';
 import LorebooksPage from '@/pages/me/LorebooksPage.vue';
+import MessagesPage from '@/pages/me/MessagesPage.vue';
 import PersonasPage from '@/pages/me/PersonasPage.vue';
 import PresetEditPage from '@/pages/me/PresetEditPage.vue';
 import PresetsPage from '@/pages/me/PresetsPage.vue';
@@ -50,6 +51,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/me/lorebooks/:id', component: LorebookEditPage, meta: { title: '编辑世界书' } },
   { path: '/me/presets', component: PresetsPage, meta: { title: '预设' } },
   { path: '/me/presets/:id', component: PresetEditPage, meta: { title: '编辑预设' } },
+  { path: '/me/messages', component: MessagesPage, meta: { title: '消息设置' } },
   { path: '/me/api', component: ApiPage, meta: { title: 'API 设置' } },
   { path: '/me/voice', component: VoicePage, meta: { title: '语音' } },
   { path: '/me/proactive', component: ProactivePage, meta: { title: '主动消息' } },

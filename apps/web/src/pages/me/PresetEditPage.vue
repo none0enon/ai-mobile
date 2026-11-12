@@ -16,6 +16,7 @@ import { showConfirmDialog, showToast } from 'vant';
 import { computed, ref, toRaw, watch, type ComponentPublicInstance } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Segmented from '@/components/common/Segmented.vue';
+import PresetRegex from '@/components/settings/PresetRegex.vue';
 import { useDragSort } from '@/composables/useDragSort';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { useCharacterStore } from '@/stores/characters';
@@ -24,7 +25,7 @@ import { useLibraryStore } from '@/stores/library';
 /**
  * 编辑一个预设（自带的和导入的一样）：
  * - 提示词：每一块的名字、内容、角色、位置都能改，能加块、删块、开关；长按一块拖动调顺序（电脑上按住直接拖）；程序填充的块内容由程序填，其余都能改；
- * - 采样参数、正则；名字、说明、分类（对话 / 功能 / 主动消息之间可以互换）；
+ * - 采样参数；正则（导入、改、拖动调顺序，见 components/settings/PresetRegex.vue）；名字、说明、分类（对话 / 功能 / 主动消息之间可以互换）；
  * - 右上角 ⋯：复制一份、导出成预设文件、恢复成预设文件里的样子（自带的）、删除。
  * 改了马上存在本机，下一次调用起生效。
  */
@@ -76,12 +77,9 @@ function moveBlock(from: number, to: number) {
 }
 const listEl = ref<HTMLElement | null>(null);
 const tabsEl = ref<ComponentPublicInstance | null>(null);
-const sort = useDragSort({
-  list: listEl,
-  onMove: moveBlock,
-  // 吸顶的标签栏下面才是看得见的列表：拖到标签栏下沿就开始往上滚
-  visibleTop: () => (tabsEl.value?.$el as HTMLElement | undefined)?.getBoundingClientRect().bottom ?? 0,
-});
+/** 吸顶的标签栏下面才是看得见的列表：拖到标签栏下沿就开始往上滚 */
+const tabsBottom = () => (tabsEl.value?.$el as HTMLElement | undefined)?.getBoundingClientRect().bottom ?? 0;
+const sort = useDragSort({ list: listEl, onMove: moveBlock, visibleTop: tabsBottom });
 /** 每一块一个固定的 key（同一个预设里 identifier 可能重复），挪位置时 DOM 跟着这一块走 */
 const blockKeys = new WeakMap<PromptBlock, string>();
 let keySeq = 0;
@@ -309,17 +307,7 @@ const HINT: Record<PresetCategory, string> = {
         </van-cell>
       </van-cell-group>
 
-      <div v-else-if="tab === 'regex'" class="px-4 grid gap-2">
-        <div v-for="r in preset.regex" :key="r.id" class="block">
-          <span class="i-lucide-regex text-accent-ink" />
-          <div class="flex-1 min-w-0">
-            <div class="text-[14px]">{{ r.name }}</div>
-            <div class="text-[11.5px] text-ink-3 font-mono truncate">/{{ r.find }}/ → "{{ r.replace }}"</div>
-          </div>
-          <van-switch v-model="r.enabled" size="20px" @change="touch" />
-        </div>
-        <p v-if="!preset.regex.length" class="text-[13px] text-ink-3 text-center py-6">这个预设没有正则脚本</p>
-      </div>
+      <PresetRegex v-else-if="tab === 'regex'" :preset="preset" :visible-top="tabsBottom" @touch="touch" />
 
       <div v-else class="px-4">
         <label class="field-label" for="pe-name">名字</label>

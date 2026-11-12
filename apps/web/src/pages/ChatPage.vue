@@ -24,13 +24,14 @@ import { goBack } from '@/router';
 import { services } from '@/services';
 import { assetUrl, putAsset } from '@/services/assets';
 import type { VoiceRecording } from '@/services/recorder';
-import { presetFor } from '@/services/prompt';
+import { personaOf, presetFor } from '@/services/prompt';
 import { pendingForSummary, SUMMARY_EVERY, type SummaryOutcome } from '@/services/summary';
 import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { useMessageSettingsStore } from '@/stores/messageSettings';
 import { useWeatherStore } from '@/stores/weather';
 import { dividerTime, hhmm } from '@/utils/time';
 import { copyWithToast, showErrorDialog } from '@/utils/errors';
@@ -63,11 +64,29 @@ function setMode(m: 'im' | 'stage') {
   void router.replace({ query: { ...route.query, mode: m } });
 }
 
+// —— 消息设置 → 显示条数：只显示最近的消息；顶部按钮每次再展开同样条数，切换聊天后复原 ——
+const msgSettings = useMessageSettingsStore();
+const earlier = ref(0);
+watch(chatId, () => (earlier.value = 0));
+/** 从第几条开始显示 */
+const shownFrom = computed(() => {
+  const s = msgSettings.settings;
+  return s.showLimit ? Math.max(0, messages.value.length - s.showLast - earlier.value) : 0;
+});
+async function showEarlier() {
+  const el = scroller.value;
+  const before = el ? el.scrollHeight - el.scrollTop : 0;
+  earlier.value += msgSettings.settings.showLast;
+  // 上面多出来的消息不把你正在看的那条顶走
+  await nextTick();
+  if (el) el.scrollTop = el.scrollHeight - before;
+}
+
 /** 两条消息间隔超过 20 分钟插一条时间分隔 */
 const rows = computed(() => {
   const out: ({ kind: 'divider'; id: string; ts: number } | { kind: 'msg'; id: string })[] = [];
   let prev = 0;
-  for (const m of messages.value) {
+  for (const m of messages.value.slice(shownFrom.value)) {
     if (m.createdAt - prev > 20 * 60_000) out.push({ kind: 'divider', id: `d-${m.id}`, ts: m.createdAt });
     out.push({ kind: 'msg', id: m.id });
     prev = m.createdAt;
@@ -75,6 +94,11 @@ const rows = computed(() => {
   return out;
 });
 const byId = computed(() => new Map(messages.value.map((m) => [m.id, m])));
+/** 每条是第几条（正则按深度、HTML 界面只在最后几条里运行；酒馆助手的"第几楼"） */
+const indexOf = computed(() => new Map(messages.value.map((m, i) => [m.id, i])));
+/** 显示时跑的正则：这个角色的对话预设里"只改显示"的 */
+const displayRegex = computed(() => (preset.value?.regex ?? []).filter((r) => r.markdownOnly && r.enabled));
+const regexNames = computed(() => ({ char: character.value?.name ?? '', user: personaOf(chat.value).name }));
 
 const scroller = ref<HTMLElement | null>(null);
 async function scrollToBottom(smooth = false) {
@@ -502,6 +526,9 @@ const stageRain = computed(() => isRainy(stageWeather.value?.text) && (!stageLoc
 
       <div ref="scroller" class="page-scroll" :class="{ 'chat-bg': !hasWall }" @click="toolsFor = null">
         <div class="py-3">
+          <button v-if="shownFrom > 0" type="button" class="earlier press" data-testid="show-earlier" @click.stop="showEarlier">
+            <span class="i-lucide-history" />查看更早的消息（{{ shownFrom }}）
+          </button>
           <template v-for="r in rows" :key="r.id">
             <div v-if="r.kind === 'divider'" class="divider num">{{ dividerTime(r.ts) }}</div>
             <MessageItem
@@ -513,6 +540,10 @@ const stageRain = computed(() => isRainy(stageWeather.value?.text) && (!stageLoc
               :thinking="!!stream?.thinking"
               :tools-open="toolsFor === r.id"
               :editing="editingId === r.id"
+              :regex="displayRegex"
+              :names="regexNames"
+              :index="indexOf.get(r.id)"
+              :last-index="messages.length - 1"
               @toggle-tools="toggleTools(r.id)"
               @swipe="(d) => chatStore.swipe(chatId, r.id, d)"
               @regenerate="retry(r.id)"
@@ -701,6 +732,17 @@ const stageRain = computed(() => isRainy(stageWeather.value?.text) && (!stageLoc
   color: var(--ink-2);
   font-size: 13.5px;
   text-decoration: none;
+}
+.earlier {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px auto 8px;
+  padding: 5px 12px;
+  border-radius: 99px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: 12.5px;
 }
 .divider {
   margin: 10px auto 6px;
