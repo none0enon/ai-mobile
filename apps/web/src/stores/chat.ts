@@ -462,6 +462,9 @@ export const useChatStore = defineStore('chat', () => {
         characterId: character.id,
         caption,
         mode: before.mode,
+        use: 'image',
+        // 一起做事时按这件事该穿的那套告诉模型（运动服、睡衣……），平时按日常的；画面要换装时模型自己写
+        sceneId: chat.currentScene,
         place: getLocation(chat.togetherAt ?? character.locationId)?.name,
         expression: chars.expression[character.id],
         recent: recentLines(chatId),

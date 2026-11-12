@@ -24,6 +24,7 @@ import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 import { useRealWorldStore } from '@/stores/realworld';
+import { useRhythmStore } from '@/stores/rhythm';
 import { hhmm, listTime } from '@/utils/time';
 
 /**
@@ -41,9 +42,12 @@ const real = useRealWorldStore();
 const today = mockToday();
 const now = new Date();
 
-/** 有自己小世界的角色（导入的角色生成小世界之前没有） */
-const worldOwners = computed(() => chars.list.filter((c) => hasOwnWorld(c.id)));
+/** "建世界"生成的世界登记在 @app/shared 里（不是响应式的）：读一下节律里的世界，建好以后地图跟着更新 */
+const rhythm = useRhythmStore();
+/** 有自己小世界的角色（导入的角色"建世界"之前没有） */
+const worldOwners = computed(() => (void Object.keys(rhythm.worlds).length, chars.list.filter((c) => hasOwnWorld(c.id))));
 const worldKey = computed(() => {
+  void Object.keys(rhythm.worlds).length;
   const q = route.query.world as string | undefined;
   if (q === 'me' || (q && hasOwnWorld(q))) return q;
   if (hasOwnWorld(app.activeCharacterId)) return app.activeCharacterId;

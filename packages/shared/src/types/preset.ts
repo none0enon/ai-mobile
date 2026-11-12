@@ -99,11 +99,12 @@ export interface RegexScript {
  * - proactive 主动消息：她先开口的那条；
  * - theater 小剧场：番外，你不在时她那边的一小段故事；
  * - summary 总结：整理聊天，写过往摘要、记忆、关系变化；
- * - image 生图：把画面写成 NovelAI tags。
+ * - image 生图：把画面写成 NovelAI tags；
+ * - rhythm 节律：建她的世界、排她每天的作息、三餐和穿着。
  * 前三类是角色扮演，程序填充块和 SillyTavern 的对话预设一样（角色卡、世界书、聊天记录……），可以互相复制；
- * 后三类是一次性的任务，程序填充块是这件任务的输入（要整理的聊天、要画的画面……）。
+ * 后几类是一次性的任务，程序填充块是这件任务的输入（要整理的聊天、要画的画面、她的世界……）。
  */
-export type PresetCategory = 'chat' | 'feature' | 'proactive' | 'theater' | 'summary' | 'image';
+export type PresetCategory = 'chat' | 'feature' | 'proactive' | 'theater' | 'summary' | 'image' | 'rhythm';
 
 export const PRESET_CATEGORIES: Record<PresetCategory, { label: string; desc: string; icon: string }> = {
   chat: { label: '对话', desc: '主对话：聊天气泡和剧场模式。每个角色选一个（角色设定 → 预设）', icon: 'i-lucide-message-circle-heart' },
@@ -111,10 +112,11 @@ export const PRESET_CATEGORIES: Record<PresetCategory, { label: string; desc: st
   proactive: { label: '主动消息', desc: '角色先开口发来的那条消息', icon: 'i-lucide-bell-ring' },
   theater: { label: '小剧场', desc: '番外：你不在的时候，角色那边发生的一小段故事', icon: 'i-lucide-book-heart' },
   summary: { label: '总结', desc: '整理聊天：写过往摘要、记下以后用得上的事、更新关系', icon: 'i-lucide-notebook-pen' },
-  image: { label: '生图', desc: '生图提示词：把要画的画面写成 NovelAI tags', icon: 'i-lucide-wand-sparkles' },
+  image: { label: '生图', desc: '生图提示词：把要画的画面写成 NovelAI tags。聊天配图一个，一起做事的每件事也各选一个（可以跟随配图）', icon: 'i-lucide-wand-sparkles' },
+  rhythm: { label: '节律', desc: '她每天的作息、三餐和穿着：导入角色后"建世界"一次，之后每天"排今天"（每个角色在"我的 → 节律"里选固定还是每天变化）', icon: 'i-lucide-calendar-clock' },
 };
 
-export const PRESET_CATEGORY_ORDER: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image'];
+export const PRESET_CATEGORY_ORDER: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image', 'rhythm'];
 
 /** 角色扮演类的预设（程序填充块相同，可以互相复制） */
 export const ROLEPLAY_CATEGORIES: PresetCategory[] = ['chat', 'feature', 'proactive'];
@@ -166,7 +168,7 @@ export const APP_MARKERS = ['summary', 'memory', 'environment', 'sceneRules'] as
  * 任务类预设（小剧场、总结、生图）的程序填充块：只放这件任务每次的输入（要整理的聊天、要画的画面……）。
  * 说明、规则、输出格式都是预设里的普通块，可以改。
  */
-export const TASK_MARKERS: Record<'theater' | 'summary' | 'image', Record<string, string>> = {
+export const TASK_MARKERS: Record<'theater' | 'summary' | 'image' | 'rhythm', Record<string, string>> = {
   theater: {
     storyCharacter: '角色',
     storyWorld: '她的世界（作息、手头的事、身边的人）',
@@ -188,7 +190,33 @@ export const TASK_MARKERS: Record<'theater' | 'summary' | 'image', Record<string
     imageRecent: '最近的对话',
     imageCaption: '要画的画面',
   },
+  rhythm: {
+    rhythmCharacter: '角色（名字、描述、性格、场景）',
+    rhythmSource: '建世界的材料（角色卡的世界观、世界书）',
+    rhythmWorld: '她的世界（地点、身边的人）',
+    rhythmTemplate: '作息模板（固定的事不能挪）和三餐习惯',
+    rhythmWardrobe: '衣柜',
+    rhythmToday: '今天（日期、星期、节气、天气）',
+    rhythmRecent: '最近几天的作息和穿着',
+    rhythmPromises: '最近的约定和待跟进',
+    rhythmAsk: '这次要排的',
+  },
 };
+
+/**
+ * 节律预设里的任务（块的触发条件写这几个名字）：
+ * - build-world 建世界：导入角色后做一次，生成她的地点、身边的人、作息模板、三餐习惯、衣柜；
+ * - plan-day 排今天：每天一次；
+ * - outfit-pick / outfit-new：排今天时穿着从衣柜里挑，还是每天新编（和 plan-day 一起发）。
+ */
+export const RHYTHM_TASKS = {
+  'build-world': '建世界',
+  'plan-day': '排今天',
+  'outfit-pick': '穿着从衣柜挑',
+  'outfit-new': '穿着每天新编',
+} as const;
+
+export type RhythmTask = keyof typeof RHYTHM_TASKS;
 
 /** 生图预设里按"画什么"发送的块：块的触发条件写这几个值 */
 export const IMAGE_MODES = { scene: '画一个场景', portrait: '全身像', face: '脸部特写', background: '只画背景' } as const;

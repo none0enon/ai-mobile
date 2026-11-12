@@ -1,0 +1,217 @@
+{
+  "format": "ai-mobile-preset",
+  "version": 1,
+  "id": "preset-rhythm",
+  "category": "rhythm",
+  "name": "节律 · 建世界和排今天",
+  "defaultFor": [
+    "rhythm"
+  ],
+  "description": "导入角色后\"建世界\"一次（地点、身边的人、作息模板、三餐习惯、衣柜），之后每天\"排今天\"（作息、三餐、穿着、手头的事）。两件任务和穿着的两种做法按触发条件只发这次要做的那几块；程序会检查作息有没有盖满一天、地点在不在她的世界里、固定的事有没有被挪。",
+  "blocks": [
+    {
+      "identifier": "main",
+      "name": "任务",
+      "role": "system",
+      "content": "你在替{{char}}安排{{char}}自己的生活。{{char}}有自己的日常：住在哪、在哪读书或工作、常去哪、身边有谁、每天几点在做什么、吃什么、穿什么。这些都要符合角色卡里的设定和世界观，像一个真实的人；也要留出能和{{user}}一起做事（一起学习、吃饭、运动、看书、看片、约会）的地方和时间。只输出一个 JSON 对象，不要任何其他文字。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "buildWorld",
+      "name": "建世界",
+      "role": "system",
+      "content": "这次的任务：建世界。从下面的角色卡和世界书里找出{{char}}住在哪、在哪读书或工作、常去哪些地方、身边有谁，写出{{char}}的小世界：\n- 地点 5–10 个，分三片：home 住处（至少一个，第一个是{{char}}住的地方）、campus 读书或工作的地方、city 常去的地方。名字用角色卡世界观里的叫法，6 个字以内。\n- 每个地点写 backdrop，只能从这些里选：bedroom 卧室、房间 / library 图书馆、自习室 / dining 食堂、餐厅 / cafe 咖啡店、小店 / park 公园、操场、户外 / seaside 海边、江边 / pool 游泳馆 / gym 健身房、训练场 / cinema 电影院 / night-market 夜市、街边小吃 / gallery 美术馆、博物馆 / aquarium 水族馆 / amusement 游乐园、电玩城 / music 有音乐的地方。\n- 每个地点写在那里能和{{user}}一起做的事 activities，scene 只能从这些里选：study 陪伴学习 / read 一起看书 / meal 一起吃饭 / exercise 一起运动 / watch 一起看片 / game 海龟汤 / date 约会 / music 一起听歌 / sleep 哄睡 / poke 戳戳乐；label 是在这个地点的说法（例如在咖啡店学习写\"一起自习\"）。\n- 身边的人：角色卡和世界书里提到的家人、室友、同学、同事、朋友，写名字、和{{char}}的关系、出处或一句话。没提到的不要编。\n- 作息模板：从 00:00 排到 24:00，一段接一段、不重叠，写几点到几点、在哪（写地点的 key）、在做什么（6 个字以内）；不能挪的事（固定的课、训练、班）写 \"fixed\": true。\n- 三餐习惯：早饭、午饭、晚饭一般吃什么。\n- 衣柜：4–8 套，至少有日常 daily、运动 sport、睡衣 sleep 各一套，可以有约会 date；每套写中文名和 NovelAI 的英文 tags（只写衣服、鞋、配饰，不写长相）。设定里写了{{char}}常穿什么的，照设定写。\n- 手头的事：{{char}}最近在忙的一件具体的事（陪伴学习时{{char}}的小目标）。\n输出格式：\n{\"name\": \"小世界的名字\", \"blurb\": \"一句话介绍\", \"areas\": {\"home\": \"住处这一片叫什么\", \"campus\": \"读书或工作的那一片叫什么\", \"city\": \"常去的那一片叫什么\"}, \"homeKey\": \"住处的 key\", \"locations\": [{\"key\": \"英文小写 key\", \"name\": \"名字\", \"area\": \"home|campus|city\", \"indoor\": true, \"backdrop\": \"bedroom\", \"blurb\": \"一句话\", \"activities\": [{\"scene\": \"study\", \"label\": \"一起自习\"}]}], \"people\": [{\"name\": \"名字\", \"relation\": \"关系\", \"note\": \"出处或一句话\"}], \"schedule\": [{\"from\": \"00:00\", \"to\": \"07:30\", \"at\": \"地点 key\", \"status\": \"睡觉中\", \"fixed\": false}], \"meals\": {\"breakfast\": \"\", \"lunch\": \"\", \"dinner\": \"\"}, \"wardrobe\": [{\"kind\": \"daily|sport|sleep|date\", \"name\": \"中文名\", \"tags\": \"英文 tags\"}], \"task\": \"手头的事\"}",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "build-world"
+      ]
+    },
+    {
+      "identifier": "planDay",
+      "name": "排今天",
+      "role": "system",
+      "content": "这次的任务：排{{char}}今天的一天。按{{char}}的世界、作息模板、今天的日期和天气、最近几天的安排来排：和最近几天别完全一样；周末和工作日不一样；下雨、太冷太热就少在户外。\n- 只排\"这次要排的\"里列出的几项，没列的不用写。\n- 作息：从 00:00 排到 24:00，一段接一段、不重叠；\"at\" 只能写{{char}}的世界里的地点 id；模板里标了\"固定\"的事原样保留。\n- 三餐：今天早饭、午饭、晚饭具体吃什么。\n- 穿着：daily 日常、sport 运动、sleep 睡衣各一套；今天有约会或约好出门时再加一套 date 约会装；每套写中文名和 NovelAI 的英文 tags（只写衣服、鞋、配饰，不写长相）。\n- 最近的约定和待跟进（例如\"周六约了水族馆\"）是今天的，就排进今天。\n- task：{{char}}今天手头的一件具体的事（陪伴学习时{{char}}的小目标）。\n- events：今天{{char}}那边会发生的一两件小事（番外、主动消息会用），一句话一件。\n输出格式：\n{\"schedule\": [{\"from\": \"00:00\", \"to\": \"07:30\", \"at\": \"地点 id\", \"status\": \"在做什么\"}], \"meals\": {\"breakfast\": \"\", \"lunch\": \"\", \"dinner\": \"\"}, \"outfits\": {\"daily\": {\"name\": \"中文名\", \"tags\": \"英文 tags\"}, \"sport\": {\"name\": \"\", \"tags\": \"\"}, \"sleep\": {\"name\": \"\", \"tags\": \"\"}, \"date\": {\"name\": \"\", \"tags\": \"\"}}, \"task\": \"\", \"events\": [\"\"]}",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "plan-day"
+      ]
+    },
+    {
+      "identifier": "outfitPick",
+      "name": "穿着 · 从衣柜挑",
+      "role": "system",
+      "content": "穿着：只能从{{char}}的衣柜里挑，name 和 tags 照抄衣柜里那一套；按天气和今天的安排换着穿，别和最近几天一样。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "outfit-pick"
+      ]
+    },
+    {
+      "identifier": "outfitNew",
+      "name": "穿着 · 每天新编",
+      "role": "system",
+      "content": "穿着：可以新编，不用拘泥于衣柜，但要符合{{char}}的风格、季节、天气和今天的安排；和最近几天别一样。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "outfit-new"
+      ]
+    },
+    {
+      "identifier": "rhythmCharacter",
+      "name": "角色（名字、描述、性格、场景）",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "rhythmSource",
+      "name": "建世界的材料（角色卡的世界观、世界书）",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "rhythmWorld",
+      "name": "她的世界（地点、身边的人）",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "rhythmTemplate",
+      "name": "作息模板（固定的事不能挪）和三餐习惯",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "rhythmWardrobe",
+      "name": "衣柜",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "rhythmToday",
+      "name": "今天（日期、星期、节气、天气）",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "rhythmRecent",
+      "name": "最近几天的作息和穿着",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "rhythmPromises",
+      "name": "最近的约定和待跟进",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "rhythmAsk",
+      "name": "这次要排的",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    }
+  ],
+  "sampler": {
+    "temperature": 0.8,
+    "topP": 1,
+    "maxTokens": 4000,
+    "contextTokens": 32000,
+    "frequencyPenalty": 0,
+    "presencePenalty": 0,
+    "stream": false
+  },
+  "formats": {
+    "newChatPrompt": "",
+    "newExampleChatPrompt": "",
+    "continueNudgePrompt": "",
+    "impersonationPrompt": "",
+    "sendIfEmpty": "",
+    "wiFormat": "{0}",
+    "scenarioFormat": "{{scenario}}",
+    "personalityFormat": "{{personality}}",
+    "namesBehavior": 0,
+    "squashSystemMessages": false,
+    "preferCharacterPrompt": true,
+    "preferCharacterJailbreak": true
+  },
+  "regex": []
+}

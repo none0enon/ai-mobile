@@ -16,6 +16,7 @@ import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 import { useProactiveStore } from '@/stores/proactive';
+import { useRhythmStore } from '@/stores/rhythm';
 import { useHubStore } from '@/stores/hub';
 import { showErrorDialog } from '@/utils/errors';
 
@@ -31,6 +32,13 @@ const proactive = useProactiveStore();
 /** 今天所有打开了主动消息的角色加起来还会来找你几次 */
 const upcoming = computed(() => proactive.upcoming());
 const hub = useHubStore();
+const rhythm = useRhythmStore();
+/** 节律那一行：几个每天变化、几个还没有小世界 */
+const rhythmValue = computed(() => {
+  const daily = chars.list.filter((c) => rhythm.configOf(c.id).settings.mode === 'daily').length;
+  const noWorld = chars.list.filter((c) => !rhythm.hasWorld(c.id)).length;
+  return [daily ? `${daily} 个每天变化` : '都是固定', noWorld ? `${noWorld} 个还没有小世界` : ''].filter(Boolean).join(' · ');
+});
 const totalMessages = computed(() => Object.values(chat.messages).reduce((n, l) => n + l.length, 0) + 1268);
 const THEME_LABEL = { system: '跟随系统', dark: '夜', light: '昼' } as const;
 
@@ -68,6 +76,7 @@ const groups = computed(() => [
         desc: `${chars.list.filter((c) => c.proactive.enabled).map((c) => c.name).join('、') || '还没有角色'}会主动找你`,
         to: '/me/proactive',
       },
+      { icon: 'i-lucide-calendar-clock', label: '节律', value: rhythmValue.value, desc: '她们每天的作息、三餐和穿着；导入的角色在这里建小世界', to: '/me/rhythm' },
       { icon: 'i-lucide-cloud-sun', label: '环境与作息', value: `${weather.city} · ${weather.text}`, to: '/me/environment' },
     ],
   },

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { Character, MessagePart } from '@app/shared';
 import { computed, onBeforeUnmount, ref } from 'vue';
-import { showToast } from 'vant';
+import { showImagePreview, showToast } from 'vant';
 import { assetUrl } from '@/services/assets';
+import AssetImg from '@/components/common/AssetImg.vue';
 import GenImage from '@/components/figure/GenImage.vue';
 import RichText from '@/components/common/RichText.vue';
 import { clock } from '@/utils/time';
@@ -33,6 +34,16 @@ const bars = computed(() => {
   const n = Math.min(18, Math.max(6, Math.round(props.part.durationMs / 600)));
   return Array.from({ length: n }, (_, i) => 30 + ((i * 37) % 60));
 });
+
+/** 学习卡片里这次画的图：点一张从它开始翻 */
+async function previewShots(start: number) {
+  const p = props.part;
+  if (p.type !== 'study' || !p.images?.length) return;
+  const urls = await Promise.all(p.images.map(async (i) => (i.assetKey ? await assetUrl(i.assetKey) : (i.url ?? null))));
+  const images = urls.filter((u): u is string => !!u);
+  if (images.length) showImagePreview({ images, startPosition: Math.min(start, images.length - 1), closeable: true });
+  else showToast('本机找不到这几张图了');
+}
 
 let audio: HTMLAudioElement | null = null;
 let playback = 0;
@@ -180,6 +191,11 @@ async function playVoice() {
         专注 {{ part.minutes }} 分钟<template v-if="part.tasks?.length"> · 完成 {{ part.tasks.filter((t) => t.done).length }} / {{ part.tasks.length }} 个任务</template><template v-if="part.promise"> · 约定{{ part.promise.kept ? '做到了' : '没做到' }}</template>
       </div>
       <div v-if="part.diary" class="text-[12.5px] text-ink-2 mt-1">{{ part.diary }}</div>
+      <div v-if="part.images?.length" class="shots">
+        <button v-for="(img, i) in part.images" :key="i" type="button" class="shot" :aria-label="`看大图：${img.title}`" @click="previewShots(i)">
+          <AssetImg :asset-key="img.assetKey" :url="img.url" :alt="img.title" />
+        </button>
+      </div>
     </div>
   </div>
 
@@ -353,5 +369,19 @@ async function playVoice() {
   justify-content: center;
   color: #fff;
   background: linear-gradient(135deg, #e8a86c, #b8603f);
+}
+.shots {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  overflow-x: auto;
+}
+.shot {
+  flex-shrink: 0;
+  width: 54px;
+  height: 72px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel);
 }
 </style>

@@ -42,7 +42,7 @@ function readSeeds(): Seed[] {
     }
   }
   // 先对话、再功能……同一类按文件名
-  const order: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image'];
+  const order: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image', 'rhythm'];
   return out.sort((a, b) => order.indexOf(a.preset.category) - order.indexOf(b.preset.category) || a.file.localeCompare(b.file));
 }
 
@@ -115,15 +115,15 @@ function clone<T>(x: T): T {
 
 /**
  * 预设和世界书。
- * - 预设分六类（对话、功能、主动消息、小剧场、总结、生图）；
- * - 每个用途（一起做事的每件事、主动消息、番外、总结、配图）选一个对应分类的预设；对话预设每个角色自己选；
+ * - 预设分七类（对话、功能、主动消息、小剧场、总结、生图、节律）；
+ * - 每个用途（一起做事的每件事、主动消息、番外、总结、配图、一起做事时画的图、节律）选一个对应分类的预设；对话预设每个角色自己选；
  * - 所有预设都存在本机（自带的放进来以后也一样）。
  */
 export const useLibraryStore = defineStore('library', () => {
   // 读本机数据库之前先用预设文件里的（启动时界面要有东西），读完以后以本机的为准
   const presets = ref<Preset[]>(SEEDS.map((s) => clone(s.preset)));
   const lorebooks = ref<Lorebook[]>([...demoLorebooks]);
-  /** 每个用途选的预设；null = 跟随对话预设 */
+  /** 每个用途选的预设；null = 跟随（对话预设，或者一起做事时画的图跟随配图） */
   const uses = reactive<Partial<Record<PresetUseId, string | null>>>(defaultUses(SEEDS));
 
   const presetSaver = autoSave('presets', () => presets.value.map((p) => ({ key: p.id, value: p })), presets);
@@ -176,7 +176,7 @@ export const useLibraryStore = defineStore('library', () => {
     if (savedUses && typeof savedUses === 'object') {
       for (const u of PRESET_USES) {
         const v = savedUses[u.id];
-        if (v === null && u.followChat) uses[u.id] = null;
+        if (v === null && u.follow) uses[u.id] = null;
         else if (typeof v === 'string') uses[u.id] = v;
       }
     }
@@ -216,23 +216,31 @@ export const useLibraryStore = defineStore('library', () => {
     return presetsOf('chat')[0];
   }
 
-  /** 这个用途选的预设 id；null = 跟随对话预设；选的被删了时用这一类的第一个 */
+  /**
+   * 这个用途选的预设 id；null = 跟随（对话预设 / 配图）；选的被删了时用这一类的第一个。
+   * 一起做事时画的图没选过就跟随配图（自带了这个场景的生图预设的，预设文件里写了默认给它用）
+   */
   function useChoice(use: PresetUseId): string | null | undefined {
     const meta = presetUse(use);
     const v = uses[use];
-    if (v === null && meta?.followChat) return null;
+    if (meta?.follow && (v === null || (v === undefined && meta.follow === 'image'))) return null;
     const picked = presetById(v ?? undefined);
     if (picked && picked.category === meta?.category) return picked.id;
+    if (meta?.follow === 'image') return null;
     return meta ? presetsOf(meta.category)[0]?.id : undefined;
   }
 
-  /** 这个用途这次用哪个预设；这一类一个都没有时：能跟随对话的用对话预设，其余为空（调用方说清楚缺什么） */
+  /**
+   * 这个用途这次用哪个预设。跟随时用对话预设 / 配图的预设；
+   * 这一类一个都没有时：能跟随对话的用对话预设，其余为空（调用方说清楚缺什么）
+   */
   function presetForUse(use: PresetUseId, character?: Pick<Character, 'presetId'> | null): Preset | undefined {
+    const meta = presetUse(use);
     const choice = useChoice(use);
-    if (choice === null) return chatPresetFor(character);
+    if (choice === null) return meta?.follow === 'image' ? presetForUse('image', character) : chatPresetFor(character);
     const p = presetById(choice);
     if (p) return p;
-    return presetUse(use)?.followChat ? chatPresetFor(character) : undefined;
+    return meta?.follow === 'chat' ? chatPresetFor(character) : undefined;
   }
 
   function setUse(use: PresetUseId, id: string | null) {

@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { EXPRESSION_LABELS, EXPRESSIONS, OUTFITS, type PokeHotspot } from '@app/shared';
-import { showToast } from 'vant';
+import { EXPRESSION_LABELS, EXPRESSIONS, imageAppearance, isFandom, OUTFITS, type PokeHotspot } from '@app/shared';
+import { showImagePreview, showToast } from 'vant';
 import { computed, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
+import AssetImg from '@/components/common/AssetImg.vue';
 import Avatar from '@/components/common/Avatar.vue';
+import ErrorDetails from '@/components/common/ErrorDetails.vue';
 import HScroll from '@/components/common/HScroll.vue';
 import ImagePick from '@/components/common/ImagePick.vue';
 import Segmented from '@/components/common/Segmented.vue';
@@ -13,12 +15,19 @@ import StageView from '@/components/stage/StageView.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { FIGURE } from '@/mock/characters';
 import { pokeHotspots } from '@/mock/library';
+import { assetUrl, services, type IllustrateOutcome } from '@/services';
 import { presetFor } from '@/services/prompt';
+import { useAiStore } from '@/stores/ai';
 import { useLibraryStore } from '@/stores/library';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
+import { useRhythmStore } from '@/stores/rhythm';
+import { errorReport, errorText } from '@app/ai';
 
 const route = useRoute();
+const router = useRouter();
+const ai = useAiStore();
+const rhythm = useRhythmStore();
 const chars = useCharacterStore();
 const lib = useLibraryStore();
 const looks = useAppearanceStore();
@@ -38,6 +47,55 @@ function pickPreset(id: string | null) {
   chars.setPreset(character.value.id, id);
   showToast(`换成「${lib.presetById(id)?.name ?? ''}」了`);
 }
+// —— 生图：同人还是原创（设计文档 §10.4）——
+/** 同人标记：打开时第一次补上空的角色 tag、作品 tag */
+const fandomOn = computed({
+  get: () => !!character.value.fandom?.enabled,
+  set: (v: boolean) => {
+    const c = character.value;
+    c.fandom = { characterTag: c.fandom?.characterTag ?? '', copyrightTag: c.fandom?.copyrightTag ?? '', enabled: v };
+    c.updatedAt = Date.now();
+  },
+});
+function setFandom(field: 'characterTag' | 'copyrightTag', v: string) {
+  const c = character.value;
+  c.fandom = { enabled: c.fandom?.enabled ?? true, characterTag: c.fandom?.characterTag ?? '', copyrightTag: c.fandom?.copyrightTag ?? '', [field]: v };
+  c.updatedAt = Date.now();
+}
+/** 生图时实际加在最前面的长相 */
+const appearanceLine = computed(() => imageAppearance(character.value));
+const imageLive = computed(() => ai.status('image').live);
+/** 今天穿的那套（节律）：试画时也穿它 */
+const todayOutfit = computed(() => rhythm.outfitFor(character.value.id, null));
+
+const trial = ref<{ out?: IllustrateOutcome; error?: string; detail?: string; busy: boolean } | null>(null);
+/** 试画一张：白底全身像，看看 NovelAI 认不认得她（同人）/ 外观 tags 画出来像不像（原创） */
+async function trialDraw() {
+  if (trial.value?.busy) return;
+  if (!imageLive.value) {
+    void router.push('/me/api?feature=image');
+    return;
+  }
+  const c = character.value;
+  trial.value = { busy: true };
+  try {
+    const out = await services.image.illustrate({
+      characterId: c.id,
+      mode: 'portrait',
+      caption: `${c.name}的全身像：白色背景，站着看向镜头，表情自然${isFandom(c) ? '；看看画出来是不是原作里的样子' : ''}`,
+      lockOutfit: !!todayOutfit.value,
+    });
+    trial.value = { busy: false, out };
+  } catch (e) {
+    trial.value = { busy: false, error: errorText(e), detail: errorReport(e) };
+  }
+}
+async function openTrial() {
+  const out = trial.value?.out;
+  const url = out?.assetKey ? await assetUrl(out.assetKey) : out?.url;
+  if (url) showImagePreview({ images: [url], closeable: true });
+}
+
 const TABS = ['basic', 'persona', 'greeting', 'example', 'lore', 'preset', 'sprite', 'voice', 'proactive', 'look'] as const;
 const tab = ref<string>(TABS.includes(route.query.tab as (typeof TABS)[number]) ? (route.query.tab as string) : 'basic');
 const ACCENTS = ['#f5b8a6', '#f39cc0', '#b7a6f5', '#8ec5e8', '#7fd1b1', '#f2c66d'];
@@ -82,8 +140,24 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
                 { value: 'TA', label: 'TA' },
               ]"
             />
-            <label class="field-label" for="ce-status">状态行（{{ character.pronoun }}此刻在做什么，模拟作息会自动更新）</label>
+            <label class="field-label" for="ce-status">状态行（{{ character.pronoun }}此刻在做什么，按节律里的作息自动更新）</label>
             <input id="ce-status" v-model="character.status" class="input" />
+            <RouterLink :to="`/me/rhythm?char=${character.id}`" class="link-row press" data-testid="to-rhythm">
+              <span class="i-lucide-calendar-clock text-accent-ink" />
+              <span class="flex-1 min-w-0">
+                <span class="block text-[14px]">节律：作息、三餐、穿着</span>
+                <span class="block text-[12px] text-ink-3 truncate">{{ rhythm.configOf(character.id).settings.mode === 'daily' ? '每天变化' : '固定' }}{{ rhythm.hasWorld(character.id) ? '' : ' · 还没有小世界，去建一个' }}</span>
+              </span>
+              <span class="i-lucide-chevron-right text-ink-3" />
+            </RouterLink>
+            <button type="button" class="link-row press w-full text-left" data-testid="to-look" @click="tab = 'look'">
+              <span class="i-lucide-wand-sparkles text-accent-ink" />
+              <span class="flex-1 min-w-0">
+                <span class="block text-[14px]">生图：{{ isFandom(character) ? '同人角色' : '原创角色' }}</span>
+                <span class="block text-[12px] text-ink-3 truncate">{{ isFandom(character) ? `角色 tag ${character.fandom?.characterTag}` : '按外观 tags 画；出自已有作品的角色在这里打上"同人"' }}</span>
+              </span>
+              <span class="i-lucide-chevron-right text-ink-3" />
+            </button>
             <label class="field-label">标签</label>
             <div class="flex flex-wrap gap-1.5"><span v-for="t in character.card.tags" :key="t" class="tag">{{ t }}</span></div>
             <label class="field-label" for="ce-notes">作者备注（creator_notes，不发给模型）</label>
@@ -192,13 +266,57 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
             <van-cell title="什么时候来找你、今天的计划、推送通道" is-link :to="`/me/proactive?char=${character.id}`" />
           </van-cell-group>
         </van-tab>
-        <van-tab title="外观 tags" name="look">
+        <van-tab title="生图" name="look">
           <div class="px-4">
-            <label class="field-label" for="ce-tags">NovelAI 外观基础 tags（生图提示词智能体会在此基础上补动作、服装、场景）</label>
+            <div class="fandom" data-testid="fandom">
+              <div class="flex items-center gap-3">
+                <div class="flex-1 min-w-0">
+                  <div class="text-[15px] font-600">同人角色</div>
+                  <div class="text-[12px] text-ink-3 leading-relaxed mt-0.5">
+                    {{ character.name }}出自已有的作品、NovelAI 认得{{ character.pronoun }}时打开：生图直接写角色 tag 和作品 tag，不用一条条描述长相。原创角色关着，按下面的外观 tags 画。
+                  </div>
+                </div>
+                <van-switch v-model="fandomOn" size="22px" aria-label="同人角色" />
+              </div>
+              <template v-if="fandomOn">
+                <label class="field-label" for="ce-char-tag">角色 tag（Danbooru 上的写法，重名时括号里写作品）</label>
+                <input id="ce-char-tag" :value="character.fandom?.characterTag ?? ''" class="input mono" placeholder="例如 hatsune miku、rem (re:zero)" autocapitalize="off" spellcheck="false" @input="setFandom('characterTag', ($event.target as HTMLInputElement).value)" />
+                <label class="field-label" for="ce-copy-tag">作品 tag</label>
+                <input id="ce-copy-tag" :value="character.fandom?.copyrightTag ?? ''" class="input mono" placeholder="例如 vocaloid、re:zero kara hajimeru isekai seikatsu" autocapitalize="off" spellcheck="false" @input="setFandom('copyrightTag', ($event.target as HTMLInputElement).value)" />
+                <p v-if="!character.fandom?.characterTag.trim()" class="text-[12px] text-warn mt-1.5 mb-0">还没填角色 tag：填好之前按原创画。</p>
+              </template>
+            </div>
+
+            <label class="field-label" for="ce-tags">{{ fandomOn ? '补充外观 tags（可以不写；NovelAI 认不全的地方写在这里，衣服写进节律的衣柜）' : 'NovelAI 外观 tags（发色、瞳色、发型、体型……；生图提示词智能体在这上面补动作、场景）' }}</label>
             <textarea id="ce-tags" v-model="character.appearanceTags" class="textarea mono" rows="4" />
             <label class="field-label" for="ce-neg">负面 tags</label>
             <textarea id="ce-neg" v-model="character.negativeTags" class="textarea mono" rows="2" />
-            <van-button round block class="!mt-4" @click="showToast('M5 接入 NovelAI')">用这些 tags 试画一张</van-button>
+
+            <div class="look-line">
+              <div class="text-[12px] text-ink-3">生图时加在最前面的长相</div>
+              <div class="mono text-[13px] break-all mt-0.5">{{ appearanceLine || '（空）' }}</div>
+              <div v-if="todayOutfit" class="text-[12px] text-ink-3 mt-1.5">
+                今天穿：{{ todayOutfit.name }}<span class="mono"> · {{ todayOutfit.tags }}</span>（来自<RouterLink :to="`/me/rhythm?char=${character.id}`" class="text-accent-ink">节律</RouterLink>，一起做事时画的图都穿这身）
+              </div>
+            </div>
+
+            <van-button round block class="!mt-4" :loading="trial?.busy" loading-text="在画…" data-testid="trial-draw" @click="trialDraw">
+              {{ imageLive ? (fandomOn ? '试画一张，看 NovelAI 认不认得' : '用这些 tags 试画一张') : '生图 API 还没接通，去设置' }}
+            </van-button>
+            <div v-if="trial && !trial.busy" class="trial">
+              <button v-if="trial.out" type="button" class="trial-img" aria-label="看大图" @click="openTrial">
+                <AssetImg :asset-key="trial.out.assetKey" :url="trial.out.url" :alt="trial.out.caption" />
+              </button>
+              <div class="flex-1 min-w-0">
+                <template v-if="trial.out">
+                  <div class="text-[13.5px] font-600">{{ trial.out.caption || '试画' }}</div>
+                  <div class="text-[12px] text-ink-3 mt-1 break-all mono">{{ trial.out.prompt }}</div>
+                  <div class="text-[12px] text-ink-3 mt-1">{{ trial.out.model }}{{ trial.out.seed ? ` · 种子 ${trial.out.seed}` : '' }}</div>
+                  <div v-if="fandomOn" class="text-[12px] text-ink-2 mt-1.5">不像原作：检查角色 tag 的写法（可以去 Danbooru 搜一下），或者在上面补几个外观 tags。</div>
+                </template>
+                <ErrorDetails v-else-if="trial.error" :title="trial.error" :detail="trial.detail ?? trial.error" max-height="30vh" />
+              </div>
+            </div>
           </div>
         </van-tab>
       </van-tabs>
@@ -296,6 +414,46 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
   height: 330px;
   border-radius: 18px;
   overflow: hidden;
+}
+.link-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--panel);
+  color: inherit;
+  text-decoration: none;
+}
+.fandom {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.look-line {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--panel);
+}
+.trial {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--panel);
+}
+.trial-img {
+  flex-shrink: 0;
+  width: 96px;
+  height: 140px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
 }
 .zone-info {
   margin-top: 10px;

@@ -21,6 +21,7 @@ import PersonasPage from '@/pages/me/PersonasPage.vue';
 import PresetEditPage from '@/pages/me/PresetEditPage.vue';
 import PresetsPage from '@/pages/me/PresetsPage.vue';
 import ProactivePage from '@/pages/me/ProactivePage.vue';
+import RhythmPage from '@/pages/me/RhythmPage.vue';
 import SyncPage from '@/pages/me/SyncPage.vue';
 import VoicePage from '@/pages/me/VoicePage.vue';
 
@@ -51,6 +52,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/me/api', component: ApiPage, meta: { title: 'API 设置' } },
   { path: '/me/voice', component: VoicePage, meta: { title: '语音' } },
   { path: '/me/proactive', component: ProactivePage, meta: { title: '主动消息' } },
+  { path: '/me/rhythm', component: RhythmPage, meta: { title: '节律' } },
   { path: '/me/environment', component: EnvironmentPage, meta: { title: '环境与作息' } },
   { path: '/me/sync', component: SyncPage, meta: { title: '云端与同步' } },
   { path: '/me/install', component: InstallPage, meta: { title: '装成 App' } },

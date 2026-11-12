@@ -11,9 +11,10 @@ import { useCharacterStore } from '@/stores/characters';
 import { useLibraryStore } from '@/stores/library';
 
 /**
- * 预设按用途分六类（?cat= 选哪一类）。每一类上面是"用在哪"：
+ * 预设按用途分七类（?cat= 选哪一类）。每一类上面是"用在哪"：
  * - 对话：每个角色选自己的对话预设；
- * - 其他：每个用途（一起吃饭、主动消息、番外、总结、配图……）选一个这一类的预设，能跟随对话的可以选"跟随对话预设"。
+ * - 其他：每个用途（一起吃饭、主动消息、番外、总结、配图、陪伴学习时画的图、节律……）选一个这一类的预设，
+ *   一起做事、主动消息可以选"跟随对话预设"，一起做事时画的图可以选"跟随配图"。
  * 下面是这一类的所有预设。App 自带的预设来自预设文件，和导入的一样能改、能删、能复制、能导出。
  */
 const route = useRoute();
@@ -36,7 +37,7 @@ const uses = computed(() => PRESET_USES.filter((u) => u.category === cat.value))
 /** 一个用途现在用的是什么 */
 function useLine(u: PresetUse): string {
   const id = lib.useChoice(u.id);
-  if (id === null) return '跟随对话预设';
+  if (id === null) return u.follow === 'image' ? `跟随配图（${lib.presetForUse('image')?.name ?? '没有生图预设'}）` : '跟随对话预设';
   return lib.presetById(id)?.name ?? `没有${PRESET_CATEGORIES[u.category].label}预设`;
 }
 /** 一个预设现在用在哪 */
@@ -59,7 +60,7 @@ function pick(id: string | null) {
   if (!p) return;
   if (p.kind === 'use') {
     lib.setUse(p.use.id, id);
-    showToast(`${p.use.label}：${id === null ? '跟随对话预设' : `用「${lib.presetById(id)?.name ?? ''}」`}`);
+    showToast(`${p.use.label}：${id === null ? (p.use.follow === 'image' ? '跟随配图' : '跟随对话预设') : `用「${lib.presetById(id)?.name ?? ''}」`}`);
   } else if (id) {
     chars.setPreset(p.character.id, id);
     showToast(`${p.character.name}聊天用「${lib.presetById(id)?.name ?? ''}」`);
@@ -69,7 +70,7 @@ function pick(id: string | null) {
 
 <template>
   <div class="page" data-page="presets">
-    <PageHeader title="预设" subtitle="按用途分六类；每一类都能导入、复制、改、删" fallback="/me">
+    <PageHeader title="预设" subtitle="按用途分七类；每一类都能导入、复制、改、删" fallback="/me">
       <template #right>
         <RouterLink to="/import" class="icon-btn" aria-label="导入预设"><span class="i-lucide-file-down text-[20px]" /></RouterLink>
       </template>
@@ -151,7 +152,9 @@ function pick(id: string | null) {
         <PresetPicker
           :model-value="pickValue"
           :category="picking.kind === 'use' ? picking.use.category : 'chat'"
-          :follow="picking.kind === 'use' && picking.use.followChat"
+          :follow="picking.kind === 'use' && !!picking.use.follow"
+          :follow-title="picking.kind === 'use' && picking.use.follow === 'image' ? '跟随配图' : undefined"
+          :follow-label="picking.kind === 'use' && picking.use.follow === 'image' ? `用配图选的生图预设（现在是「${lib.presetForUse('image')?.name ?? '没有'}」）` : undefined"
           @update:model-value="pick"
           @edit="picking = null"
         />

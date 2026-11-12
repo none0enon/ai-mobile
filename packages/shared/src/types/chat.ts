@@ -55,6 +55,8 @@ export type MessagePart =
       her?: { goal: string; progress: number };
       /** 她写的自习日记 */
       diary?: string;
+      /** 这次画的图（入座、偷拍、奖励……）：本机素材库的 key，或者服务商给的链接 */
+      images?: { assetKey: string | null; url?: string; title: string; moment: string }[];
     }
   | {
       type: 'date';

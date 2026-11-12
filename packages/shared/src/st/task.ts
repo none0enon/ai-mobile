@@ -14,8 +14,11 @@ export interface TaskPromptInput {
   /** 程序填充块的内容：块的 identifier → 这一次的内容（空的不发） */
   fills: Record<string, string>;
   macros?: MacroContext;
-  /** 这一次的类型（生图：scene / portrait / face / background）：块写了触发条件时，只在条件里有它时发送 */
-  type?: string;
+  /**
+   * 这一次的类型（生图：scene / portrait / face / background，场景里的时刻 seat / peek……；节律：build-world / plan-day……）：
+   * 块写了触发条件时，只在条件里有其中一个时发送。可以给几个（例如节律的 plan-day + outfit-pick）
+   */
+  type?: string | string[];
 }
 
 export interface TaskBlockReport {
@@ -39,6 +42,7 @@ export function assembleTaskPrompt(input: TaskPromptInput): TaskPromptResult {
   const ctx: MacroContext = input.macros ?? { char: '', user: '' };
   const messages: TaskPromptResult['messages'] = [];
   const blocks: TaskBlockReport[] = [];
+  const types = new Set((Array.isArray(input.type) ? input.type : [input.type]).filter((t): t is string => !!t));
   for (const b of input.preset.blocks) {
     const known = !b.marker || b.identifier in input.fills;
     const content = (b.marker ? (input.fills[b.identifier] ?? '') : substituteMacros(b.content, ctx)).replace(/\r/g, '');
@@ -48,7 +52,7 @@ export function assembleTaskPrompt(input: TaskPromptInput): TaskPromptResult {
       report.note = '预设里关闭了';
       continue;
     }
-    if (b.triggers?.length && !(input.type && b.triggers.includes(input.type))) {
+    if (b.triggers?.length && !b.triggers.some((t) => types.has(t))) {
       report.note = `只在 ${b.triggers.join(' / ')} 时发送`;
       continue;
     }

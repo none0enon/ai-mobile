@@ -1,4 +1,4 @@
-import type { AgentRole, ImageMode, MapLocation, WeatherSnapshot } from '@app/shared';
+import type { AgentRole, ImageMode, MapLocation, PresetUseId, WeatherSnapshot } from '@app/shared';
 
 /**
  * 服务接口。界面只依赖这些接口。
@@ -82,16 +82,33 @@ export interface EmbeddingClient {
 
 export interface IllustrateRequest {
   characterId: string;
-  /** 要画的画面（[cg:] 标签里的描述、"生成配图"里写的） */
+  /** 要画的画面（[cg:] 标签里的描述、"生成配图"里写的、场景里这一刻的状态） */
   caption: string;
   /** 画什么：场景（默认）/ 全身像 / 脸部特写 / 只画背景 */
   mode?: ImageMode;
+  /** 用哪个用途的生图预设：配图（默认），或者一起做事时这个场景的（image:study；没单独选时跟随配图） */
+  use?: PresetUseId;
+  /** 一起做事时画的时刻（入座 seat、偷拍 peek、奖励 reward……）：场景生图预设里只发这一块 */
+  moment?: string;
+  /** 在哪个场景（决定节律里今天该穿哪套：运动穿运动服、哄睡穿睡衣……）；不给按平时 */
+  sceneId?: string | null;
+  /** 衣服锁成节律里今天这个场景该穿的那套（程序加 tags，同一天的图衣服一致）；不锁时只告诉模型她今天穿什么 */
+  lockOutfit?: boolean;
   place?: string;
-  outfit?: string;
   expression?: string | null;
   /** 最近几句对话，帮生图提示词智能体理解画面 */
   recent?: string[];
   seed?: number;
+}
+
+/** 出图排到哪了：排队（前面还有图在画）→ 写 tags → 出图 */
+export type IllustrateStage = 'queued' | 'prompt' | 'image';
+
+export interface IllustrateOptions {
+  signal?: AbortSignal;
+  onStage?(stage: IllustrateStage): void;
+  /** user：你点的，排在自动画的前面；auto：场景自己画的。默认 user */
+  priority?: 'user' | 'auto';
 }
 
 export interface IllustrateOutcome {
@@ -105,13 +122,15 @@ export interface IllustrateOutcome {
   model: string;
   /** 写提示词的模型；没用生图提示词智能体时为空 */
   promptModel: string | null;
+  /** 写 tags 用的生图预设；没有预设时为空 */
+  presetName: string | null;
 }
 
 export interface ImageClient {
   /** 有没有真的生图连接 */
   readonly live: boolean;
-  /** 配图：生图提示词智能体写 tags → 生图智能体出图 → 存进本机素材库 */
-  illustrate(req: IllustrateRequest, opts?: { signal?: AbortSignal; onStage?(stage: 'prompt' | 'image'): void }): Promise<IllustrateOutcome>;
+  /** 配图：生图提示词智能体写 tags → 生图智能体出图 → 存进本机素材库。所有出图排队，一次一张 */
+  illustrate(req: IllustrateRequest, opts?: IllustrateOptions): Promise<IllustrateOutcome>;
 }
 
 export interface SongInfo {

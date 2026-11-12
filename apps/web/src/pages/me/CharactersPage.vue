@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isFandom } from '@app/shared';
 import Avatar from '@/components/common/Avatar.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { useCharacterStore } from '@/stores/characters';
@@ -24,6 +25,7 @@ const describe = (text: string) => text.replaceAll('{{user}}', '你').replaceAll
           <div class="flex-1 min-w-0">
             <div class="text-[17px] font-700">{{ c.name }}</div>
             <div class="flex flex-wrap gap-1 mt-1">
+              <span v-if="isFandom(c)" class="tag accent" :title="`${c.fandom?.characterTag} · ${c.fandom?.copyrightTag}`">同人</span>
               <span v-for="t in c.card.tags" :key="t" class="tag">{{ t }}</span>
             </div>
           </div>

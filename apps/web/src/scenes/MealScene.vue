@@ -12,6 +12,7 @@ import { services } from '@/services';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { useRhythmStore } from '@/stores/rhythm';
 import { hhmm } from '@/utils/time';
 import { compressImage } from '@/utils/image';
 
@@ -23,6 +24,7 @@ import { compressImage } from '@/utils/image';
 const app = useAppStore();
 const chars = useCharacterStore();
 const chat = useChatStore();
+const rhythm = useRhythmStore();
 const location = inject(SCENE_LOCATION, ref(null));
 const today = mockToday();
 type Slot = 'breakfast' | 'lunch' | 'dinner';
@@ -33,15 +35,16 @@ const her = computed(() => chars.byId(app.activeCharacterId) ?? chars.list[0]!);
 const mode = computed(() => chat.chatOfCharacter(her.value.id)?.togetherMode ?? 'remote');
 /** 下一顿还没吃的饭 */
 const next = computed<Slot>(() => (['breakfast', 'lunch', 'dinner'] as Slot[]).find((s) => !meals.value[s]) ?? 'dinner');
-/** 她这一顿吃什么：去她那时是她做给你的，带她出门时和你吃一样的 */
-const herMeal = computed(() => (mode.value === 'bring' ? `和你吃一样的（${location.value?.name ?? '这家店'}）` : worldOf(her.value.id).life.meals[next.value]));
+/** 她这一顿吃什么（节律里今天的三餐，没有节律时用她的世界里写的）：去她那时是她做给你的，带她出门时和你吃一样的 */
+const herOwnMeal = computed(() => rhythm.mealsOf(her.value.id)?.[next.value] || worldOf(her.value.id).life.meals[next.value]);
+const herMeal = computed(() => (mode.value === 'bring' ? `和你吃一样的（${location.value?.name ?? '这家店'}）` : herOwnMeal.value));
 
 const phase = ref<'hint' | 'eating' | 'done'>('hint');
 const line = ref(
   mode.value === 'bring'
     ? `这家店看起来不错！你点了什么？`
     : mode.value === 'visit'
-      ? `我给你煮了${worldOf(her.value.id).life.meals[next.value]}，趁热尝尝？`
+      ? `我给你煮了${herOwnMeal.value}，趁热尝尝？`
       : `我准备去吃${LABEL[next.value]}了……你${LABEL[next.value]}吃了吗？`,
 );
 const food = ref('');

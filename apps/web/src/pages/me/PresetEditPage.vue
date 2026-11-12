@@ -1,7 +1,19 @@
 <script setup lang="ts">
-import { IMAGE_MODES, isRoleplayCategory, markerName, PRESET_CATEGORIES, ROLEPLAY_CATEGORIES, type PresetCategory, type PromptBlock } from '@app/shared';
+import {
+  IMAGE_MODES,
+  IMAGE_MOMENTS,
+  isRoleplayCategory,
+  markerName,
+  momentLabel,
+  PRESET_CATEGORIES,
+  RHYTHM_TASKS,
+  ROLEPLAY_CATEGORIES,
+  SCENES,
+  type PresetCategory,
+  type PromptBlock,
+} from '@app/shared';
 import { showConfirmDialog, showToast } from 'vant';
-import { computed, ref, toRaw, type ComponentPublicInstance } from 'vue';
+import { computed, ref, toRaw, watch, type ComponentPublicInstance } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Segmented from '@/components/common/Segmented.vue';
 import { useDragSort } from '@/composables/useDragSort';
@@ -48,6 +60,11 @@ function line(b: PromptBlock): string {
 // —— 一块一块地改 ——
 const editing = ref<PromptBlock | null>(null);
 const editOpen = computed({ get: () => !!editing.value, set: (v) => !v && (editing.value = null) });
+// 直接换到另一个预设（同一个页面换参数）：正在改的那一块属于上一个预设，关掉
+watch(
+  () => route.params.id,
+  () => (editing.value = null),
+);
 
 // —— 调顺序：长按一块拖到想要的位置（电脑上按住直接拖，手柄上也能用 ↑ ↓）——
 function moveBlock(from: number, to: number) {
@@ -106,6 +123,14 @@ function setPosition(b: PromptBlock, absolute: boolean) {
   b.injection = { ...b.injection, position: absolute ? 'absolute' : 'relative' };
   touch();
 }
+/** 触发条件的中文名：画什么、场景里的时刻、节律的任务；别的（一起做事的场景任务名）原样显示 */
+function triggerLabel(t: string): string {
+  return IMAGE_MODES[t as keyof typeof IMAGE_MODES] ?? momentLabel(t) ?? RHYTHM_TASKS[t as keyof typeof RHYTHM_TASKS] ?? t;
+}
+/** 生图预设里能选的时刻：按场景分组（只列有时刻的场景） */
+const momentGroups = computed(() =>
+  SCENES.filter((sc) => IMAGE_MOMENTS[sc.id as keyof typeof IMAGE_MOMENTS]).map((sc) => ({ scene: sc.name, moments: IMAGE_MOMENTS[sc.id as keyof typeof IMAGE_MOMENTS] ?? {} })),
+);
 function toggleTrigger(b: PromptBlock, mode: string) {
   const t = new Set(b.triggers ?? []);
   if (t.has(mode)) t.delete(mode);
@@ -198,7 +223,10 @@ const HINT: Record<PresetCategory, string> = {
   proactive: '"主动消息：这一次要她做的事"由程序填（现在几点、这次为什么来找你），插在聊天记录最后；怎么写（长短、口吻）写在别的块里。',
   theater: '"程序填充"的块是这一次的输入（角色、她的世界、现在、记得的事、最近的聊天）；任务、要求、输出格式都能改。输出格式里的字段名别改，程序按它读。',
   summary: '"程序填充"的块是这一次的输入（现在、上一段摘要、已有记忆、要整理的聊天）；任务、规则、输出格式都能改。输出格式里的字段名别改，程序按它读。',
-  image: '"画什么"几块按这次画的类型只发一块（在块里设"只在画这些时发送"）；"程序填充"的块是这一次的输入。输出格式里的字段名别改，程序按它读。',
+  image:
+    '"画什么"几块按这次画的类型只发一块，一起做事时自动画的"时刻"（入座、偷拍、奖励……）也一样（在块里设"只在画这些时发送"）；"程序填充"的块是这一次的输入。块里能用 {{char_appearance}}（她的长相，同人是角色 tag + 作品 tag）、{{char_outfit}}（节律里她今天这个场景穿的那套）、{{user_appearance}}。输出格式里的字段名别改，程序按它读。',
+  rhythm:
+    '"建世界""排今天"两件任务、穿着的两种做法按触发条件只发这次要做的那几块（在块里设"只在做这些事时发送"）；"程序填充"的块是这一次的输入（角色、世界书、她的世界、模板、衣柜、今天、最近几天）。输出格式里的字段名别改，程序按它读，读完还会检查作息有没有盖满一天、地点在不在她的世界里。',
 };
 </script>
 
@@ -244,7 +272,7 @@ const HINT: Record<PresetCategory, string> = {
               <span class="block-tags">
                 <span class="tag">{{ ROLE[b.role] }}</span>
                 <span v-if="b.marker" class="tag accent">程序填充</span>
-                <span v-if="b.triggers?.length" class="tag">只在 {{ b.triggers.map((t) => IMAGE_MODES[t as keyof typeof IMAGE_MODES] ?? t).join(' / ') }}</span>
+                <span v-if="b.triggers?.length" class="tag">只在 {{ b.triggers.map(triggerLabel).join(' / ') }}</span>
               </span>
             </div>
             <div class="text-[11.5px] text-ink-3 truncate">{{ where(b) }} · {{ line(b) }}</div>
@@ -354,6 +382,18 @@ const HINT: Record<PresetCategory, string> = {
           <div class="field-label">只在画这些时发送（都不选 = 一直发）</div>
           <div class="flex flex-wrap gap-1.5">
             <button v-for="(label, m) in IMAGE_MODES" :key="m" type="button" class="opt" :class="{ on: editing.triggers?.includes(m) }" @click="toggleTrigger(editing, m)">{{ label }}</button>
+          </div>
+          <template v-for="g in momentGroups" :key="g.scene">
+            <div class="text-[12px] text-ink-3 mt-2.5 mb-1.5">{{ g.scene }}时自动画的时刻</div>
+            <div class="flex flex-wrap gap-1.5">
+              <button v-for="(label, m) in g.moments" :key="m" type="button" class="opt" :class="{ on: editing.triggers?.includes(m) }" @click="toggleTrigger(editing, m)">{{ label }}</button>
+            </div>
+          </template>
+        </template>
+        <template v-else-if="preset.category === 'rhythm'">
+          <div class="field-label">只在做这些事时发送（都不选 = 一直发）</div>
+          <div class="flex flex-wrap gap-1.5">
+            <button v-for="(label, t) in RHYTHM_TASKS" :key="t" type="button" class="opt" :class="{ on: editing.triggers?.includes(t) }" @click="toggleTrigger(editing, t)">{{ label }}</button>
           </div>
         </template>
         <div class="flex gap-2.5 mt-5">

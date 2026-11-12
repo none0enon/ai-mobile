@@ -22,6 +22,8 @@ import { useSoupStore } from './stores/soups';
 import { useBookStore } from './stores/books';
 import { useHubStore } from './stores/hub';
 import { useEnvironmentStore } from './stores/environment';
+import { useGalleryStore } from './stores/gallery';
+import { useRhythmStore } from './stores/rhythm';
 
 if (import.meta.env.MODE === 'preview') {
   // Claude Artifact 预览：外层已处理安全区
@@ -42,7 +44,19 @@ const app = createApp(App).use(createPinia()).use(router);
 
 // 先读本机数据库（导入的角色、世界书、预设、聊天），再挂载：刷新后直接打开导入角色的聊天也找得到
 // 个别 WebView 里 IndexedDB 可能一直不回应：最多等 1.5 秒，读到的数据之后再补进来
-const hydrated = Promise.allSettled([useAiStore().hydrate(), useLibraryStore().hydrate(), useCharacterStore().hydrate(), useChatStore().hydrate(), useHubStore().hydrate(), useEnvironmentStore().hydrate(), useSoupStore().hydrate(), useBookStore().hydrate()]);
+const hydrated = Promise.allSettled([
+  useAiStore().hydrate(),
+  useLibraryStore().hydrate(),
+  useCharacterStore().hydrate(),
+  useChatStore().hydrate(),
+  useHubStore().hydrate(),
+  useEnvironmentStore().hydrate(),
+  useSoupStore().hydrate(),
+  useBookStore().hydrate(),
+  // 节律要先读出来：导入角色"建世界"生成的世界要在打开地图、场景之前登记好
+  useRhythmStore().hydrate(),
+  useGalleryStore().hydrate(),
+]);
 
 // iPhone 上只有用户点过屏幕后"解锁"的 <audio> 才能在网络请求之后播放语音：第一次点屏幕时解锁
 const unlock = () => {
@@ -64,6 +78,8 @@ Promise.race([hydrated, new Promise((r) => setTimeout(r, 1500))]).finally(() => 
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   void Promise.race([hydrated, wait(5000)]).then(async () => {
     followLatestChat();
+    // 她们此刻在哪（按今天的节律，每分钟更新）；每天变化的角色在当天第一次打开时排今天
+    useRhythmStore().start();
     const proactive = useProactiveStore();
     proactive.start();
     void hydrated.then((results) => {
