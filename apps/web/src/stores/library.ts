@@ -82,6 +82,29 @@ const SEED_UPGRADES: SeedUpgrade[] = [
     added: ['watchLink'],
   },
   {
+    // 陪伴学习改版：番茄钟 / 倒计时 / 正计时，一起专注（共用计时器）/ 各自专注（各用各的）
+    id: 'feature-study:modes',
+    file: 'feature-study.json',
+    replaced: {
+      sceneRule: ['【场景：陪伴学习】{{user}}正在专注学习（番茄钟）。专注时段你不主动说话；只在休息时段或{{user}}找你时聊天，语气轻、句子短；{{user}}走神回来时轻轻提醒。'],
+      studyBreak: [
+        '一个番茄刚结束，进入休息。先说一句你这边进展得怎么样（卡住了就说卡住了），再具体夸{{user}}做完的一件事；有纸条就回纸条；{{user}}中途离开过就轻轻问一句，不指责。三句以内。',
+      ],
+    },
+  },
+  {
+    // 陪伴学习分上下两屏：画幅由程序定（一起专注竖图，各自专注方图或横图）；各自专注时下半屏按你的人设画"你这边"
+    id: 'image-study:split',
+    file: 'image-study.json',
+    replaced: {
+      rules: [
+        '规则：\n- tags 顺序：人数（1girl / 1boy）→ 构图与镜头（upper body, cowboy shot, from side, close-up…）→ 表情与动作 → 场景与背景 → 光线、天气、时段 → 氛围。\n- 不要写{{char}}的长相（发色、瞳色、发型、体型），程序会把长相加在最前面。\n- 写了"服装（程序会加…）"时不要写任何衣服；没写时按"{{char}}今天穿"写衣服的 tags。\n- 不要写画师名和质量词（masterpiece、best quality 之类程序会加）。\n- 画面里只有{{char}}一个人（solo）。\n- 都用竖图 portrait：在手机上竖着看。',
+      ],
+      format: ['只输出一个 JSON 对象，不要任何其他文字：\n{"caption": "中文短标题（12 字以内）", "tags": "逗号分隔的英文 tags", "negative": "额外的负面 tags，可以为空字符串", "size": "portrait"}'],
+    },
+    added: ['momentMine'],
+  },
+  {
     // 看链接时像发弹幕一样吐槽；认得出片名里的作品、角色时可以就着说
     id: 'feature-watch:link-roast',
     file: 'feature-watch.json',

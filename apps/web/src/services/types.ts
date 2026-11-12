@@ -99,6 +99,13 @@ export interface IllustrateRequest {
   /** 最近几句对话，帮生图提示词智能体理解画面 */
   recent?: string[];
   seed?: number;
+  /** 画幅由程序定（陪伴学习分上下两屏时半屏接近方形，画方图或横图）；不给按生图预设让模型写的 */
+  size?: 'portrait' | 'landscape' | 'square';
+  /**
+   * 画的不是她，是"你"（陪伴学习各自专注时下半屏按你的人设画）：长相按这里的，不锁她的衣服；
+   * 生图预设仍按 characterId 那个角色选，预设里的 {{user}} 换成她的名字（陪着你、不在画面里）
+   */
+  subject?: { name: string; appearanceTags: string };
 }
 
 /** 出图排到哪了：排队（前面还有图在画）→ 写 tags → 出图 */

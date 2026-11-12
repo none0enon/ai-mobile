@@ -35,10 +35,14 @@ export interface GalleryItem {
   model: string;
   locationId: string | null;
   outfit: string | null;
+  /** 程序定的画幅（陪伴学习：一起专注竖图，各自专注上半屏方图或横图）；以前的图没记，都是竖图 */
+  size?: ImageShape;
   /** 节律日 */
   day: string;
   at: number;
 }
+
+export type ImageShape = 'portrait' | 'landscape' | 'square';
 
 export interface SceneDrawRequest {
   characterId: string;
@@ -50,6 +54,13 @@ export interface SceneDrawRequest {
   locationId?: string | null;
   expression?: string | null;
   recent?: string[];
+  /** 画幅由程序定；不给按生图预设（模型写的） */
+  size?: ImageShape;
+}
+
+/** 图库里这张图的画幅（以前没记的都是竖图） */
+export function shapeOf(item: Pick<GalleryItem, 'size'>): ImageShape {
+  return item.size ?? 'portrait';
 }
 
 /** 一个场景此刻在画什么 */
@@ -89,8 +100,12 @@ export const useGalleryStore = defineStore('gallery', () => {
 
   const key = (characterId: string, sceneId: string) => `${characterId}:${sceneId}`;
 
-  /** 这个角色在这个场景里画过的，最新的在前（today：只要今天的；sameLook：同一个地方、同一身衣服） */
-  function find(characterId: string, sceneId: string, opts: { moment?: string; today?: boolean; locationId?: string | null; outfit?: string | null } = {}): GalleryItem[] {
+  /** 这个角色在这个场景里画过的，最新的在前（today：只要今天的；locationId + outfit：同一个地方、同一身衣服；size：同一种画幅） */
+  function find(
+    characterId: string,
+    sceneId: string,
+    opts: { moment?: string; today?: boolean; locationId?: string | null; outfit?: string | null; size?: ImageShape } = {},
+  ): GalleryItem[] {
     const day = rhythmDate(new Date());
     return items.value
       .filter(
@@ -100,7 +115,8 @@ export const useGalleryStore = defineStore('gallery', () => {
           (!opts.moment || i.moment === opts.moment) &&
           (!opts.today || i.day === day) &&
           (opts.locationId === undefined || i.locationId === opts.locationId) &&
-          (opts.outfit === undefined || i.outfit === opts.outfit),
+          (opts.outfit === undefined || i.outfit === opts.outfit) &&
+          (!opts.size || shapeOf(i) === opts.size),
       )
       .sort((a, b) => b.at - a.at);
   }
@@ -153,6 +169,7 @@ export const useGalleryStore = defineStore('gallery', () => {
           place: getLocation(locationId)?.name,
           expression: req.expression,
           recent: req.recent,
+          ...(req.size ? { size: req.size } : {}),
         },
         {
           priority: req.priority,
@@ -177,6 +194,7 @@ export const useGalleryStore = defineStore('gallery', () => {
         model: out.model,
         locationId: locationId ?? null,
         outfit: outfit?.name ?? null,
+        ...(req.size ? { size: req.size } : {}),
         day: rhythmDate(new Date()),
         at: Date.now(),
       };

@@ -245,14 +245,18 @@ export class RoutedImage implements ImageClient {
     const c = useCharacterStore().byId(req.characterId);
     if (!c) throw new AiError('no_route', '找不到这个角色');
     const now = new Date();
-    // 节律里今天这个场景该穿的那套：一起做事时锁定（同一天的图衣服一致），配图时只告诉模型
-    const outfit = useRhythmStore().outfitFor(c.id, req.sceneId ?? null);
+    // 节律里今天这个场景该穿的那套：一起做事时锁定（同一天的图衣服一致），配图时只告诉模型；画"你"时不用她的衣服
+    const outfit = req.subject ? undefined : useRhythmStore().outfitFor(c.id, req.sceneId ?? null);
     const input: ImagePromptInput = {
       mode: req.mode,
       moment: req.moment,
-      // 长相：同人是角色 tag + 作品 tag（+ 补充的外观），原创是外观 tags
-      character: { name: c.name, appearanceTags: imageAppearance(c), negativeTags: c.negativeTags, pronoun: c.pronoun, outfit: outfit ?? null },
+      // 长相：同人是角色 tag + 作品 tag（+ 补充的外观），原创是外观 tags；画"你"时按你给的
+      character: req.subject
+        ? { name: req.subject.name, appearanceTags: req.subject.appearanceTags, outfit: null }
+        : { name: c.name, appearanceTags: imageAppearance(c), negativeTags: c.negativeTags, pronoun: c.pronoun, outfit: outfit ?? null },
       lockOutfit: !!req.lockOutfit && !!outfit?.tags,
+      ...(req.subject ? { companionName: c.name } : {}),
+      ...(req.size ? { size: req.size } : {}),
       caption: req.caption,
       scene: {
         place: req.place ?? getLocation(c.locationId)?.name,

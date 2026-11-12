@@ -78,7 +78,7 @@ export const SCENES: SceneDef[] = [
     pose: 'study',
     tint: '#8fb3f0',
     promptFragment:
-      '【场景：陪伴学习】{{user}}正在专注学习（番茄钟）。专注时段你不主动说话；只在休息时段或{{user}}找你时聊天，语气轻、句子短；{{user}}走神回来时轻轻提醒。',
+      '【场景：陪伴学习】{{user}}正在专注学习（番茄钟、倒计时或正计时）。一起专注时你们共用一个计时器、到点一起休息；各自专注时各用各的计时器，你按自己的节奏学。专注时段你不主动说话；只在休息时段或{{user}}找你时聊天，语气轻、句子短；{{user}}走神回来时轻轻提醒。',
     allowedTags: ['expr'],
     proactiveTriggers: ['study-checkin'],
     dataSources: ['番茄钟记录', '离开 App 检测（走神提醒）'],

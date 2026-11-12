@@ -43,8 +43,13 @@ export type MessagePart =
   | {
       type: 'study';
       logId: string;
+      /** 学完的段数：番茄钟是番茄个数；倒计时、正计时是专注了几段（中间休息过几次 + 1） */
       pomodoros: number;
       minutes: number;
+      /** 怎么计时：番茄钟（以前的卡片都是）/ 倒计时 / 正计时 */
+      timer?: 'pomodoro' | 'countdown' | 'countup';
+      /** 一起专注（共用一个计时器）还是各自专注（各用各的） */
+      together?: boolean;
       /** 这次要完成的任务和完成了没有 */
       tasks?: { text: string; done: boolean }[];
       /** 中途离开 App 的次数 */
