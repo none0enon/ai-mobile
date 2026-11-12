@@ -11,13 +11,14 @@ import {
   type Sidestory,
   type VoiceSpec,
 } from '@app/ai';
-import { getLocation, hasOwnWorld, slotAt, TIME_OF_DAY_LABEL, timeOfDay, worldOf, type Character } from '@app/shared';
+import { getLocation, hasOwnWorld, imageAppearance, slotAt, TIME_OF_DAY_LABEL, timeOfDay, worldOf, type Character } from '@app/shared';
 import { showToast } from 'vant';
 import { putAsset } from './assets';
 import { playBytes, stopAudio } from './audio';
 import { MissingPresetError } from './prompt';
 import type {
   EmbeddingClient,
+  IllustrateOptions,
   IllustrateOutcome,
   IllustrateRequest,
   ImageClient,
@@ -34,6 +35,7 @@ import { DEMO_SIDESTORIES, genericSidestory } from '@/mock/sidestories';
 import { useAiStore } from '@/stores/ai';
 import { useCharacterStore } from '@/stores/characters';
 import { useLibraryStore } from '@/stores/library';
+import { useRhythmStore } from '@/stores/rhythm';
 import { sleep } from '@/utils/id';
 
 /**
@@ -182,30 +184,85 @@ export class RoutedEmbedding implements EmbeddingClient {
   }
 }
 
+/**
+ * 出图排队（设计文档 §10.6）：一次只出一张（NovelAI 同一个账号同时画两张会被拒，Opus 免费也只算一次一张）。
+ * 你点的排在自动画的前面（但在别的你点的后面）
+ */
+interface ImageJob {
+  priority: 'user' | 'auto';
+  run(): Promise<void>;
+}
+const imageQueue: ImageJob[] = [];
+let imageBusy = false;
+
+async function pumpImages() {
+  if (imageBusy) return;
+  imageBusy = true;
+  try {
+    for (let job = imageQueue.shift(); job; job = imageQueue.shift()) await job.run();
+  } finally {
+    imageBusy = false;
+  }
+}
+
+function enqueueImage<T>(priority: 'user' | 'auto', work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const job: ImageJob = {
+      priority,
+      run: async () => {
+        try {
+          if (signal?.aborted) throw new AiError('aborted', '取消了');
+          resolve(await work());
+        } catch (e) {
+          reject(e);
+        }
+      },
+    };
+    const firstAuto = priority === 'user' ? imageQueue.findIndex((j) => j.priority === 'auto') : -1;
+    if (firstAuto >= 0) imageQueue.splice(firstAuto, 0, job);
+    else imageQueue.push(job);
+    void pumpImages();
+  });
+}
+
 export class RoutedImage implements ImageClient {
   get live(): boolean {
     return useAiStore().isLive('image');
   }
 
-  async illustrate(req: IllustrateRequest, opts: { signal?: AbortSignal; onStage?(stage: 'prompt' | 'image'): void } = {}): Promise<IllustrateOutcome> {
+  /** 前面还有图在画 / 在排队 */
+  get busy(): boolean {
+    return imageBusy || imageQueue.length > 0;
+  }
+
+  illustrate(req: IllustrateRequest, opts: IllustrateOptions = {}): Promise<IllustrateOutcome> {
+    if (this.busy) opts.onStage?.('queued');
+    return enqueueImage(opts.priority ?? 'user', () => this.illustrateNow(req, opts), opts.signal);
+  }
+
+  private async illustrateNow(req: IllustrateRequest, opts: IllustrateOptions): Promise<IllustrateOutcome> {
     const c = useCharacterStore().byId(req.characterId);
     if (!c) throw new AiError('no_route', '找不到这个角色');
     const now = new Date();
+    // 节律里今天这个场景该穿的那套：一起做事时锁定（同一天的图衣服一致），配图时只告诉模型
+    const outfit = useRhythmStore().outfitFor(c.id, req.sceneId ?? null);
     const input: ImagePromptInput = {
       mode: req.mode,
-      character: { name: c.name, appearanceTags: c.appearanceTags, negativeTags: c.negativeTags, pronoun: c.pronoun },
+      moment: req.moment,
+      // 长相：同人是角色 tag + 作品 tag（+ 补充的外观），原创是外观 tags
+      character: { name: c.name, appearanceTags: imageAppearance(c), negativeTags: c.negativeTags, pronoun: c.pronoun, outfit: outfit ?? null },
+      lockOutfit: !!req.lockOutfit && !!outfit?.tags,
       caption: req.caption,
       scene: {
         place: req.place ?? getLocation(c.locationId)?.name,
-        outfit: req.outfit,
         timeOfDay: TIME_OF_DAY_LABEL[timeOfDay(now.getHours())],
         // 天气还没接真实数据（mock 里写死的"小雨"），不给生图：不然每张图都在下雨
         expression: req.expression ?? undefined,
       },
       recent: req.recent,
     };
-    // 写 tags 用"生图"预设（预设页里"配图"选的那个）；一个生图预设都没有时直接用外观 tags + 画面描述
-    const preset = useLibraryStore().presetForUse('image', c) ?? null;
+    // 写 tags 用这个用途的生图预设：配图（默认），一起做事时用这个场景的（没单独选时跟随配图）；一个生图预设都没有时直接用外观 tags + 画面描述
+    const preset = useLibraryStore().presetForUse(req.use ?? 'image', c) ?? null;
     const r = await illustrate(useAiStore().system, input, { signal: opts.signal, onStage: opts.onStage, seed: req.seed, preset });
     const img = r.image.images[0];
     const assetKey = img?.bytes ? await putAsset(img.bytes, img.mime) : null;
@@ -219,6 +276,7 @@ export class RoutedImage implements ImageClient {
       seed: r.image.seed,
       model: r.image.model,
       promptModel: r.promptBy?.model ?? null,
+      presetName: preset?.name ?? null,
     };
   }
 }

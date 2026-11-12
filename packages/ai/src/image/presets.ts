@@ -71,21 +71,8 @@ export const NOVELAI_UC_PRESETS: Record<string, { heavy: string; light: string }
   },
 };
 
-/** 逗号分隔的 tags 合并：去掉空项和重复项（不区分大小写），保留第一次出现的顺序 */
-export function joinTags(...lists: (string | undefined | null)[]): string {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const list of lists) {
-    for (const raw of (list ?? '').split(/[,，\n]/)) {
-      const tag = raw.trim();
-      const key = tag.toLowerCase();
-      if (!tag || seen.has(key)) continue;
-      seen.add(key);
-      out.push(tag);
-    }
-  }
-  return out.join(', ');
-}
+/** 逗号分隔的 tags 合并（实现在 @app/shared，前端和 Worker 共用） */
+export { joinTags } from '@app/shared';
 
 /**
  * Opus 订阅免点数的条件（设计文档 §10.2）：一次一张、不超过 1024×1024 像素、不超过 28 步

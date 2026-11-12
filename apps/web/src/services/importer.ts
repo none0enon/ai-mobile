@@ -191,6 +191,10 @@ export async function commitImport(p: PendingImport, opts: { presetId?: string |
       { label: '去聊天', to: `/chat/${c.id}` },
       { label: '查看提示词', to: `/chat/${c.id}/inspect` },
       { label: '编辑角色', to: `/me/characters/${character.id}` },
+      // 生图：出自已有作品的角色打上"同人"、填角色 tag，先试画一张看 NovelAI 认不认得（设计文档 §10.4）
+      { label: '生图：同人 / 原创', to: `/me/characters/${character.id}?tab=look` },
+      // 节律：从角色卡和世界书里建她的小世界（地点、作息、衣柜），之后每天排她的作息和穿着
+      { label: '建她的小世界', to: `/me/rhythm?char=${character.id}` },
     ],
   };
 }

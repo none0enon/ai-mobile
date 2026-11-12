@@ -82,6 +82,19 @@ export interface Relationship {
   milestones: { label: string; at: number }[];
 }
 
+/**
+ * 同人角色：NovelAI 认得她（Danbooru 上有她的角色 tag），生图时直接写角色 tag 和作品 tag，
+ * 不用一条条描述长相（设计文档 §10.4）。原创角色不打这个标记，长相靠外观 tags。
+ */
+export interface CharacterFandom {
+  /** 角色设定里打上了"同人"标记 */
+  enabled: boolean;
+  /** 角色 tag，例如 hatsune miku、rem (re:zero) */
+  characterTag: string;
+  /** 作品 tag，例如 vocaloid、re:zero kara hajimeru isekai seikatsu */
+  copyrightTag: string;
+}
+
 export interface Character extends SyncMeta {
   name: string;
   /** 界面里怎么称呼：她 / 他 / TA（"她叫你…""去找他"） */
@@ -96,9 +109,11 @@ export interface Character extends SyncMeta {
   lorebookIds: string[];
   presetId: string | null;
   spriteSetId: string | null;
-  /** NovelAI 外观基础 tags，生图提示词智能体会在此基础上补动作、服装、场景 */
+  /** NovelAI 外观基础 tags，生图提示词智能体会在此基础上补动作、服装、场景（同人角色可以只补角色 tag 认不全的地方） */
   appearanceTags: string;
   negativeTags: string;
+  /** 同人标记和角色 tag、作品 tag；没有 = 原创 */
+  fandom?: CharacterFandom;
   voice: CharacterVoice;
   proactive: CharacterProactive;
   relationship: Relationship;

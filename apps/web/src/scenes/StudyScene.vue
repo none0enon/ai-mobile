@@ -1,19 +1,22 @@
 <script setup lang="ts">
-import { worldOf, type Message, type MessagePart } from '@app/shared';
-import { showConfirmDialog, showToast } from 'vant';
+import { IMAGE_MOMENTS, worldOf, type Message, type MessagePart } from '@app/shared';
+import { showConfirmDialog, showImagePreview, showToast } from 'vant';
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import AssetImg from '@/components/common/AssetImg.vue';
 import HScroll from '@/components/common/HScroll.vue';
 import HerSide from '@/components/scene/HerSide.vue';
 import { SCENE_LOCATION } from '@/components/scene/location';
 import SceneShell from '@/components/scene/SceneShell.vue';
 import TimerRing from '@/components/scene/TimerRing.vue';
-import { services } from '@/services';
+import { assetUrl, services } from '@/services';
 import { personaOf } from '@/services/prompt';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { useGalleryStore, type GalleryItem } from '@/stores/gallery';
 import { useRealWorldStore } from '@/stores/realworld';
+import { useRhythmStore } from '@/stores/rhythm';
 import { uid } from '@/utils/id';
 
 /**
@@ -24,6 +27,13 @@ import { uid } from '@/utils/id';
  * - 结束：她说今天的总结和一两句自习日记，聊天里发一张学习卡片，分隔写"结束连线 · 学了 N 分钟"。
  * 她说的每句话都来自「陪伴 · 快速」（这个场景的功能预设 + 这一次的输入），和你说的话一起存进聊天。
  * 没接通时不出演示台词，界面写明原因。计时按时间戳算，锁屏、切后台回来都对得上。
+ *
+ * 画面（设计文档 §10.3）：用"陪伴学习"的生图预设画三个时刻，画好的图盖在背景和立绘上面，没画好时照常是立绘：
+ * - 入座：进来时画一张她在座位上的样子（今天同一个地方、同一身衣服画过的就直接用图库里的，不重画）；
+ * - 偷拍：每个番茄中间自动画一张她专心（或卡住、打瞌睡）的样子；点"看她一眼"马上画一张，有时她会发现你在看；
+ * - 奖励：学完画一张，和这次画的图一起放进学习卡片。
+ * 衣服是节律里她今天的那套（同一天的图衣服一致）；长相按角色设定（同人是角色 tag + 作品 tag）。
+ * 自动画可以在右上角关掉；NovelAI 只在不花点的设置下自动画。一次只画一张，你点的排在自动的前面。
  */
 type Phase = 'setup' | 'focus' | 'break' | 'done';
 type Mood = 'good' | 'ok' | 'tired';
@@ -48,13 +58,16 @@ const app = useAppStore();
 const chars = useCharacterStore();
 const chat = useChatStore();
 const real = useRealWorldStore();
+const gallery = useGalleryStore();
+const rhythm = useRhythmStore();
 const router = useRouter();
 const location = inject(SCENE_LOCATION, ref(null));
 
 const her = computed(() => chars.byId(app.activeCharacterId) ?? chars.list[0]!);
 const chatId = computed(() => chat.chatOfCharacter(her.value.id)?.id ?? '');
 const userName = computed(() => personaOf(chat.chatById(chatId.value)).name);
-const herGoal = computed(() => worldOf(her.value.id).life.studyTask);
+/** 她今天手头的事：节律排的（没有节律时用她的世界里写的） */
+const herGoal = computed(() => rhythm.taskOf(her.value.id) || worldOf(her.value.id).life.studyTask);
 const mode = computed(() => chat.chatOfCharacter(her.value.id)?.togetherMode ?? 'remote');
 const yourPlace = computed(() => (mode.value === 'bring' ? '' : (real.places.find((p) => p.id === real.hereId)?.name ?? '家')));
 
@@ -98,7 +111,11 @@ function startSegment(kind: 'focus' | 'break') {
   clearInterval(ticker);
   ticker = setInterval(tick, 1000);
   void services.native.keepAwake(true);
-  if (kind === 'focus') awayThisRound.value = 0;
+  if (kind === 'focus') {
+    awayThisRound.value = 0;
+    // 这个番茄中间偷拍一张（35%–75% 之间的某一刻）
+    peekAt = now.value + focusMin.value * 60_000 * (0.35 + Math.random() * 0.4);
+  } else peekAt = null;
 }
 function tick() {
   const before = now.value;
@@ -106,6 +123,10 @@ function tick() {
   if (phase.value === 'focus' && running.value) {
     herTick(now.value - before);
     presenceTick();
+    if (peekAt !== null && now.value >= peekAt && document.visibilityState === 'visible') {
+      peekAt = null;
+      void drawMoment('peek', 'auto');
+    }
   }
   if (running.value && leftMs.value <= 0) void onSegmentEnd();
 }
@@ -167,6 +188,8 @@ function presenceTick() {
     if (focusedLong && Math.random() < 0.08) {
       dozing.value = true;
       chars.setExpression(her.value.id, 'sleep');
+      // 这个番茄还没偷拍：现在就拍她睡着的样子
+      if (peekAt !== null) peekAt = Date.now();
       return;
     }
     const pool = herStuck.value ? ['pout', 'neutral', 'sad'] : ['neutral', 'neutral', 'smile', 'shy', 'sleepy'];
@@ -178,9 +201,121 @@ function wakeHer() {
   chars.setExpression(her.value.id, 'surprised');
   setTimeout(() => chars.setExpression(her.value.id, 'shy'), 1600);
 }
+/** 看她一眼：马上画一张她此刻的样子（偷拍）；有时她会发现你在看，抬头冲你笑 */
 function lookAtHer() {
-  chars.setExpression(her.value.id, 'smile');
   services.native.vibrate(12);
+  if (drawingNow.value?.priority === 'user') {
+    showToast('正在画上一眼，等一下');
+    return;
+  }
+  const noticed = !dozing.value && Math.random() < 0.4;
+  chars.setExpression(her.value.id, noticed ? 'shy' : herStuck.value ? 'pout' : 'neutral');
+  void drawMoment('peek', 'user', noticed ? `${her.value.name}发现你在看${her.value.pronoun}，抬头和你对上了眼` : `${her.value.name}没发现你在看${her.value.pronoun}`);
+}
+
+// —— 画面：这个场景的生图预设，画入座、偷拍、奖励三个时刻 ——
+const MOMENTS = IMAGE_MOMENTS.study ?? {};
+type Moment = 'seat' | 'peek' | 'reward';
+let peekAt: number | null = null;
+const art = ref<GalleryItem | null>(null);
+const artUrl = ref<string | null>(null);
+/** 这一轮画的图：结束时放进学习卡片 */
+const sessionArt = ref<GalleryItem[]>([]);
+/** 画不出来的原因（没接通、自动画停着、出错）：面板里写一行 */
+const artIssue = ref<{ text: string; settings: boolean } | null>(null);
+const drawingNow = computed(() => gallery.isDrawing(her.value.id, 'study'));
+const drawingText = computed(() => {
+  const d = drawingNow.value;
+  if (!d) return null;
+  const what = MOMENTS[d.moment] ?? '画面';
+  return d.stage === 'queued' ? `${what}：排队等前一张画完` : d.stage === 'prompt' ? `${what}：正在写 tags` : `${what}：正在画`;
+});
+let artToken = 0;
+watch(
+  art,
+  async (item) => {
+    const mine = (artToken += 1);
+    const url = !item ? null : item.assetKey ? await assetUrl(item.assetKey) : (item.url ?? null);
+    if (mine === artToken) artUrl.value = url;
+  },
+  { immediate: true },
+);
+const shownArt = computed(() => (artUrl.value ? { url: artUrl.value, title: art.value?.title } : null));
+
+/** 她此刻的状态（数据，给生图提示词看） */
+function stateLine(): string {
+  const p = `进度 ${Math.round(herProgress.value)}%`;
+  if (dozing.value) return `${her.value.name}趴在桌上睡着了（${p}）`;
+  if (herStuck.value) return `${her.value.name}卡住了，盯着书皱眉（${p}）`;
+  return `${her.value.name}在专心${herGoal.value ? `做"${herGoal.value}"` : '学习'}（${p}）`;
+}
+function where(): string {
+  const place = location.value?.name ?? '图书馆';
+  if (mode.value === 'visit') return `在${place}，${userName.value}坐在${her.value.pronoun}旁边`;
+  if (mode.value === 'bring') return `在${place}，${her.value.pronoun}坐在${userName.value}对面`;
+  return `在${place}，和${userName.value}连线自习（${userName.value}在${yourPlace.value || '自己那边'}）`;
+}
+function captionFor(m: Moment, extra?: string): string {
+  if (m === 'seat') return [`${her.value.name}${where()}，刚坐下准备开始`, herGoal.value ? `今天要做：${herGoal.value}` : '', extra].filter(Boolean).join('；');
+  if (m === 'peek') return [`第 ${pomodoros.value + 1} 个番茄中`, stateLine(), where(), extra].filter(Boolean).join('；');
+  const kept = promise.value.trim() ? `约定"${promise.value.trim()}"${pomodoros.value >= plan.value ? '做到了' : '没做到'}` : '';
+  return [`今天一起学完了：${pomodoros.value} 个番茄、${Math.round(focusedMs.value / 60_000)} 分钟`, kept, where(), extra].filter(Boolean).join('；');
+}
+
+let autoNoted = false;
+async function drawMoment(m: Moment, priority: 'user' | 'auto', extra?: string): Promise<GalleryItem | null> {
+  if (priority === 'auto') {
+    const chk = gallery.autoCheck();
+    if (!chk.ok) {
+      // 没接通、自动画停着：只提示一次，不打扰
+      if (!autoNoted && chk.reason !== '自动画关着') artIssue.value = { text: `画面先用立绘：${chk.reason}`, settings: /没接通|API 设置/.test(chk.reason) };
+      autoNoted = true;
+      return null;
+    }
+  }
+  const r = await gallery.draw({
+    characterId: her.value.id,
+    sceneId: 'study',
+    moment: m,
+    caption: captionFor(m, extra),
+    priority,
+    locationId: location.value?.id ?? null,
+    expression: chars.expression[her.value.id],
+    recent: chatId.value ? chat.recentLines(chatId.value, 4) : [],
+  });
+  if (r.ok) {
+    art.value = r.item;
+    sessionArt.value.push(r.item);
+    artIssue.value = null;
+    return r.item;
+  }
+  if (!r.busy) artIssue.value = { text: `没画出来：${r.reason}`, settings: /没接通/.test(r.reason) };
+  return null;
+}
+/** 这次画的图：点一张从它开始翻 */
+async function previewSession(start: number) {
+  const urls = await Promise.all(sessionArt.value.map(async (i) => (i.assetKey ? await assetUrl(i.assetKey) : (i.url ?? null))));
+  const images = urls.filter((u): u is string => !!u);
+  if (images.length) showImagePreview({ images, startPosition: Math.min(start, images.length - 1), closeable: true });
+  else showToast('本机找不到这几张图了');
+}
+function retryArt() {
+  artIssue.value = null;
+  void drawMoment(phase.value === 'focus' ? 'peek' : 'seat', 'user');
+}
+function toggleAutoDraw() {
+  gallery.autoDraw = !gallery.autoDraw;
+  showToast(gallery.autoDraw ? '自动画图开了：入座、每个番茄偷拍一张、学完一张' : '自动画图关了：点"看一眼"时才画');
+  if (gallery.autoDraw && !art.value && !drawingNow.value) void drawMoment('seat', 'auto');
+}
+
+/** 进来时：今天在这儿、穿这身画过的就直接用（先入座、偷拍的），没有就画一张入座 */
+function initArt() {
+  const outfit = rhythm.outfitFor(her.value.id, 'study')?.name ?? null;
+  const found = gallery.find(her.value.id, 'study', { today: true, locationId: location.value?.id ?? null, outfit });
+  const pick = found.find((i) => i.moment !== 'reward') ?? found[0];
+  if (pick) art.value = pick;
+  else void drawMoment('seat', 'auto');
 }
 
 // —— 她说的话：都来自「陪伴 · 快速」，存进聊天 ——
@@ -356,9 +491,20 @@ async function finish() {
     ...(promise.value.trim() ? { promise: { text: promise.value.trim(), kept } } : {}),
     her: { goal: herGoal.value, progress: Math.round(herProgress.value) },
     ...(diary.value ? { diary: diary.value } : {}),
+    ...(sessionArt.value.length ? { images: sessionArt.value.map(cardImage) } : {}),
   };
-  chat.postCard(chatId.value, 'user', card);
+  const cardMsg = chat.postCard(chatId.value, 'user', card);
+  const cid = chatId.value;
   chat.leaveScene(her.value.id, `学了 ${minutes} 分钟`);
+  // 学完画一张（奖励），画好放进刚才的学习卡片（按 id 重新取，离开场景也照样放进去）
+  void drawMoment('reward', 'auto').then((item) => {
+    if (!item) return;
+    const part = chat.list(cid).find((m) => m.id === cardMsg.id)?.parts.find((p) => p.type === 'study');
+    if (part?.type === 'study') part.images = [...(part.images ?? []), cardImage(item)];
+  });
+}
+function cardImage(i: GalleryItem) {
+  return { assetKey: i.assetKey, ...(i.url ? { url: i.url } : {}), title: i.title, moment: i.moment };
 }
 function again() {
   const loc = location.value;
@@ -371,6 +517,7 @@ function again() {
   herStuckTimes.value = 0;
   herLine.value = '';
   diary.value = '';
+  sessionArt.value = art.value ? [art.value] : [];
   tasks.value = tasks.value.filter((t) => !t.done);
 }
 
@@ -399,7 +546,10 @@ const todayPomodoros = computed(
   () => studyCards.value.filter((c) => dayKey(c.at) === dayKey(Date.now())).reduce((n, c) => n + c.p.pomodoros, 0) + (phase.value === 'done' ? 0 : pomodoros.value),
 );
 
-onMounted(() => document.addEventListener('visibilitychange', onVisibility));
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibility);
+  initArt();
+});
 onBeforeUnmount(() => {
   clearInterval(ticker);
   document.removeEventListener('visibilitychange', onVisibility);
@@ -417,7 +567,28 @@ const herExtra = computed(() => {
 </script>
 
 <template>
-  <SceneShell scene-id="study" :line="shownLine" :typing="!!stream && !streamingText" pose="study" :rain="noise === 'rain'" :layout="{ left: 80, bottom: 58, height: 28 }">
+  <SceneShell
+    scene-id="study"
+    :line="shownLine"
+    :typing="!!stream && !streamingText"
+    pose="study"
+    :rain="noise === 'rain'"
+    :layout="{ left: 80, bottom: 58, height: 28 }"
+    :art="shownArt"
+    :drawing="drawingText"
+  >
+    <template #actions>
+      <button
+        type="button"
+        class="pill-btn"
+        :class="{ off: !gallery.autoDraw }"
+        :aria-pressed="gallery.autoDraw"
+        :aria-label="gallery.autoDraw ? '自动画图：开（点一下关掉）' : '自动画图：关（点一下打开）'"
+        @click="toggleAutoDraw"
+      >
+        <span :class="gallery.autoDraw ? 'i-lucide-image' : 'i-lucide-image-off'" />
+      </button>
+    </template>
     <template #overlay>
       <div v-if="quiet" class="quiet"><span class="i-lucide-moon" />专注中 · {{ her.pronoun }}在旁边忙自己的</div>
     </template>
@@ -426,6 +597,13 @@ const herExtra = computed(() => {
       <span class="i-lucide-plug-zap shrink-0" />
       <span class="flex-1 min-w-0">{{ notConnected }}</span>
       <button class="text-accent-ink shrink-0" @click="router.push('/me/api?feature=companion')">去设置</button>
+    </div>
+
+    <div v-if="artIssue" class="notice" data-testid="art-issue">
+      <span class="i-lucide-image-off shrink-0" />
+      <span class="flex-1 min-w-0">{{ artIssue.text }}</span>
+      <button v-if="artIssue.settings" class="text-accent-ink shrink-0" @click="router.push('/me/api?feature=image')">去设置</button>
+      <button v-else class="text-accent-ink shrink-0" @click="retryArt">重试</button>
     </div>
 
     <HerSide label="在忙：" :content="herGoal" :extra="herExtra" />
@@ -486,7 +664,7 @@ const herExtra = computed(() => {
         <van-button size="small" round block icon="records-o" @click="noteOpen = true">传纸条</van-button>
         <van-button size="small" round block icon="question-o" @click="stuckOpen = true">我卡住了</van-button>
         <van-button v-if="dozing" size="small" round block icon="bell" @click="wakeHer">叫醒{{ her.pronoun }}</van-button>
-        <van-button v-else size="small" round block icon="eye-o" @click="lookAtHer">看{{ her.pronoun }}一眼</van-button>
+        <van-button v-else size="small" round block icon="eye-o" :loading="drawingNow?.priority === 'user'" loading-text="在看…" data-testid="look-at-her" @click="lookAtHer">看{{ her.pronoun }}一眼</van-button>
       </div>
       <div v-else class="flex gap-2 mt-2.5">
         <input v-model="chatText" class="field" :placeholder="`休息一下，和${her.pronoun}说点什么`" aria-label="休息时聊天" @keydown.enter="sendChat" />
@@ -518,6 +696,11 @@ const herExtra = computed(() => {
         完成 {{ tasks.filter((t) => t.done).length }} / {{ tasks.length }} 个任务<template v-if="awayTotal"> · 离开 {{ awayTotal }} 次</template><template v-if="promise.trim()"> · 约定{{ pomodoros >= plan ? '做到了' : '没做到' }}</template>
       </div>
       <div v-if="diary" class="diary"><span class="i-lucide-notebook-pen text-accent-ink" /> {{ diary }}</div>
+      <div v-if="sessionArt.length" class="shots" aria-label="这次画的图">
+        <button v-for="(i, n) in sessionArt" :key="i.id" type="button" class="shot" :aria-label="`看大图：${i.title}`" @click="previewSession(n)">
+          <AssetImg :asset-key="i.assetKey" :url="i.url" :alt="i.title" />
+        </button>
+      </div>
       <div class="flex gap-2.5 mt-3.5">
         <van-button round block @click="again">再学一轮</van-button>
         <van-button type="primary" round block @click="router.push(`/chat/${chatId}`)">回聊天</van-button>
@@ -654,6 +837,38 @@ const herExtra = computed(() => {
   outline: none;
   font-size: 14px;
   resize: none;
+}
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 99px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: var(--accent-ink);
+  font-size: 16px;
+}
+.pill-btn.off {
+  color: var(--ink-3);
+}
+.shots {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  overflow-x: auto;
+}
+.shot {
+  flex-shrink: 0;
+  width: 64px;
+  height: 86px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--panel);
 }
 .diary {
   margin-top: 10px;

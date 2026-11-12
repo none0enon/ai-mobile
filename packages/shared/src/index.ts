@@ -23,3 +23,6 @@ export * from './lrc.ts';
 export * from './math.ts';
 export * from './st/index.ts';
 export * from './subtitles.ts';
+export * from './types/rhythm.ts';
+export * from './rhythm.ts';
+export * from './imageTags.ts';

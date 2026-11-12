@@ -1,5 +1,4 @@
-import { assembleTaskPrompt } from '@app/shared';
-import { joinTags } from '../image/presets.ts';
+import { assembleTaskPrompt, joinTags, leadCountTags } from '@app/shared';
 import type { ImageRequest, ImageSize } from '../image/types.ts';
 import type { ChatMessage } from '../llm/types.ts';
 import type { TaskPreset } from './taskPreset.ts';
@@ -24,13 +23,25 @@ export type ImagePromptMode = 'scene' | 'portrait' | 'face' | 'background';
 export interface ImagePromptInput {
   /** 画什么，默认 scene */
   mode?: ImagePromptMode;
+  /**
+   * 一起做事时画的是哪个时刻（入座 seat、偷拍 peek、奖励 reward……）：场景的生图预设里触发条件写了它的块只在这时发送。
+   * 和 mode 一起当作这一次的类型（跟随配图时，配图预设按 mode 发"画什么"那一块）
+   */
+  moment?: string;
   character: {
     name: string;
-    /** 角色卡的外观 tags（发色、瞳色、发型、体型……） */
+    /** 她的长相（{{char_appearance}}）：原创是外观 tags；同人是角色 tag + 作品 tag（+ 补充的外观） */
     appearanceTags: string;
     negativeTags?: string;
     pronoun?: string;
+    /** 她今天这个场景该穿的那套（节律）：{{char_outfit}} */
+    outfit?: { name: string; tags: string } | null;
   };
+  /**
+   * 衣服由程序加（一起做事时按节律该穿的那套，同一天的图衣服一致）：加在外观后面，模型不用写衣服。
+   * 不锁时只告诉模型她今天穿什么，画面要换装（[cg:] 里写了泳装之类）时模型自己写
+   */
+  lockOutfit?: boolean;
   /** 要画的画面（中文描述） */
   caption: string;
   scene?: {
@@ -59,10 +70,17 @@ export interface ImagePromptOutput {
   characters?: { who: 'char' | 'user'; tags: string; position?: 'left' | 'right' | 'center' }[];
 }
 
+/** 衣服锁定时实际加进提示词的服装 tags */
+function lockedOutfit(input: ImagePromptInput): string {
+  return input.lockOutfit && input.mode !== 'background' ? (input.character.outfit?.tags.trim() ?? '') : '';
+}
+
 /** 这一次的输入：填进"生图"预设的程序填充块 */
 export function imagePromptFills(input: ImagePromptInput): Record<string, string> {
   const { character: c, scene = {}, withUser } = input;
   const mode = input.mode ?? 'scene';
+  const outfit = c.outfit;
+  const locked = lockedOutfit(input);
   return {
     // 两个人同框才要的输出字段（解析时按 characters 读每个人的动作），其余时候不发
     imageCharacters:
@@ -71,6 +89,7 @@ export function imagePromptFills(input: ImagePromptInput): Record<string, string
         : '',
     imageSubject: [
       `角色：${c.name}${c.pronoun ? `（${c.pronoun}）` : ''}；外观 tags（程序会加，不要重复）：${c.appearanceTags || '（无）'}`,
+      locked && outfit ? `服装：${outfit.name}；服装 tags（程序会加在外观后面，不要重复，也不要另写别的衣服）：${locked}` : outfit ? `${c.name}今天穿：${outfit.name}（${outfit.tags}）` : '',
       withUser ? `画面里还有：${withUser.name}${withUser.appearanceTags ? `；外观 tags：${withUser.appearanceTags}` : ''}` : '',
     ]
       .filter(Boolean)
@@ -88,9 +107,28 @@ export function imagePromptFills(input: ImagePromptInput): Record<string, string
   };
 }
 
-/** 按"生图"预设拼写 tags 的提示词；"画什么"那几块按这次的类型只发一块 */
+/** 生图预设里能用的宏：{{char_appearance}} {{char_outfit}} {{user_appearance}}，按这次画的角色替换 */
+export function imagePromptMacros(input: ImagePromptInput): Record<string, string> {
+  return {
+    char_appearance: input.character.appearanceTags,
+    char_outfit: input.character.outfit ? `${input.character.outfit.name}（${input.character.outfit.tags}）` : '',
+    user_appearance: input.withUser?.appearanceTags ?? '',
+  };
+}
+
+/** 这一次的类型：画什么（scene / portrait / face / background）+ 场景里的时刻 */
+export function imagePromptTypes(input: ImagePromptInput): string[] {
+  return [input.mode ?? 'scene', ...(input.moment ? [input.moment] : [])];
+}
+
+/** 按"生图"预设拼写 tags 的提示词；"画什么"那几块、场景时刻那几块按这次的类型只发对应的 */
 export function buildImagePromptMessages(input: ImagePromptInput, preset: TaskPreset): ChatMessage[] {
-  return assembleTaskPrompt({ preset, fills: imagePromptFills(input), macros: { char: input.character.name, user: input.withUser?.name ?? '' }, type: input.mode ?? 'scene' }).messages;
+  return assembleTaskPrompt({
+    preset,
+    fills: imagePromptFills(input),
+    macros: { char: input.character.name, user: input.withUser?.name ?? '', extra: imagePromptMacros(input) },
+    type: imagePromptTypes(input),
+  }).messages;
 }
 
 const SIZES = new Set(['portrait', 'landscape', 'square']);
@@ -136,8 +174,8 @@ export function parseImagePrompt(value: unknown): ImagePromptOutput | null {
 const CENTERS = { left: { x: 0.3, y: 0.5 }, right: { x: 0.7, y: 0.5 }, center: { x: 0.5, y: 0.5 } } as const;
 
 /**
- * 智能体的输出 → 生图请求：单人时外观 tags 放最前面；两个人时整体 tags 做基础提示词，
- * 每个人的外观 + 动作做 V4 的人物提示词，按左右位置放
+ * 智能体的输出 → 生图请求：单人时人数 tags 在最前面，接着是她的长相（同人是角色 tag + 作品 tag）、锁定的衣服，再是画面；
+ * 两个人时整体 tags 做基础提示词，每个人的外观 + 动作做 V4 的人物提示词，按左右位置放
  */
 export function toImageRequest(out: ImagePromptOutput, input: ImagePromptInput, seed?: number): ImageRequest {
   const size: ImageSize = out.size;
@@ -146,6 +184,7 @@ export function toImageRequest(out: ImagePromptOutput, input: ImagePromptInput, 
     return { prompt: joinTags('no humans, scenery', out.tags), negative: joinTags('1girl, 1boy, people', out.negative), size: out.size === 'portrait' ? 'landscape' : size, seed };
   }
   const negative = joinTags(input.character.negativeTags, out.negative);
+  const outfit = lockedOutfit(input);
   if (out.characters?.length && input.withUser) {
     return {
       prompt: out.tags,
@@ -153,12 +192,14 @@ export function toImageRequest(out: ImagePromptOutput, input: ImagePromptInput, 
       size,
       seed,
       characters: out.characters.map((c) => ({
-        prompt: joinTags(c.who === 'char' ? input.character.appearanceTags : input.withUser?.appearanceTags, c.tags),
+        prompt: c.who === 'char' ? joinTags(input.character.appearanceTags, outfit, c.tags) : joinTags(input.withUser?.appearanceTags, c.tags),
         center: CENTERS[c.position ?? 'center'],
       })),
     };
   }
-  return { prompt: joinTags(input.character.appearanceTags, out.tags), negative, size, seed };
+  const appearance = leadCountTags(input.character.appearanceTags);
+  const scene = leadCountTags(out.tags);
+  return { prompt: joinTags(scene.lead, appearance.lead, appearance.rest, outfit, scene.rest), negative, size, seed };
 }
 
 /** 没有分配生图提示词智能体时的退路：外观 tags + 画面描述原文（V4 起能读懂一些自然语言） */

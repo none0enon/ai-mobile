@@ -7,13 +7,15 @@ import { watch, type WatchSource } from 'vue';
  */
 
 const DB_NAME = 'ai-mobile';
-const VERSION = 3;
+const VERSION = 4;
 /**
  * - settings：API 设置（按功能）、回复修剪等设置（以后随同步走）
  * - secrets：API Key，只存这台设备，永远不进同步数据
  * - assets：生成的图片、语音（按内容哈希存；以后同步时传到 R2）
+ * - rhythm：节律（每个角色的设置和模板、每天的作息穿着、"建世界"生成的世界）
+ * - gallery：图库（一起做事时画的图：哪个角色、哪个场景、哪个时刻、穿的什么）
  */
-const STORES = ['characters', 'lorebooks', 'presets', 'chats', 'messages', 'settings', 'secrets', 'assets', 'books'] as const;
+const STORES = ['characters', 'lorebooks', 'presets', 'chats', 'messages', 'settings', 'secrets', 'assets', 'books', 'rhythm', 'gallery'] as const;
 export type StoreName = (typeof STORES)[number];
 
 let opening: Promise<IDBDatabase | null> | null = null;

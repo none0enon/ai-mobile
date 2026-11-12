@@ -29,6 +29,7 @@ import { personas } from '@/mock/characters';
 import { memories } from '@/mock/memories';
 import { useAiStore } from '@/stores/ai';
 import { useLibraryStore } from '@/stores/library';
+import { useRhythmStore } from '@/stores/rhythm';
 
 /**
  * 每一轮的提示词：把这条聊天、角色卡、绑定的世界书、预设交给共享的拼装器（packages/shared/src/st/assemble.ts，
@@ -136,6 +137,9 @@ function appFills(chat: Chat, character: Character, history: Message[]): Record<
   const before = history.at(-2)?.createdAt;
   const sinceLastChatMin = before ? Math.max(0, (Date.now() - before) / 60_000) : null;
 
+  // 她今天穿什么（节律里这个场景该穿的那套）
+  const outfit = useRhythmStore().outfitFor(character.id, chat.currentScene);
+
   const written = chat.summaries ?? [];
   const summary: AppBlockFill = written.length
     ? { content: written.slice(-6).map((s) => s.text).join('\n'), source: `总结智能体写的摘要（最近 ${Math.min(6, written.length)} 段，共 ${written.length} 段）` }
@@ -151,9 +155,10 @@ function appFills(chat: Chat, character: Character, history: Message[]): Record<
         todayLine: todayLine(mockToday()),
         sinceLastChatMin,
         place,
+        outfit: outfit ? `${character.name}今天穿${outfit.name}` : null,
         sceneName: scene.id === 'free' ? null : scene.name,
       }),
-      source: '时间 / 节气 / 天气 / 今日活动 / 她在哪',
+      source: '时间 / 节气 / 天气 / 今日活动 / 她在哪 / 她今天穿什么',
     },
     sceneRules: {
       content: `${scene.promptFragment.replaceAll('{{char}}', character.name)}\n${tagsLine(scene)}`,

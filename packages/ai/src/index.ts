@@ -58,3 +58,4 @@ export * from './agents/sidestory.ts';
 export * from './agents/summary.ts';
 export * from './agents/retrieval.ts';
 export * from './agents/illustrate.ts';
+export * from './agents/rhythm.ts';

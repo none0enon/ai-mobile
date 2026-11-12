@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { getLocation, getScene, hasMath, type PokeHotspot, type TimeOfDay } from '@app/shared';
-import { showToast } from 'vant';
+import { showImagePreview, showToast } from 'vant';
 import { computed, inject, ref } from 'vue';
 import Avatar from '@/components/common/Avatar.vue';
 import RichText from '@/components/common/RichText.vue';
@@ -16,6 +16,8 @@ import { useRealWorldStore } from '@/stores/realworld';
  * 所有场景共用的外壳：背景 + 立绘 + 顶栏 + 她的一句话 + 底部场景面板（插槽）。
  * 场景只需要写面板，并告诉外壳用什么服装、姿势、表情；背景和标题默认跟着地图上的地点走。
  * 点她的那句话 → 去你们的聊天接着聊（还算在一起，聊天页显示"你们在…"）。
+ * art：这一刻画好的图（生图）。有图时盖在背景和立绘上面、淡入；还没画好时照常显示立绘（设计文档 §10.3）。点图看大图。
+ * drawing：正在画（顶栏右边转圈，文字给读屏和长按提示）。
  */
 const props = withDefaults(
   defineProps<{
@@ -36,8 +38,10 @@ const props = withDefaults(
     showHotspots?: boolean;
     layout?: { left: number; bottom: number; height: number };
     title?: string;
+    art?: { url: string; title?: string } | null;
+    drawing?: string | null;
   }>(),
-  { rain: false, dim: 0, typing: false, hideFigure: false, fill: false, pokeable: false, showHotspots: false },
+  { rain: false, dim: 0, typing: false, hideFigure: false, fill: false, pokeable: false, showHotspots: false, art: null, drawing: null },
 );
 const emit = defineEmits<{ (e: 'poke', h: PokeHotspot, kind: 'tap' | 'long'): void }>();
 
@@ -70,6 +74,11 @@ function toggleMode() {
 }
 const expr = computed(() => props.expression ?? chars.expression[character.value.id] ?? 'smile');
 const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50 });
+/** 有画好的图时不画立绘（图里就是她） */
+const figureHidden = computed(() => props.hideFigure || !!props.art);
+function openArt() {
+  if (props.art) showImagePreview({ images: [props.art.url], closeable: true, showIndex: false });
+}
 </script>
 
 <template>
@@ -85,9 +94,14 @@ const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50
       :dim="dim"
       :pokeable="pokeable"
       :show-hotspots="showHotspots"
-      :layout="hideFigure ? { left: 50, bottom: 200, height: 1 } : layout"
+      :layout="figureHidden ? { left: 50, bottom: 200, height: 1 } : layout"
       @poke="(h, k) => emit('poke', h, k)"
     >
+      <Transition name="art">
+        <button v-if="art" :key="art.url" type="button" class="scene-art" :aria-label="`看大图：${art.title || character.name}`" @click="openArt">
+          <img :src="art.url" :alt="art.title || character.name" />
+        </button>
+      </Transition>
       <div class="tint" />
       <header class="scene-top">
         <button class="pill" aria-label="返回" @click="goBack('/map')"><span class="i-lucide-chevron-left text-[20px]" /></button>
@@ -97,6 +111,7 @@ const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50
           <span :class="together === 'remote' ? 'i-lucide-link' : together === 'visit' ? 'i-lucide-armchair' : 'i-lucide-navigation'" class="shrink-0" />
           <span class="truncate">{{ modeText }}</span>
         </button>
+        <span v-if="drawing" class="pill drawing" role="status" :aria-label="drawing" :title="drawing"><span class="i-lucide-loader-circle spin" /></span>
         <slot name="actions" />
       </header>
       <RouterLink v-if="!fill && (line || typing)" :to="chatLink" class="companion" :aria-label="`去和${character.name}聊天`">
@@ -124,6 +139,42 @@ const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50
 </template>
 
 <style scoped>
+.scene-art {
+  position: absolute;
+  inset: 0;
+  display: block;
+  padding: 0;
+  border: 0;
+  background: #000;
+  cursor: zoom-in;
+}
+.scene-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* 竖图的脸多在上面三分之一：面板盖住下半截时也看得到 */
+  object-position: 50% 18%;
+}
+.art-enter-active,
+.art-leave-active {
+  transition: opacity 0.6s ease;
+}
+.art-enter-from,
+.art-leave-to {
+  opacity: 0;
+}
+.pill.drawing {
+  flex-shrink: 0;
+  color: var(--accent-ink);
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .tint {
   position: absolute;
   inset: 0;

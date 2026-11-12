@@ -1,4 +1,5 @@
 import type { SceneId } from './scenes.ts';
+import type { OutfitItem } from './types/rhythm.ts';
 
 /**
  * 地图分两种：
@@ -49,10 +50,12 @@ export interface ScheduleSlot {
   status: string;
 }
 
-/** 她自己的生活：连线自习时她在学什么、饭搭子时她吃什么 */
+/** 她自己的生活：连线自习时她在学什么、饭搭子时她吃什么、平时穿什么（节律模板从这里来） */
 export interface WorldLife {
   studyTask: string;
   meals: Record<'breakfast' | 'lunch' | 'dinner', string>;
+  /** 衣柜：每套写中文名和 NovelAI tags */
+  wardrobe?: Omit<OutfitItem, 'id'>[];
 }
 
 export interface World {
@@ -96,6 +99,13 @@ const SUWAN_WORLD: World = {
   life: {
     studyTask: '课程论文第三章：宋词里的雨',
     meals: { breakfast: '自己煮的小馄饨', lunch: '食堂的麻辣烫', dinner: '后门那家砂锅粥' },
+    wardrobe: [
+      { kind: 'daily', name: '米色针织开衫配白衬衫', tags: 'beige cardigan, white blouse, long skirt' },
+      { kind: 'daily', name: '浅蓝毛衣配格子裙', tags: 'light blue sweater, plaid skirt, black pantyhose' },
+      { kind: 'sport', name: '浅灰运动套装', tags: 'grey track suit, ponytail, sneakers' },
+      { kind: 'sleep', name: '小熊印花睡衣', tags: 'pajamas, bear print, hair down' },
+      { kind: 'date', name: '酒红色针织连衣裙', tags: 'red knit dress, small shoulder bag, earrings' },
+    ],
   },
   labels: [
     { text: '住处', x: 16, y: 112 },
@@ -340,6 +350,12 @@ const JIANGYU_WORLD: World = {
   life: {
     studyTask: '看 200 米自由泳的比赛录像',
     meals: { breakfast: '食堂的鸡蛋和燕麦', lunch: '运动员食堂的鸡胸肉饭', dinner: '牛肉面加两个蛋' },
+    wardrobe: [
+      { kind: 'daily', name: '黑色连帽卫衣配牛仔裤', tags: 'black hoodie, jeans, sneakers' },
+      { kind: 'sport', name: '队服训练外套', tags: 'track jacket, sportswear, towel around neck' },
+      { kind: 'sleep', name: '灰色 T 恤和短裤', tags: 'grey t-shirt, shorts' },
+      { kind: 'date', name: '白衬衫配黑色长裤', tags: 'white shirt, rolled up sleeves, black pants' },
+    ],
   },
   labels: [
     { text: '宿舍区', x: 14, y: 108 },
@@ -526,8 +542,23 @@ const JIANGYU_WORLD: World = {
 
 export const WORLDS: World[] = [SUWAN_WORLD, JIANGYU_WORLD];
 
-/** 所有虚拟世界里的地点 */
+/** 演示角色的世界里的地点 */
 export const LOCATIONS: MapLocation[] = WORLDS.flatMap((w) => w.locations);
+
+/**
+ * 导入的角色"建世界"后生成的世界：存在她的 id 下（本机库），打开 App 时登记进来（设计文档 §5.4）。
+ * 地点 id 带上角色 id 的前缀，所以和别的世界不会撞
+ */
+const builtWorlds = new Map<string, World>();
+export function registerWorld(w: World) {
+  builtWorlds.set(w.characterId, w);
+}
+export function unregisterWorld(characterId: string) {
+  builtWorlds.delete(characterId);
+}
+function allWorlds(): World[] {
+  return [...builtWorlds.values(), ...WORLDS];
+}
 
 /** 真实世界的地点（家、附近的店）：运行时由地图服务注册进来 */
 const realPlaces = new Map<string, MapLocation>();
@@ -537,25 +568,38 @@ export function registerPlaces(list: MapLocation[]) {
 
 export function getLocation(id: string | null | undefined): MapLocation | undefined {
   if (!id) return undefined;
-  return LOCATIONS.find((l) => l.id === id) ?? realPlaces.get(id);
+  return LOCATIONS.find((l) => l.id === id) ?? builtWorlds.get(worldIdOf(id) ?? '')?.locations.find((l) => l.id === id) ?? findBuilt(id) ?? realPlaces.get(id);
+}
+
+/** 生成的世界里地点 id 是"角色 id/地点"：先按前缀找，找不到再挨个找 */
+function worldIdOf(locationId: string): string | null {
+  const i = locationId.indexOf('/');
+  return i > 0 ? locationId.slice(0, i) : null;
+}
+function findBuilt(id: string): MapLocation | undefined {
+  for (const w of builtWorlds.values()) {
+    const l = w.locations.find((x) => x.id === id);
+    if (l) return l;
+  }
+  return undefined;
 }
 
 export function isRealPlace(l: MapLocation | null | undefined): boolean {
   return l?.area === 'real';
 }
 
-/** 角色的世界；还没有专属世界的角色（例如刚导入的）先借用第一个世界 */
-/** 这个角色有没有自己的小世界（导入的角色在生成小世界之前没有） */
+/** 这个角色有没有自己的小世界（导入的角色在"建世界"之前没有） */
 export function hasOwnWorld(characterId: string | null | undefined): boolean {
-  return WORLDS.some((w) => w.characterId === characterId);
+  return allWorlds().some((w) => w.characterId === characterId);
 }
 
+/** 角色的世界；还没有自己世界的角色（刚导入、还没"建世界"）先借用第一个世界 */
 export function worldOf(characterId: string | null | undefined): World {
-  return WORLDS.find((w) => w.characterId === characterId) ?? (WORLDS[0] as World);
+  return allWorlds().find((w) => w.characterId === characterId) ?? (WORLDS[0] as World);
 }
 
 export function worldOfLocation(locationId: string | null | undefined): World | undefined {
-  return WORLDS.find((w) => w.locations.some((l) => l.id === locationId));
+  return allWorlds().find((w) => w.locations.some((l) => l.id === locationId));
 }
 
 /** 某件事在她的世界里默认去哪（从聊天的 ＋ 面板直接进场景时用）：住处能做就在住处，否则去第一个能做的地方 */

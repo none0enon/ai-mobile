@@ -29,6 +29,11 @@ export interface MacroContext {
   random?: () => number;
   /** {{weather}}：天气一句话 */
   weather?: string;
+  /**
+   * 按这一次填的其他宏（名字小写）：生图预设里的 {{char_appearance}} {{char_outfit}} {{user_appearance}}，
+   * 按这次画的角色替换（设计文档 §5.2）
+   */
+  extra?: Record<string, string>;
 }
 
 const WEEKDAY = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
@@ -115,6 +120,7 @@ function one(raw: string, ctx: MacroContext): string | null {
     case 'weather':
       return ctx.weather ?? '';
   }
+  if (ctx.extra && Object.hasOwn(ctx.extra, lower)) return ctx.extra[lower] ?? '';
 
   if (lower.startsWith('random') || lower.startsWith('pick')) {
     const arg = body.slice(lower.startsWith('random') ? 6 : 4);
