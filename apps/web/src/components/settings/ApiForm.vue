@@ -222,7 +222,7 @@ watch(
         />
         <button type="button" class="eye" :aria-label="showKey ? '隐藏 Key' : '显示 Key'" @click="showKey = !showKey"><span :class="showKey ? 'i-lucide-eye-off' : 'i-lucide-eye'" /></button>
       </div>
-      <p class="hint">只存在这台设备上，不会同步。</p>
+      <p class="hint">Key 保存在本机；云端主动消息或每日节律使用的 Key 会加密保存到你连接的 Worker。</p>
 
       <template v-if="api.channel === 'minimax'">
         <label class="field-label" :for="`${uid}-group`">GroupId（老账号需要，新账号可以不填）</label>

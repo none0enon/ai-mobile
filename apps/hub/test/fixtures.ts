@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { Miniflare, convertV4MiniflareOptions, type V4ServiceDesignator } from 'miniflare';
 import { characterFromCard, parseCardJson, parsePresetFile, DEFAULT_PROACTIVE_RULES,
   type Message, type ProactiveContext, type ProactiveCredentials, type Touchpoint } from '@app/shared';
@@ -40,7 +40,8 @@ export async function fixture(t: { after(fn: () => Promise<void>): void }, bundl
   }] }));
   t.after(() => mf.dispose());
   const DB = await mf.getD1Database('DB') as unknown as D1Database;
-  const schema = readFileSync(new URL('../migrations/0001_proactive.sql', import.meta.url), 'utf8');
+  const migrations = new URL('../migrations/', import.meta.url);
+  const schema = readdirSync(migrations).filter((f) => f.endsWith('.sql')).sort().map((f) => readFileSync(new URL(f, migrations), 'utf8')).join('\n');
   await DB.batch(schema.split(';').map((s) => s.trim()).filter(Boolean).map((s) => DB.prepare(s)));
   const env: Env = { DB, HUB_PASSWORD: 'test-password', KEK: btoa('k'.repeat(32)), APP_ORIGIN: 'https://app.test', APP_URL: 'https://app.test/ai-mobile/' };
   await setMeta(env, 'enabled', true);

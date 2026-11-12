@@ -57,7 +57,7 @@ export function gate(context: ProactiveContext, t: Touchpoint, now: number): str
   return null;
 }
 
-async function reserve(env: Env, id: string, date: string, tokens: number, budget: number, now: number): Promise<boolean> {
+export async function reserve(env: Env, id: string, date: string, tokens: number, budget: number, now: number): Promise<boolean> {
   const result = await env.DB.batch([
     env.DB.prepare('INSERT OR IGNORE INTO usage(date) VALUES (?)').bind(date),
     env.DB.prepare(`INSERT INTO reservations(id, date, tokens, expires_at)
@@ -68,11 +68,18 @@ async function reserve(env: Env, id: string, date: string, tokens: number, budge
   return result[1]!.meta.changes > 0;
 }
 
-async function release(env: Env, id: string, used: number) {
+export async function release(env: Env, id: string, used: number) {
   await env.DB.batch([
     env.DB.prepare(`UPDATE usage SET reserved = MAX(0, reserved - (SELECT tokens FROM reservations WHERE id = ?)), tokens = tokens + ?
       WHERE date = (SELECT date FROM reservations WHERE id = ?)`).bind(id, used, id),
     env.DB.prepare('DELETE FROM reservations WHERE id = ?').bind(id),
+  ]);
+}
+
+export async function releaseExpired(env: Env, now: number) {
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE usage SET reserved = MAX(0, reserved - COALESCE((SELECT SUM(tokens) FROM reservations WHERE reservations.date = usage.date AND expires_at <= ?), 0))`).bind(now),
+    env.DB.prepare('DELETE FROM reservations WHERE expires_at <= ?').bind(now),
   ]);
 }
 
@@ -162,10 +169,7 @@ export async function runScheduled(env: Env, now = Date.now(), generate: Generat
     if (!sealed) throw new Error('未设置云端主动消息 API');
     const credentials = await unseal<ProactiveCredentials>(env.KEK, sealed);
     // Recover reservations left by an evicted Worker; no global mutex or serial job queue.
-    await env.DB.batch([
-      env.DB.prepare(`UPDATE usage SET reserved = MAX(0, reserved - COALESCE((SELECT SUM(tokens) FROM reservations WHERE reservations.date = usage.date AND expires_at <= ?), 0))`).bind(now),
-      env.DB.prepare('DELETE FROM reservations WHERE expires_at <= ?').bind(now),
-    ]);
+    await releaseExpired(env, now);
     const plans = await Promise.allSettled(rows.results.map((row) => planContext(env, row, now)));
     const due = await env.DB.prepare("SELECT id, data, attempts FROM touchpoints WHERE status = 'planned' AND due_at <= ? AND retry_at <= ? AND lease_until <= ?").bind(now, now, now).all<PointRow>();
     const fired = await Promise.allSettled([

@@ -1,6 +1,7 @@
 import { SCENES, type SceneId } from './scenes.ts';
 import type { LocationActivity, LocationArea, MapLocation, MapShape, World } from './locations.ts';
-import type { DayOutfit, OutfitItem, OutfitKind, RhythmDay, RhythmMeals, RhythmPerson, RhythmSlot, RhythmTemplate } from './types/rhythm.ts';
+import type { DayOutfit, OutfitItem, OutfitKind, RhythmDay, RhythmMeals, RhythmPerson, RhythmSettings, RhythmSlot, RhythmTemplate } from './types/rhythm.ts';
+import { shiftDate, zonedDateKey, zonedParts } from './timezone.ts';
 
 /**
  * 节律的算法部分（设计文档 §9 开头）：节律日、作息检查和兜底、读「节律」写回来的 JSON、把"建世界"的结果排成一张小地图。
@@ -12,10 +13,12 @@ export const RHYTHM_DAY_START_HOUR = 4;
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** 这一刻属于哪个节律日（本地时间 YYYY-MM-DD） */
-export function rhythmDate(now: Date): string {
-  const d = new Date(now.getTime() - RHYTHM_DAY_START_HOUR * 3_600_000);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/** 用日历日期判断 4 点边界，夏令时切换日也不会提前或推迟一小时。 */
+export function rhythmDate(now: Date, timeZone?: string): string {
+  const date = timeZone ? zonedDateKey(now.getTime(), timeZone)
+    : `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const hour = timeZone ? zonedParts(now.getTime(), timeZone).hour : now.getHours();
+  return hour < RHYTHM_DAY_START_HOUR ? shiftDate(date, -1) : date;
 }
 
 /** "07:30" → 450；"24:00" → 1440；写错了返回 null */
@@ -66,7 +69,7 @@ export function templateFromWorld(world: World): RhythmTemplate {
   return {
     schedule: world.schedule.map((s) => ({ ...s })),
     meals: { ...world.life.meals },
-    wardrobe: (world.life.wardrobe ?? []).map((o) => ({ ...o, id: outfitId() })),
+    wardrobe: (world.life.wardrobe ?? []).map((o, i) => ({ ...o, id: `template:${world.id}:${i}` })),
     task: world.life.studyTask,
   };
 }
@@ -253,6 +256,41 @@ export interface PlanDayOutput {
   outfits: Partial<Record<OutfitKind, DayOutfit>>;
   task: string;
   events: string[];
+}
+
+/** Both the PWA and Worker apply the same variation switches and validation. */
+export function rhythmDayFromPlan(input: {
+  characterId: string; date: string; template: RhythmTemplate; settings: RhythmSettings;
+  locations: MapLocation[]; output: PlanDayOutput; model: string; at: number;
+}): RhythmDay {
+  const { characterId, date, template, settings, output: out } = input;
+  const vary = settings.mode === 'daily' ? settings.vary : { schedule: false, meals: false, outfits: false };
+  const base = dayFromTemplate(characterId, date, template);
+  const fixes: string[] = [];
+  let schedule = base.schedule;
+  if (vary.schedule && out.schedule.length) {
+    const checked = checkSchedule(out.schedule, { template, resolve: locationResolver(input.locations, characterId) });
+    schedule = checked.schedule;
+    fixes.push(...checked.fixes);
+  } else if (vary.schedule) fixes.push('没有排作息，按模板');
+  const outfits = { ...base.outfits };
+  if (vary.outfits) {
+    for (const [kind, o] of Object.entries(out.outfits) as [OutfitKind, DayOutfit][]) if (o?.tags) outfits[kind] = o;
+    if (settings.outfitMode === 'pick') {
+      const fallback = defaultOutfits(template.wardrobe);
+      for (const kind of Object.keys(outfits) as OutfitKind[]) {
+        const o = outfits[kind];
+        if (o && template.wardrobe.length && !template.wardrobe.some((w) => w.name === o.name || w.tags === o.tags)) {
+          fixes.push(`"${o.name}"不在衣柜里，换成衣柜里的`);
+          if (fallback[kind]) outfits[kind] = fallback[kind];
+          else delete outfits[kind];
+        }
+      }
+    }
+  }
+  return { characterId, date, schedule, meals: vary.meals ? { ...base.meals, ...out.meals } : base.meals,
+    outfits, task: out.task || base.task, events: out.events, source: 'model', model: input.model, at: input.at,
+    ...(fixes.length ? { fixes } : {}) };
 }
 
 /** "排今天"的输出；什么都没写时返回 null（让调用方按格式不对重试） */

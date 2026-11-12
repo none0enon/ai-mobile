@@ -334,7 +334,7 @@ async function runReindex() {
           <span class="i-lucide-chevron-right text-ink-3" />
         </button>
       </div>
-      <p class="note">默认去掉漏出来的思考内容：&lt;think&gt;…&lt;/think&gt;、只剩结束标签的半截思考、&lt;!-- consider: … --&gt; 注释（同 SleepTogether）。Key 只存在这台设备的本机数据库里，不进同步数据。</p>
+      <p class="note">默认去掉漏出来的思考内容：&lt;think&gt;…&lt;/think&gt;、只剩结束标签的半截思考、&lt;!-- consider: … --&gt; 注释（同 SleepTogether）。Key 保存在本机；云端主动消息和每日节律所用的 Key 会加密保存到你连接的 Worker。</p>
     </div>
 
     <!-- 一个功能的设置 -->
