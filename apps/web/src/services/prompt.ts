@@ -169,8 +169,7 @@ function appFills(chat: Chat, character: Character, history: Message[]): Record<
       source: `时间 / 节气 / 天气（${[weather ? `你那边 ${weather.city}` : '你那边没取到', herWeather ? `${character.name}那边 ${herWeather.city}` : ''].filter(Boolean).join('，')}）/ 今日活动 / 她在哪 / 她今天穿什么`,
     },
     sceneRules: {
-      // 导入的 SillyTavern 预设在一起做事时靠这一块知道场景（自带的功能预设有自己的场景规则），名字要替换好
-      content: `${scene.promptFragment.replaceAll('{{char}}', character.name).replaceAll('{{user}}', personaOf(chat).name).replaceAll('{{place}}', loc?.name ?? '')}\n${tagsLine(scene)}`,
+      content: `${scene.promptFragment.replaceAll('{{char}}', character.name)}\n${tagsLine(scene)}`,
       source: `场景"${scene.name}"`,
     },
   };
@@ -196,40 +195,14 @@ export function presetFor(character: Character | undefined): Preset | undefined 
 /** 这一轮用的是哪个用途的预设：主动消息 → 在一起做某件事（功能预设）→ 平时聊天（这个角色的对话预设） */
 export type ChatPresetUse = PresetUseId | 'chat';
 
-export interface TurnPreset {
-  preset: Preset | undefined;
-  use: ChatPresetUse;
-  /** 正在一起做某件事、这一轮却仍用这个角色的对话预设时（见 keepsChatPreset）：那件事的用途 */
-  keptIn?: PresetUseId;
-}
-
-/**
- * 一起做某件事时，聊天里回你的话是否仍用这个角色的对话预设：角色用的是从 SillyTavern 导入的预设、
- * 而这件事用的是 App 自带的功能预设时仍用对话预设。
- * ST 里一个预设管所有回复，导入的预设常带自己的格式要求（每条末尾的 summary、状态栏、句数）；
- * 自带的功能预设是配自带的对话预设写的（"一到三句""不总结"、回复最长 400），换过去这些要求就整段没了。
- * 一起做的事又常常一直开着，看起来就是"导入的预设从来不生效"。
- * 场景照样告诉她：导入时补上的"当前场景规则 + 可用标签""当前环境"两块照常填。
- * 你给这件事选了自己的功能预设（例如把导入的预设复制成功能预设）时照你选的。
- */
-function keepsChatPreset(own: Preset | undefined, scenePreset: Preset | undefined): boolean {
-  return own?.source?.kind === 'sillytavern' && !!scenePreset?.seedFile;
-}
-
-export function presetForTurn(chat: Chat, character: Character, agent?: AgentRole, use?: PresetUseId): TurnPreset {
+export function presetForTurn(chat: Chat, character: Character, agent?: AgentRole, use?: PresetUseId): { preset: Preset | undefined; use: ChatPresetUse } {
   const lib = useLibraryStore();
   // 指定了用途（语音通话）：按那个用途选，不看场景
   if (use) return { preset: lib.presetForUse(use, character), use };
   if (agent === 'proactive') return { preset: lib.presetForUse('proactive', character), use: 'proactive' };
-  const own = lib.chatPresetFor(character);
   const scene = sceneUse(chat.currentScene);
-  if (scene) {
-    const scenePreset = lib.presetForUse(scene, character);
-    // 只有聊天里回你的话（主对话）留着导入的预设；场景页面里的任务（「陪伴 · 快速」回纸条、写弹幕、批注，要短句或 JSON）照样用功能预设
-    if ((agent ?? 'main') === 'main' && keepsChatPreset(own, scenePreset)) return { preset: own, use: 'chat', keptIn: scene };
-    return { preset: scenePreset, use: scene };
-  }
-  return { preset: own, use: 'chat' };
+  if (scene) return { preset: lib.presetForUse(scene, character), use: scene };
+  return { preset: lib.chatPresetFor(character), use: 'chat' };
 }
 
 /** 一个预设都选不到时的报错：说清楚缺哪一类、去哪里补 */
@@ -240,12 +213,9 @@ export class MissingPresetError extends Error {
   }
 }
 
-/** "功能 · 一起吃饭"、"对话"：这一轮的预设是按什么选的；keptIn：一起做这件事时也用对话预设 */
-export function useLabel(use: ChatPresetUse, keptIn?: PresetUseId): string {
-  if (use === 'chat') {
-    const during = keptIn ? presetUse(keptIn) : undefined;
-    return during ? `对话（这个角色的预设，${during.label}时也用它）` : '对话（这个角色的预设）';
-  }
+/** "功能 · 一起吃饭"、"对话"：这一轮的预设是按什么选的 */
+export function useLabel(use: ChatPresetUse): string {
+  if (use === 'chat') return '对话（这个角色的预设）';
   const u = presetUse(use);
   return u ? `${PRESET_CATEGORIES[u.category].label} · ${u.label}` : use;
 }
@@ -265,8 +235,6 @@ export interface ChatPrompt extends AssembleResult {
   preset: Preset;
   /** 预设是按什么选的：对话 / 某件事的功能预设 / 主动消息 */
   use: ChatPresetUse;
-  /** 一起做这件事时仍用的对话预设（导入的 SillyTavern 预设，见 keepsChatPreset） */
-  keptIn?: PresetUseId;
   persona: Persona;
   request: Record<string, unknown>;
 }
@@ -293,12 +261,11 @@ export interface ChatAssembleOptions {
 
 /**
  * 拼这一轮的提示词。history 是要发出去的聊天记录（从旧到新，最后一条通常是你刚发的）。
- * 预设按用途选：语音通话用"语音通话"选的预设，主动消息用"主动消息"预设，在一起做某件事时用那件事的功能预设，平时用这个角色的对话预设
- * （角色用的是从 SillyTavern 导入的预设时，一起做事期间聊天里回你的话也用它，见 keepsChatPreset）。
+ * 预设按用途选：语音通话用"语音通话"选的预设，主动消息用"主动消息"预设，在一起做某件事时用那件事的功能预设，平时用这个角色的对话预设。
  */
 export function assembleForChat(chat: Chat, character: Character, history: Message[], opts: ChatAssembleOptions = {}): ChatPrompt {
   const lib = useLibraryStore();
-  const { preset, use, keptIn } = presetForTurn(chat, character, opts.agent, opts.use);
+  const { preset, use } = presetForTurn(chat, character, opts.agent, opts.use);
   if (!preset) throw new MissingPresetError(use === 'chat' ? '对话' : useLabel(use));
   const persona = personaOf(chat);
   const model = modelOf(opts.agent);
@@ -334,7 +301,7 @@ export function assembleForChat(chat: Chat, character: Character, history: Messa
     result.messages.push({ role: 'system', content: opts.task.input, source: 'sceneTask', label: '场景任务：这一次的输入（预设里没有这一块，接在最后）' });
     result.tokens += estimateTokens(opts.task.input);
   }
-  return { ...result, preset, use, keptIn, persona, request: buildChatRequest(result, preset, model) };
+  return { ...result, preset, use, persona, request: buildChatRequest(result, preset, model) };
 }
 
 /** 发给模型的消息（去掉来源说明） */

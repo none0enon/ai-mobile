@@ -10,7 +10,6 @@ import RichText from '@/components/common/RichText.vue';
 import { personas } from '@/mock/characters';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useChatStore } from '@/stores/chat';
-import { splitFolds } from '@/utils/folds';
 
 const props = defineProps<{
   message: Message;
@@ -131,20 +130,10 @@ function segments(text: string) {
         <MessageEditor v-if="editing" :text="editText" :mine="mine" :allow-empty="cardParts.length > 0" @save="(t) => emit('save-edit', t)" @cancel="emit('cancel-edit')" />
         <template v-else>
           <div v-for="(p, i) in textParts" :key="i" class="bubble" :class="[mine ? 'me' : 'ai', { 'stream-caret': streaming && i === textParts.length - 1 }]">
-            <template v-for="(f, k) in splitFolds(p.type === 'text' ? p.text : '')" :key="k">
-              <!-- 折起来的部分（导入的预设要求的 summary、状态栏）：点开看，同 SillyTavern -->
-              <details v-if="f.kind === 'fold'" class="fold">
-                <summary>{{ f.title }}</summary>
-                <div class="fold-body">
-                  <RichText v-if="hasMath(f.body)" :text="f.body" />
-                  <template v-else>{{ f.body }}</template>
-                </div>
-              </details>
-              <!-- 有公式（一起读专业书时的批注、讲题）：公式用 KaTeX 显示，括号里的动作照样淡一点 -->
-              <RichText v-else-if="hasMath(f.text)" :text="f.text" actions />
-              <template v-for="(s, j) in segments(f.text)" v-else :key="j">
-                <span :class="{ action: s.action }">{{ s.text }}</span>
-              </template>
+            <!-- 有公式（一起读专业书时的批注、讲题）：公式用 KaTeX 显示，括号里的动作照样淡一点 -->
+            <RichText v-if="p.type === 'text' && hasMath(p.text)" :text="p.text" actions />
+            <template v-for="(s, j) in segments(p.type === 'text' ? p.text : '')" v-else :key="j">
+              <span :class="{ action: s.action }">{{ s.text }}</span>
             </template>
           </div>
         </template>
@@ -240,30 +229,6 @@ function segments(text: string) {
 .bubble :deep(.action) {
   opacity: 0.62;
   font-style: italic;
-}
-/* 折起来的 summary：正文下面一条虚线隔开，字小一点；点标题展开 */
-.fold {
-  margin-top: 8px;
-  padding-top: 6px;
-  border-top: 1px dashed currentColor;
-  border-top-color: color-mix(in srgb, currentColor 25%, transparent);
-  font-size: 13.5px;
-  line-height: 1.55;
-}
-.fold:first-child {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: 0;
-}
-.fold > summary {
-  cursor: pointer;
-  font-size: 12.5px;
-  opacity: 0.7;
-  user-select: none;
-}
-.fold-body {
-  margin-top: 4px;
-  opacity: 0.85;
 }
 .proactive {
   display: inline-flex;

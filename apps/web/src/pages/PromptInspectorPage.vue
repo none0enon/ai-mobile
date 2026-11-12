@@ -82,7 +82,7 @@ function slotNote(position: string): string | null {
 
 <template>
   <div class="page" data-page="inspect">
-    <PageHeader title="查看提示词" :subtitle="`${c?.title ?? ''} · 预设「${p?.preset.name ?? ''}」${p ? `（${useLabel(p.use, p.keptIn)}）` : ''}`" :fallback="`/chat/${chatId}`" />
+    <PageHeader title="查看提示词" :subtitle="`${c?.title ?? ''} · 预设「${p?.preset.name ?? ''}」${p ? `（${useLabel(p.use)}）` : ''}`" :fallback="`/chat/${chatId}`" />
     <div v-if="!p && previewError" class="page-scroll px-4 py-6 text-[14px] text-ink-2 leading-relaxed" data-testid="inspect-error">
       {{ previewError }}
       <RouterLink to="/me/presets" class="block mt-3 text-accent-ink">去"我的 → 预设"</RouterLink>
