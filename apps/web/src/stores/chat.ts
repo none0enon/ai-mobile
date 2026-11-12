@@ -281,7 +281,7 @@ export const useChatStore = defineStore('chat', () => {
 
     try {
       // 拼提示词（真实发送：推进世界书粘性 / 冷却，保存 {{setvar}} 改过的变量）。
-      // 预设按用途选：语音通话用"语音通话"的预设，在一起做某件事时用那件事的功能预设，平时用这个角色的对话预设；一个都选不到时报错
+      // 预设按用途选：语音通话用"语音通话"的预设，在场景页里一起做某件事时用那件事的功能预设，聊天里用这个角色的对话预设；一个都选不到时报错
       const prompt = assembleForChat(chat, character, history, { type: target ? 'swipe' : 'normal', agent, task: opts.task, use: opts.use });
       if (opts.minTokens || opts.quick) prompt.request = tuneRequest(prompt.request, agent, opts);
       chat.loreState = prompt.loreState;
@@ -807,8 +807,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * 结束这件事。如果开始之后什么都没发生，就把开始那条也撤掉，她也回到原来的地方，不留痕迹。
-   * 带她出门的，她总是回到自己的世界（回到出门前的地方）；连线结束后，她接着在自己那边做自己的事。
+   * 结束这件事（离开场景页时，或者场景自己做完时带上总结）。如果开始之后什么都没发生，就把开始那条也撤掉，她也回到原来的地方，不留痕迹。
+   * 带她出门的，她总是回到自己的世界（回到出门前的地方）；连线的，她回到连线前的样子（有作息的之后照作息走）；去她那的，她留在原地。
    */
   function leaveScene(characterId: string, summary?: string) {
     const chat = chatOfCharacter(characterId);
@@ -819,7 +819,8 @@ export const useChatStore = defineStore('chat', () => {
       stopMusic();
     }
     const character = useCharacterStore().byId(characterId);
-    const before = beforeVisit.get(characterId);
+    // 开始前她在哪、在做什么只记在内存里：上次没结束就关了 App 时不知道，当作哪儿都不在（有作息的会照作息放回去）
+    const before = beforeVisit.get(characterId) ?? { locationId: null, status: '' };
     beforeVisit.delete(characterId);
     const how = chat.togetherMode ?? 'visit';
     const loc = getLocation(chat.togetherAt);
@@ -827,7 +828,7 @@ export const useChatStore = defineStore('chat', () => {
     const lastPart = last?.parts[0];
     if (last && lastPart?.type === 'scene' && lastPart.event === 'enter' && last.parts.length === 1 && !summary) {
       messages.value[chat.id]?.pop();
-      if (character && before) Object.assign(character, before);
+      if (character) Object.assign(character, before);
     } else {
       const youAt = lastEnterYouAt(chat.id);
       push(chat.id, 'narrator', [
@@ -842,14 +843,23 @@ export const useChatStore = defineStore('chat', () => {
           youAt,
         },
       ]);
-      if (character && how === 'bring') Object.assign(character, { locationId: before?.locationId ?? character.locationId, status: '刚从你那边回来' });
+      if (character && how === 'bring') Object.assign(character, { locationId: before.locationId, status: '刚从你那边回来' });
       else if (character && how === 'visit') character.status = '刚和你分开';
+      else if (character) Object.assign(character, before);
     }
     chat.togetherAt = null;
     chat.togetherMode = null;
     chat.currentScene = null;
     // 活动进行中攒下的消息，结束以后再整理
     setTimeout(() => void maybeSummarize(chat.id), 0);
+  }
+
+  /**
+   * 打开 App 时：场景只在场景页开着时才有，还记着场景的，是上次在场景页里直接关掉了 App（没走到"离开"），那件事算结束了。
+   * 角色也读出来以后再调，她才能回到原来的样子
+   */
+  function endLeftoverScenes() {
+    for (const c of chats.value) if (c.togetherAt) leaveScene(c.characterId);
   }
 
   function lastEnterYouAt(chatId: string): string | undefined {
@@ -921,6 +931,7 @@ export const useChatStore = defineStore('chat', () => {
     postCard,
     enterScene,
     leaveScene,
+    endLeftoverScenes,
     looking,
     lookingKeys,
     lookAt,

@@ -66,6 +66,9 @@ const hydrated = Promise.allSettled([
   useGalleryStore().hydrate(),
   useVoiceStore().hydrate(),
 ]);
+// 上次在场景页里直接关了 App 的，那件事算结束（等角色也读出来，她才能回到原来的地方）。
+// 排在挂载前面：打开的正好是场景页时，场景页挂载后照常再进入
+void hydrated.then(() => useChatStore().endLeftoverScenes());
 
 // iPhone 上只有用户点过屏幕后"解锁"的 <audio> 才能在网络请求之后播放语音：第一次点屏幕时解锁
 const unlock = () => {

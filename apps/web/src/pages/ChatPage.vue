@@ -14,7 +14,6 @@ import ErrorDetails from '@/components/common/ErrorDetails.vue';
 import GenImage from '@/components/figure/GenImage.vue';
 import DialogBox from '@/components/stage/DialogBox.vue';
 import Wallpaper from '@/components/common/Wallpaper.vue';
-import { backdropAt } from '@/components/scene/location';
 import BackgroundEditor from '@/components/settings/BackgroundEditor.vue';
 import PresetPicker from '@/components/settings/PresetPicker.vue';
 import StageView from '@/components/stage/StageView.vue';
@@ -25,7 +24,7 @@ import { goBack } from '@/router';
 import { services } from '@/services';
 import { assetUrl, putAsset } from '@/services/assets';
 import type { VoiceRecording } from '@/services/recorder';
-import { presetFor, presetForTurn, useLabel } from '@/services/prompt';
+import { presetFor } from '@/services/prompt';
 import { pendingForSummary, SUMMARY_EVERY, type SummaryOutcome } from '@/services/summary';
 import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
@@ -376,14 +375,7 @@ const wall = computed(() => looks.backgroundOf(chatId.value));
 const hasWall = computed(() => !!looks.imageUrl(wall.value?.assetKey));
 const wallOpen = ref(false);
 
-/** 现在这一轮会用哪个预设：在一起做某件事时是那件事的功能预设 */
-const turnPreset = computed(() => (chat.value && character.value ? presetForTurn(chat.value, character.value) : null));
-const presetLine = computed(() => {
-  const t = turnPreset.value;
-  if (!t?.preset) return '没有可用的预设，点这里看看';
-  if (t.use === 'chat') return `正在用「${t.preset.name}」，点这里换`;
-  return `现在${useLabel(t.use).split(' · ').at(-1)}，用功能预设「${t.preset.name}」；平时用「${preset.value?.name ?? '—'}」`;
-});
+const presetLine = computed(() => (preset.value ? `正在用「${preset.value.name}」，点这里换` : '没有可用的预设，点这里看看'));
 const pendingSummary = computed(() => (chat.value ? pendingForSummary(chat.value, messages.value).length : 0));
 
 const moreActions = computed(() => [
@@ -467,17 +459,13 @@ const herWeatherText = computed(() => {
 const stageWeather = computed(() => (isRealPlace(stageLoc.value) ? weatherStore.mine : herWeather.value));
 const timeChip = computed(() => [hhmm(Date.now()), stageWeather.value ? weatherStore.short(stageWeather.value) : ''].filter(Boolean).join(' · '));
 
-/** 剧场背景：你们一起在的地方，否则是她此刻在的地方（家里按正在做的事选房间，平时是卧室） */
-const stageLoc = computed<MapLocation>(
-  () => getLocation(chat.value?.togetherAt ?? character.value?.locationId) ?? (worldOf(character.value?.id).locations[0] as MapLocation),
-);
+/** 剧场背景：她此刻在的地方（在家时是卧室） */
+const stageLoc = computed<MapLocation>(() => getLocation(character.value?.locationId) ?? (worldOf(character.value?.id).locations[0] as MapLocation));
 /** 知不知道她在哪：导入的角色还没有自己的小世界时不显示地点（不借用别人的世界） */
-const placeKnown = computed(() => !!getLocation(chat.value?.togetherAt ?? character.value?.locationId));
+const placeKnown = computed(() => !!getLocation(character.value?.locationId));
 /** 在地图上看：她世界里的地点去她的世界，你真实世界里的地点去"我的世界" */
 const mapLink = computed(() => `/map?world=${isRealPlace(stageLoc.value) ? 'me' : character.value?.id}&focus=${stageLoc.value.id}`);
-const stageBackdrop = computed(() =>
-  chat.value?.togetherAt && chat.value.currentScene ? backdropAt(stageLoc.value, chat.value.currentScene) : stageLoc.value.area === 'home' ? 'bedroom' : stageLoc.value.backdrop,
-);
+const stageBackdrop = computed(() => (stageLoc.value.area === 'home' ? 'bedroom' : stageLoc.value.backdrop));
 const stageRain = computed(() => isRainy(stageWeather.value?.text) && (!stageLoc.value.indoor || ['bedroom', 'library', 'cafe'].includes(stageBackdrop.value)));
 </script>
 
@@ -500,7 +488,7 @@ const stageRain = computed(() => isRainy(stageWeather.value?.text) && (!stageLoc
               </span>
               <RouterLink v-else :to="mapLink" class="where" aria-label="在地图上看她在哪">
                 <span class="i-lucide-map-pin text-accent-ink shrink-0" />
-                <span class="truncate">{{ chat.togetherAt ? `你们在${stageLoc.name}` : stageLoc.name }} · {{ stream ? '对方正在输入…' : character.status }}{{ herWeatherText ? ` · ${herWeatherText}` : '' }}</span>
+                <span class="truncate">{{ stageLoc.name }} · {{ stream ? '对方正在输入…' : character.status }}{{ herWeatherText ? ` · ${herWeatherText}` : '' }}</span>
               </RouterLink>
             </div>
           </div>
@@ -610,7 +598,7 @@ const stageRain = computed(() => isRainy(stageWeather.value?.text) && (!stageLoc
       <div class="sheet" data-testid="preset-sheet">
         <div class="sheet-title">对话预设 · {{ character.name }}</div>
         <p class="text-[12.5px] text-ink-3 mt-1 mb-3 leading-relaxed">
-          平时聊天（气泡、剧场模式）用这套，下一条回复起生效，聊天记录不变。<template v-if="turnPreset && turnPreset.use !== 'chat' && turnPreset.preset">现在{{ useLabel(turnPreset.use).split(' · ').at(-1) }}，这一段用功能预设「{{ turnPreset.preset.name }}」。</template>功能、主动消息、番外、总结、配图的预设在
+          聊天（气泡、剧场模式）用这套，下一条回复起生效，聊天记录不变。功能、主动消息、番外、总结、配图的预设在
           <RouterLink to="/me/presets" class="text-accent-ink" @click="presetOpen = false">我的 → 预设</RouterLink> 里选。
         </p>
         <PresetPicker :model-value="preset?.id" category="chat" @update:model-value="pickPreset" @edit="presetOpen = false" />

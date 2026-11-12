@@ -19,12 +19,8 @@ const PART_LABEL: Record<string, string> = {
   gift: '[礼物]',
 };
 
-/** 她此刻在哪；你们正在一起时写"你们在…" */
-const where = computed(() => {
-  const loc = getLocation(props.chat.togetherAt ?? props.character.locationId);
-  if (!loc) return '';
-  return props.chat.togetherAt ? `你们在${loc.name}` : loc.name;
-});
+/** 她此刻在哪 */
+const where = computed(() => getLocation(props.character.locationId)?.name ?? '');
 
 const preview = computed(() => {
   const m = props.last;

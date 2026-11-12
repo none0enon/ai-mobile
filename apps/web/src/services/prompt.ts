@@ -192,7 +192,7 @@ export function presetFor(character: Character | undefined): Preset | undefined 
   return useLibraryStore().chatPresetFor(character);
 }
 
-/** 这一轮用的是哪个用途的预设：主动消息 → 在一起做某件事（功能预设）→ 平时聊天（这个角色的对话预设） */
+/** 这一轮用的是哪个用途的预设：主动消息 → 在场景页里一起做某件事（那件事的功能预设）→ 聊天（这个角色的对话预设）。场景只在场景页开着时有 */
 export type ChatPresetUse = PresetUseId | 'chat';
 
 export function presetForTurn(chat: Chat, character: Character, agent?: AgentRole, use?: PresetUseId): { preset: Preset | undefined; use: ChatPresetUse } {
@@ -261,7 +261,7 @@ export interface ChatAssembleOptions {
 
 /**
  * 拼这一轮的提示词。history 是要发出去的聊天记录（从旧到新，最后一条通常是你刚发的）。
- * 预设按用途选：语音通话用"语音通话"选的预设，主动消息用"主动消息"预设，在一起做某件事时用那件事的功能预设，平时用这个角色的对话预设。
+ * 预设按用途选：语音通话用"语音通话"选的预设，主动消息用"主动消息"预设，在场景页里一起做某件事时用那件事的功能预设，聊天里用这个角色的对话预设。
  */
 export function assembleForChat(chat: Chat, character: Character, history: Message[], opts: ChatAssembleOptions = {}): ChatPrompt {
   const lib = useLibraryStore();
