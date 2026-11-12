@@ -7,7 +7,7 @@
   "defaultFor": [
     "image:study"
   ],
-  "description": "陪伴学习时自动画的图：入座、偷拍、奖励三个时刻，每块按触发条件只发这次画的那一块。长相（同人是角色 tag + 作品 tag）和今天这身衣服由程序按角色加在最前面，预设只管构图、光线和这一刻在做什么。",
+  "description": "陪伴学习时自动画的图：偷拍（专注时她的样子）、奖励、你这边（各自专注时下半屏按你的人设画），还有以前的入座；每块按触发条件只发这次画的那一块。长相（同人是角色 tag + 作品 tag）和今天这身衣服由程序按角色加在最前面；画幅由程序按画面定（一起专注竖图，各自专注上下半屏方图或横图），预设只管构图、光线和这一刻在做什么。",
   "blocks": [
     {
       "identifier": "main",
@@ -25,7 +25,7 @@
       "identifier": "rules",
       "name": "规则",
       "role": "system",
-      "content": "规则：\n- tags 顺序：人数（1girl / 1boy）→ 构图与镜头（upper body, cowboy shot, from side, close-up…）→ 表情与动作 → 场景与背景 → 光线、天气、时段 → 氛围。\n- 不要写{{char}}的长相（发色、瞳色、发型、体型），程序会把长相加在最前面。\n- 写了\"服装（程序会加…）\"时不要写任何衣服；没写时按\"{{char}}今天穿\"写衣服的 tags。\n- 不要写画师名和质量词（masterpiece、best quality 之类程序会加）。\n- 画面里只有{{char}}一个人（solo）。\n- 都用竖图 portrait：在手机上竖着看。",
+      "content": "规则：\n- tags 顺序：人数（1girl / 1boy）→ 构图与镜头（upper body, cowboy shot, from side, close-up…）→ 表情与动作 → 场景与背景 → 光线、天气、时段 → 氛围。\n- 不要写{{char}}的长相（发色、瞳色、发型、体型），程序会把长相加在最前面。\n- 写了\"服装（程序会加…）\"时不要写任何衣服；没写时按\"{{char}}今天穿\"写衣服的 tags。\n- 不要写画师名和质量词（masterpiece、best quality 之类程序会加）。\n- 画面里只有{{char}}一个人（solo）。\n- 画幅：写了\"画幅\"就照它构图，size 也写它；没写时用竖图 portrait（在手机上竖着看）。",
       "marker": false,
       "enabled": true,
       "injection": {
@@ -91,10 +91,25 @@
       ]
     },
     {
+      "identifier": "momentMine",
+      "name": "时刻 · 你这边",
+      "role": "system",
+      "content": "这一刻：画的是{{char}}自己那边——{{char}}在自己的书桌前学习，{{user}}隔着屏幕陪着（画面里没有{{user}}）。像连线时摄像头从正面或斜前方拍到的样子：低头写字、看书或看电脑屏幕，专心但放松；桌上的东西和环境按\"要画的画面\"里{{char}}的人设来（学什么、爱好、在哪儿学）。这一张例外：外观 tags 是空的时候，按人设写{{char}}的性别和长相（人设没写的就写得普通、不出挑），tags 以人数开头（1boy 或 1girl）；外观 tags 给了就不要再写长相。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "mine"
+      ]
+    },
+    {
       "identifier": "format",
       "name": "输出格式（JSON，字段名别改）",
       "role": "system",
-      "content": "只输出一个 JSON 对象，不要任何其他文字：\n{\"caption\": \"中文短标题（12 字以内）\", \"tags\": \"逗号分隔的英文 tags\", \"negative\": \"额外的负面 tags，可以为空字符串\", \"size\": \"portrait\"}",
+      "content": "只输出一个 JSON 对象，不要任何其他文字：\n{\"caption\": \"中文短标题（12 字以内）\", \"tags\": \"逗号分隔的英文 tags\", \"negative\": \"额外的负面 tags，可以为空字符串\", \"size\": \"portrait、square 或 landscape\"}",
       "marker": false,
       "enabled": true,
       "injection": {

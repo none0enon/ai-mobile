@@ -18,6 +18,7 @@ import { useRealWorldStore } from '@/stores/realworld';
  * 点她的那句话 → 去你们的聊天接着聊（还算在一起，聊天页显示"你们在…"）。
  * art：这一刻画好的图（生图）。有图时盖在背景和立绘上面、淡入；还没画好时照常显示立绘（设计文档 §10.3）。点图看大图。
  * drawing：正在画（顶栏右边转圈，文字给读屏和长按提示）。
+ * bare：外壳只给背景、立绘和顶栏，她的话、面板、画好的图都由场景自己在 overlay 里摆（陪伴学习的分屏和专注画面）。
  */
 const props = withDefaults(
   defineProps<{
@@ -40,8 +41,9 @@ const props = withDefaults(
     title?: string;
     art?: { url: string; title?: string } | null;
     drawing?: string | null;
+    bare?: boolean;
   }>(),
-  { rain: false, dim: 0, typing: false, hideFigure: false, fill: false, pokeable: false, showHotspots: false, art: null, drawing: null },
+  { rain: false, dim: 0, typing: false, hideFigure: false, fill: false, pokeable: false, showHotspots: false, art: null, drawing: null, bare: false },
 );
 const emit = defineEmits<{ (e: 'poke', h: PokeHotspot, kind: 'tap' | 'long'): void }>();
 
@@ -114,7 +116,7 @@ function openArt() {
         <span v-if="drawing" class="pill drawing" role="status" :aria-label="drawing" :title="drawing"><span class="i-lucide-loader-circle spin" /></span>
         <slot name="actions" />
       </header>
-      <RouterLink v-if="!fill && (line || typing)" :to="chatLink" class="companion" :aria-label="`去和${character.name}聊天`">
+      <RouterLink v-if="!bare && !fill && (line || typing)" :to="chatLink" class="companion" :aria-label="`去和${character.name}聊天`">
         <Avatar :character="character" :size="30" live />
         <div class="say">
           <span v-if="typing && !line" class="inline-flex gap-1 text-accent-ink"><span class="typing-dot" /><span class="typing-dot" /><span class="typing-dot" /></span>
@@ -123,7 +125,7 @@ function openArt() {
         </div>
       </RouterLink>
       <slot name="overlay" />
-      <section class="panel" :class="{ fill }">
+      <section v-if="!bare" class="panel" :class="{ fill }">
         <RouterLink v-if="fill && (line || typing)" :to="chatLink" class="companion in-panel" :aria-label="`去和${character.name}聊天`">
           <Avatar :character="character" :size="26" live />
           <div class="say">

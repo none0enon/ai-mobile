@@ -58,7 +58,15 @@ export interface ImagePromptInput {
   recent?: string[];
   /** 画面里有没有"你"（两个人同框时用 V4 的多人提示词） */
   withUser?: { name: string; appearanceTags?: string } | null;
+  /**
+   * 画幅由程序定（例如陪伴学习分上下两屏时，半屏接近方形就画方图）：告诉模型按这个画幅构图，出图时也按它，不看模型写的 size
+   */
+  size?: ImagePromptOutput['size'];
+  /** 不同框、只在预设里出现的另一个人（{{user}}）：画"你"这边时是她，陪着你但不在画面里 */
+  companionName?: string;
 }
+
+const SIZE_LABEL: Record<ImagePromptOutput['size'], string> = { portrait: '竖图（portrait）', landscape: '横图（landscape）', square: '方图（square）' };
 
 export interface ImagePromptOutput {
   /** 中文短标题，进相册 */
@@ -99,6 +107,7 @@ export function imagePromptFills(input: ImagePromptInput): Record<string, string
       scene.outfit ? `服装：${scene.outfit}` : '',
       [scene.timeOfDay, scene.weather].filter(Boolean).length ? `时间与天气：${[scene.timeOfDay, scene.weather].filter(Boolean).join('，')}` : '',
       scene.expression ? `此刻的表情：${scene.expression}` : '',
+      input.size ? `画幅：${SIZE_LABEL[input.size]}，程序按这个画幅出图，构图照它来` : '',
     ]
       .filter(Boolean)
       .join('\n'),
@@ -126,7 +135,7 @@ export function buildImagePromptMessages(input: ImagePromptInput, preset: TaskPr
   return assembleTaskPrompt({
     preset,
     fills: imagePromptFills(input),
-    macros: { char: input.character.name, user: input.withUser?.name ?? '', extra: imagePromptMacros(input) },
+    macros: { char: input.character.name, user: input.withUser?.name ?? input.companionName ?? '', extra: imagePromptMacros(input) },
     type: imagePromptTypes(input),
   }).messages;
 }
@@ -178,10 +187,10 @@ const CENTERS = { left: { x: 0.3, y: 0.5 }, right: { x: 0.7, y: 0.5 }, center: {
  * 两个人时整体 tags 做基础提示词，每个人的外观 + 动作做 V4 的人物提示词，按左右位置放
  */
 export function toImageRequest(out: ImagePromptOutput, input: ImagePromptInput, seed?: number): ImageRequest {
-  const size: ImageSize = out.size;
+  const size: ImageSize = input.size ?? out.size;
   // 背景图不画人：不加外观 tags，确保有 no humans
   if (input.mode === 'background') {
-    return { prompt: joinTags('no humans, scenery', out.tags), negative: joinTags('1girl, 1boy, people', out.negative), size: out.size === 'portrait' ? 'landscape' : size, seed };
+    return { prompt: joinTags('no humans, scenery', out.tags), negative: joinTags('1girl, 1boy, people', out.negative), size: input.size ?? (out.size === 'portrait' ? 'landscape' : size), seed };
   }
   const negative = joinTags(input.character.negativeTags, out.negative);
   const outfit = lockedOutfit(input);
@@ -205,5 +214,5 @@ export function toImageRequest(out: ImagePromptOutput, input: ImagePromptInput, 
 /** 没有分配生图提示词智能体时的退路：外观 tags + 画面描述原文（V4 起能读懂一些自然语言） */
 export function fallbackImagePrompt(input: ImagePromptInput): ImagePromptOutput {
   const lead = { scene: '', portrait: 'full body', face: 'close-up, portrait', background: '' }[input.mode ?? 'scene'];
-  return { caption: input.caption.slice(0, 30), tags: joinTags(lead, input.caption), negative: '', size: input.mode === 'background' ? 'landscape' : 'portrait' };
+  return { caption: input.caption.slice(0, 30), tags: joinTags(lead, input.caption), negative: '', size: input.size ?? (input.mode === 'background' ? 'landscape' : 'portrait') };
 }

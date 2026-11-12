@@ -27,7 +27,7 @@ export interface PresetUse {
  * 名字是协议（写进预设文件），中文是界面文字。还没有时刻的场景，画图时跟随配图的"画一个场景"。
  */
 export const IMAGE_MOMENTS: Partial<Record<FeatureSceneId, Record<string, string>>> = {
-  study: { seat: '入座', peek: '偷拍', reward: '奖励' },
+  study: { seat: '入座', peek: '偷拍', reward: '奖励', mine: '你这边' },
 };
 
 /** 时刻的中文名（所有场景一起查） */

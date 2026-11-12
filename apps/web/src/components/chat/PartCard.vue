@@ -189,7 +189,9 @@ async function playVoice() {
   <div v-else-if="part.type === 'study'" class="pcard row-card" style="--tone: #8fb3f0">
     <span class="icon-wrap" style="color: var(--tone)"><span class="i-lucide-book-open" /></span>
     <div class="flex-1 min-w-0">
-      <div class="text-[14.5px]">陪伴学习 · {{ part.pomodoros }} 个番茄</div>
+      <div class="text-[14.5px]">
+        陪伴学习 · <template v-if="!part.timer || part.timer === 'pomodoro'">{{ part.pomodoros }} 个番茄</template><template v-else>{{ part.timer === 'countdown' ? '倒计时' : '正计时' }}</template><template v-if="part.together === false"> · 各自专注</template>
+      </div>
       <div class="text-[12px] text-ink-3">
         专注 {{ part.minutes }} 分钟<template v-if="part.tasks?.length"> · 完成 {{ part.tasks.filter((t) => t.done).length }} / {{ part.tasks.length }} 个任务</template><template v-if="part.promise"> · 约定{{ part.promise.kept ? '做到了' : '没做到' }}</template>
       </div>

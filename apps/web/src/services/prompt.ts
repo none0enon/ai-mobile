@@ -67,7 +67,8 @@ function partToText(p: MessagePart, character: Character, user: string): string 
         done.length ? `完成：${done.join('、')}` : '',
         p.promise ? `约定"${p.promise.text}"${p.promise.kept ? '做到了' : '没做到'}` : '',
       ].filter(Boolean);
-      return `[陪伴学习：${p.pomodoros} 个番茄，${p.minutes} 分钟${extra.length ? `；${extra.join('；')}` : ''}]`;
+      const how = !p.timer || p.timer === 'pomodoro' ? `${p.pomodoros} 个番茄，` : p.timer === 'countdown' ? '倒计时，' : '正计时，';
+      return `[陪伴学习：${how}${p.minutes} 分钟${p.together === false ? '，各自专注' : ''}${extra.length ? `；${extra.join('；')}` : ''}]`;
     }
     case 'date':
       return `[约会邀请：${p.when} ${p.place}]`;
