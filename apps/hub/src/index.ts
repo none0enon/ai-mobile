@@ -1,9 +1,10 @@
 import { AgentSystem } from '@app/ai';
-import { zonedParts, type ProactiveContext, type ProactiveCredentials, type Touchpoint } from '@app/shared';
+import { zonedParts, type ProactiveContext, type ProactiveCredentials, type RhythmContext, type Touchpoint } from '@app/shared';
 import { digest, equalSecret, seal } from './crypto.ts';
 import type { Env } from './env.ts';
 import { PushDeliveryError, sendChannel, type Channel, type Webhook } from './push.ts';
 import { getMeta, runScheduled, setMeta } from './scheduler.ts';
+import { runRhythmScheduled } from './rhythm.ts';
 
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
 function assert(ok: unknown, message: string): asserts ok {
@@ -68,12 +69,13 @@ async function api(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === '/v1/status' && request.method === 'GET') {
-    const [enabled, lastCronAt, lastError, configured, channels] = await Promise.all([
+    const [enabled, lastCronAt, lastError, configured, channels, rhythmConfigured, lastRhythmError] = await Promise.all([
       getMeta(env, 'enabled', false), getMeta<number | null>(env, 'lastCronAt', null), getMeta<string | null>(env, 'lastError', null),
       env.DB.prepare("SELECT id FROM secrets WHERE id = 'proactive'").first(),
       env.DB.prepare('SELECT id, kind, label, last_ok_at AS lastOkAt FROM push_channels').all(),
+      env.DB.prepare("SELECT id FROM secrets WHERE id = 'rhythm'").first(), getMeta<string | null>(env, 'lastRhythmError', null),
     ]);
-    return json({ enabled, lastCronAt, lastError, configured: !!configured, vapidPublicKey: env.VAPID_PUBLIC_KEY ?? null, channels: channels.results });
+    return json({ enabled, lastCronAt, lastError, configured: !!configured, rhythmConfigured: !!rhythmConfigured, lastRhythmError, vapidPublicKey: env.VAPID_PUBLIC_KEY ?? null, channels: channels.results });
   }
   if (path === '/v1/proactive/enabled' && request.method === 'PUT') {
     const { enabled } = await body<{ enabled: boolean }>(request);
@@ -108,16 +110,55 @@ async function api(request: Request, env: Env): Promise<Response> {
       return json(updated);
     }
   }
-  if (path === '/v1/secrets/proactive' && request.method === 'PUT') {
+  if (path === '/v1/rhythm/contexts' && request.method === 'GET') {
+    return json({ contexts: (await env.DB.prepare('SELECT character_id AS id, revision FROM rhythm_contexts').all()).results });
+  }
+  if (path.startsWith('/v1/rhythm/contexts/')) {
+    const id = decodeURIComponent(path.slice('/v1/rhythm/contexts/'.length));
+    if (request.method === 'DELETE') {
+      await env.DB.batch([
+        env.DB.prepare('DELETE FROM rhythm_contexts WHERE character_id = ?').bind(id),
+        env.DB.prepare('DELETE FROM rhythm_days WHERE character_id = ? AND data IS NULL').bind(id),
+      ]);
+      return json({ ok: true });
+    }
+    if (request.method === 'PUT') {
+      const { context: c, revision } = await body<{ context: RhythmContext; revision: number }>(request);
+      assert(c?.character?.id === id && c.character.card && typeof c.userName === 'string' && typeof c.promises === 'string', '节律角色无效');
+      assert(typeof c.timezone === 'string' && c.timezone, '缺少节律时区');
+      try { zonedParts(Date.now(), c.timezone); } catch { throw new HttpError(400, '无效的 IANA 时区'); }
+      assert(c.settings?.mode === 'daily' && ['pick', 'new'].includes(c.settings.outfitMode)
+        && ['schedule', 'meals', 'outfits'].every((k) => typeof c.settings.vary?.[k as keyof typeof c.settings.vary] === 'boolean'), '节律设置无效');
+      assert(Array.isArray(c.template?.schedule) && c.template.schedule.length && c.template.meals && Array.isArray(c.template.wardrobe)
+        && Array.isArray(c.world?.locations) && c.world.locations.length && Array.isArray(c.people), '缺少节律模板或世界');
+      assert(Number.isSafeInteger(revision) && revision >= 0, 'revision 无效');
+      const updated = await env.DB.prepare(`INSERT INTO rhythm_contexts(character_id, revision, data, updated_at)
+        SELECT ?, 1, ?, ? WHERE ? = 0 OR EXISTS (SELECT 1 FROM rhythm_contexts WHERE character_id = ?)
+        ON CONFLICT(character_id) DO UPDATE SET revision = rhythm_contexts.revision + 1, data = excluded.data, updated_at = excluded.updated_at
+        WHERE rhythm_contexts.revision = ? RETURNING revision`)
+        .bind(id, JSON.stringify(c), Date.now(), revision, id, revision).first<{ revision: number }>();
+      if (!updated) throw new HttpError(409, '另一台设备更新了节律设置，请重新连接后同步');
+      return json(updated);
+    }
+  }
+  if (path === '/v1/rhythm/days' && request.method === 'GET') {
+    const rows = await env.DB.prepare(`SELECT d.character_id, d.date, d.data, d.last_error FROM rhythm_days d
+      INNER JOIN rhythm_contexts c ON c.character_id = d.character_id ORDER BY d.date DESC`).all<{ character_id: string; date: string; data: string | null; last_error: string | null }>();
+    return json({ days: rows.results.filter((d) => d.data).map((d) => JSON.parse(d.data!)),
+      errors: rows.results.filter((d) => d.last_error).map((d) => ({ characterId: d.character_id, date: d.date, reason: d.last_error })) });
+  }
+  if (['/v1/secrets/proactive', '/v1/secrets/rhythm'].includes(path) && request.method === 'PUT') {
+    const role = path === '/v1/secrets/rhythm' ? 'rhythm' : 'proactive';
     const credentials = await body<ProactiveCredentials>(request);
     assert(Array.isArray(credentials.routes) && credentials.keys && Array.isArray(credentials.outputFilters), 'API 配置无效');
-    assert(credentials.routes.every((r) => ['main', 'proactive'].includes(r.role)), '只接受主动消息及其跟随的主对话配置');
     const system = new AgentSystem({ config: { routes: () => credentials.routes, keyOf: (id) => credentials.keys[id] || null } });
-    const status = system.status('proactive');
+    const chain = system.router.chain(role);
+    assert(credentials.routes.every((r) => chain.includes(r.role)), '只接受该功能及其跟随的 API 配置');
+    const status = system.status(role);
     assert(status.live, status.live ? '' : status.reason);
     const secret = await seal(env.KEK, credentials);
-    await env.DB.prepare("INSERT INTO secrets(id, ciphertext, iv) VALUES ('proactive', ?, ?) ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, iv = excluded.iv")
-      .bind(secret.ciphertext, secret.iv).run();
+    await env.DB.prepare('INSERT INTO secrets(id, ciphertext, iv) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, iv = excluded.iv')
+      .bind(role, secret.ciphertext, secret.iv).run();
     return json({ ok: true });
   }
   if (path === '/v1/inbox' && request.method === 'GET') {
@@ -184,6 +225,8 @@ export default {
   },
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     // Scheduled execution is independent of HTTP requests and browser/service-worker lifetime.
-    await runScheduled(env, controller.scheduledTime);
+    const jobs = await Promise.allSettled([runScheduled(env, controller.scheduledTime), runRhythmScheduled(env, controller.scheduledTime)]);
+    const failure = jobs.find((r) => r.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
   },
 } satisfies ExportedHandler<Env>;

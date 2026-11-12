@@ -3,6 +3,7 @@
   "name": "ai-mobile-hub",
   "main": "src/index.ts",
   "compatibility_date": "2026-11-11",
+  // Includes local 04:00 in each saved IANA zone; later ticks retry missing daily rhythms.
   "triggers": { "crons": ["*/5 * * * *"] },
   "observability": { "enabled": true },
   "vars": {

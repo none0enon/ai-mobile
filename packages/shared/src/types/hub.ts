@@ -5,6 +5,26 @@ import type { Lorebook } from './lorebook.ts';
 import type { Preset } from './preset.ts';
 import type { ProactiveRule, Touchpoint, NotificationPreview } from './proactive.ts';
 import type { EnvironmentSettings } from './settings.ts';
+import type { World } from '../locations.ts';
+import type { RhythmDay, RhythmPerson, RhythmSettings, RhythmTemplate } from './rhythm.ts';
+
+/** Saved independently of proactive messaging, including characters without a chat. */
+export interface RhythmContext {
+  character: Pick<Character, 'id' | 'name' | 'pronoun' | 'card'>;
+  userName: string;
+  timezone: string;
+  settings: RhythmSettings;
+  template: RhythmTemplate;
+  world: World;
+  people: RhythmPerson[];
+  preset: Preset | null;
+  promises: string;
+}
+
+export interface HubRhythms {
+  days: RhythmDay[];
+  errors: { characterId: string; date: string; reason: string }[];
+}
 
 /** Only the context needed by the proactive agent. API credentials use /v1/secrets separately. */
 export interface ProactiveContext {
@@ -46,6 +66,8 @@ export interface HubStatus {
   lastCronAt: number | null;
   lastError: string | null;
   configured: boolean;
+  rhythmConfigured: boolean;
+  lastRhythmError: string | null;
   vapidPublicKey: string | null;
   channels: { id: string; kind: 'webpush' | 'webhook'; label: string; lastOkAt: number | null }[];
 }

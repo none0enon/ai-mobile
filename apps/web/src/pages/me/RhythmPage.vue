@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { getLocation, OUTFIT_KINDS, SCENES, slotIn, toMinutes, worldOf, type OutfitKind, type RhythmDay, type RhythmSlot } from '@app/shared';
+import { getLocation, OUTFIT_KINDS, SCENES, slotIn, toMinutes, wallDate, worldOf, type OutfitKind, type RhythmDay, type RhythmSlot } from '@app/shared';
 import { showConfirmDialog, showToast } from 'vant';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -12,6 +12,8 @@ import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useLibraryStore } from '@/stores/library';
 import { useRhythmStore, type WorldPreview } from '@/stores/rhythm';
+import { useEnvironmentStore } from '@/stores/environment';
+import { useHubStore } from '@/stores/hub';
 import { uid } from '@/utils/id';
 
 /**
@@ -29,6 +31,8 @@ const chars = useCharacterStore();
 const ai = useAiStore();
 const lib = useLibraryStore();
 const rhythm = useRhythmStore();
+const hub = useHubStore();
+const environment = useEnvironmentStore();
 
 const pickedId = ref((route.query.char as string | undefined) ?? app.activeCharacterId);
 const c = computed(() => chars.byId(pickedId.value) ?? chars.list[0]);
@@ -79,7 +83,7 @@ function setVary(k: 'schedule' | 'meals' | 'outfits', v: boolean) {
 const clock = ref(Date.now());
 const clockTimer = setInterval(() => (clock.value = Date.now()), 30_000);
 onBeforeUnmount(() => clearInterval(clockTimer));
-const nowSlot = computed(() => (today.value?.schedule.length ? slotIn(today.value.schedule, new Date(clock.value)) : undefined));
+const nowSlot = computed(() => (today.value?.schedule.length ? slotIn(today.value.schedule, wallDate(clock.value, environment.settings.timezone)) : undefined));
 const sourceLine = computed(() => {
   const d = today.value;
   if (!d) return '';
@@ -302,8 +306,14 @@ const sceneName = (sid: string) => SCENES.find((s) => s.id === sid)?.name ?? sid
               ]"
             />
             <p class="note !mx-0">
-              {{ mode === 'fixed' ? `一直按下面的模板过：作息、三餐、衣柜里每类第一套。` : `每天第一次打开 App 时交给「节律」排（凌晨 4 点换一天），排出来的会检查：盖满一整天、地点都在${c.pronoun}的世界里、标了"固定"的事不挪。` }}
+              {{ mode === 'fixed' ? `一直按下面的模板过：作息、三餐、衣柜里每类第一套。` : `连接云端后，每天凌晨 4 点（${environment.settings.timezone}）自动排今天，App 没打开也会生成。排出来的会检查：盖满一整天、地点都在${c.pronoun}的世界里、标了"固定"的事不挪。` }}
             </p>
+            <p v-if="mode === 'daily'" class="note">
+              <RouterLink v-if="!hub.connected" to="/me/sync" class="text-accent-ink">连接云端以启用凌晨生成 →</RouterLink>
+              <span v-else>设置自动同步到云端；打开 App 后同步已生成的节律。手动修改过的今天会保留。</span>
+              <span v-if="!hub.connected"> 未连接时仍在打开 App 后生成。</span>
+            </p>
+            <p v-if="mode === 'daily' && (hub.error || hub.status?.lastRhythmError)" class="note text-danger" role="alert">{{ hub.error || hub.status?.lastRhythmError }}</p>
             <div v-if="mode === 'daily'" class="card-box">
               <div class="flex flex-wrap gap-4">
                 <van-checkbox :model-value="cfg.settings.vary.schedule" icon-size="18px" @update:model-value="(v: boolean) => setVary('schedule', v)">作息</van-checkbox>

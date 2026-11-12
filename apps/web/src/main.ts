@@ -89,7 +89,7 @@ Promise.race([hydrated, new Promise((r) => setTimeout(r, 1500))]).finally(() => 
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   void Promise.race([hydrated, wait(5000)]).then(async () => {
     followLatestChat();
-    // 她们此刻在哪（按今天的节律，每分钟更新）；每天变化的角色在当天第一次打开时排今天
+    // 每分钟按节律更新位置；已连接云端时只同步云端计划，避免重开时重复生成。
     useRhythmStore().start();
     // 你的真实世界（定位、家的坐标、附近的地方），然后是真实天气（你那边 + 住在别的城市的她们那边）
     void useRealWorldStore()

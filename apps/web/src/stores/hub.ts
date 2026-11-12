@@ -1,5 +1,5 @@
 import { apiKeyId, DEFAULT_PROACTIVE_RULES, type HubInbox, type HubStatus, type HubTouchpoint,
-  type Message, type NotificationPreview, type ProactiveContext, type ProactiveCredentials } from '@app/shared';
+  type HubRhythms, type Message, type NotificationPreview, type ProactiveContext, type ProactiveCredentials } from '@app/shared';
 import { defineStore } from 'pinia';
 import { computed, reactive, ref, watch } from 'vue';
 import { getOne, write } from '@/db/idb';
@@ -11,14 +11,16 @@ import { useCharacterStore } from './characters';
 import { useChatStore } from './chat';
 import { useEnvironmentStore } from './environment';
 import { useLibraryStore } from './library';
+import { useRhythmStore } from './rhythm';
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 interface SavedHub {
   url: string; cursor: number; deviceId: string; active: boolean; preview: NotificationPreview;
   revisions: Record<string, number>; hashes: Record<string, string>; apiHash: string;
+  rhythmRevisions: Record<string, number>; rhythmHashes: Record<string, string>; rhythmApiHash: string;
 }
 export const useHubStore = defineStore('hub', () => {
-  const config = reactive<SavedHub>({ url: '', cursor: 0, deviceId: '', active: false, preview: 'name-only', revisions: {}, hashes: {}, apiHash: '' });
+  const config = reactive<SavedHub>({ url: '', cursor: 0, deviceId: '', active: false, preview: 'name-only', revisions: {}, hashes: {}, apiHash: '', rhythmRevisions: {}, rhythmHashes: {}, rhythmApiHash: '' });
   const token = ref('');
   const savedPassword = ref('');
   const connected = computed(() => !!config.url && !!token.value);
@@ -61,19 +63,24 @@ export const useHubStore = defineStore('hub', () => {
     connectionVersion++;
     syncing.value = false;
     error.value = '';
-    if (config.url !== base) Object.assign(config, { cursor: 0, active: false, revisions: {}, hashes: {}, apiHash: '' });
+    if (config.url !== base) Object.assign(config, { cursor: 0, active: false, revisions: {}, hashes: {}, apiHash: '', rhythmRevisions: {}, rhythmHashes: {}, rhythmApiHash: '' });
     config.url = base;
     config.deviceId = result.deviceId;
     token.value = result.token;
     if (!await write('secrets', [{ key: 'hub:token', value: result.token }, { key: 'hub:password', value: password }])) throw new Error('无法保存登录信息，请允许浏览器存储');
     savedPassword.value = password;
-    const remote = await request<{ contexts: { id: string; revision: number }[] }>('/v1/proactive/contexts');
+    const [remote, rhythms] = await Promise.all([
+      request<{ contexts: { id: string; revision: number }[] }>('/v1/proactive/contexts'),
+      request<{ contexts: { id: string; revision: number }[] }>('/v1/rhythm/contexts'),
+    ]);
     // Reconnect is an explicit choice of this device as the source of context updates.
     config.revisions = Object.fromEntries(remote.contexts.map((c) => [c.id, c.revision]));
     config.hashes = {};
+    config.rhythmRevisions = Object.fromEntries(rhythms.contexts.map((c) => [c.id, c.revision]));
+    config.rhythmHashes = Object.fromEntries(Object.keys(config.rhythmHashes).map((id) => [id, '']));
     await refreshStatus();
     if (!await save()) throw new Error('无法保存连接地址，请允许浏览器存储');
-    await pull();
+    await syncNow();
   }
 
   async function disconnect() {
@@ -139,22 +146,66 @@ export const useHubStore = defineStore('hub', () => {
     if (failed?.status === 'rejected') throw failed.reason;
   }
 
-  async function uploadApi() {
+  async function uploadApi(role: 'proactive' | 'rhythm' = 'proactive') {
     const ai = useAiStore();
-    if (!ai.isLive('proactive')) throw new Error('请先在 API 设置中接通主动消息');
+    if (!ai.isLive(role)) throw new Error(`请先在 API 设置中接通${role === 'rhythm' ? '节律' : '主动消息'}`);
     // 主动消息可能跟随「陪伴 · 快速」、它再跟随主对话：一路上的设置都要带上，云端才解析得出用哪个 API
-    const chain = ai.system.router.chain('proactive');
-    const source = chain.at(-1) ?? 'proactive';
+    const chain = ai.system.router.chain(role);
+    const source = chain.at(-1) ?? role;
     const credentials: ProactiveCredentials = clone({
       routes: ai.routes.filter((r) => chain.includes(r.role)),
       keys: Object.fromEntries([apiKeyId(source), apiKeyId(source, true)].map((id) => [id, ai.keyOf(id) ?? ''])),
       outputFilters: ai.outputFilters,
     });
     const fingerprint = await hash(credentials);
-    if (config.apiHash === fingerprint && status.value?.configured) return;
-    await request('/v1/secrets/proactive', 'PUT', credentials);
-    config.apiHash = fingerprint;
+    const key = role === 'rhythm' ? 'rhythmApiHash' : 'apiHash';
+    if (config[key] === fingerprint && (role === 'rhythm' ? status.value?.rhythmConfigured : status.value?.configured)) return;
+    await request(`/v1/secrets/${role}`, 'PUT', credentials);
+    config[key] = fingerprint;
     await save();
+  }
+
+  function rhythmContexts() {
+    const rhythm = useRhythmStore();
+    return useCharacterStore().list.flatMap((c) => {
+      if (rhythm.configOf(c.id).settings.mode !== 'daily') return [];
+      const context = rhythm.cloudContext(c.id);
+      return context ? [context] : [];
+    });
+  }
+
+  async function uploadRhythms() {
+    const snapshots = clone(rhythmContexts());
+    const present = new Set(snapshots.map((c) => c.character.id));
+    // Only unregister this device's previously uploaded roles. Empty devices cannot erase other roles.
+    const results = await Promise.allSettled([
+      ...snapshots.map(async (context) => {
+        const id = context.character.id;
+        const fingerprint = await hash(context);
+        if (config.rhythmHashes[id] === fingerprint) return;
+        const result = await request<{ revision: number }>(`/v1/rhythm/contexts/${encodeURIComponent(id)}`, 'PUT', { context, revision: config.rhythmRevisions[id] ?? 0 });
+        config.rhythmRevisions[id] = result.revision; config.rhythmHashes[id] = fingerprint;
+      }),
+      ...Object.keys(config.rhythmHashes).filter((id) => !present.has(id)).map(async (id) => {
+        await request(`/v1/rhythm/contexts/${encodeURIComponent(id)}`, 'DELETE');
+        delete config.rhythmHashes[id]; delete config.rhythmRevisions[id];
+      }),
+      ...(snapshots.length ? [uploadApi('rhythm')] : []),
+    ]);
+    await save();
+    const failure = results.find((r) => r.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+  }
+
+  async function pullRhythms() {
+    const result = await request<HubRhythms>('/v1/rhythm/days');
+    const rhythm = useRhythmStore();
+    await rhythm.ingestCloud(result.days);
+    for (const failure of result.errors) {
+      if (failure.date === rhythm.today && rhythm.configOf(failure.characterId).settings.mode === 'daily') {
+        rhythm.errors[failure.characterId] = { at: Date.now(), reason: failure.reason };
+      }
+    }
   }
 
   async function ingest(rows: HubInbox['messages']) {
@@ -204,7 +255,7 @@ export const useHubStore = defineStore('hub', () => {
     try {
       await refreshStatus();
       // Context updates and inbox reads are independent. Neither starts cloud generation.
-      const jobs = await Promise.allSettled([pull(), ...(config.active ? [uploadContexts(), uploadApi()] : [])]);
+      const jobs = await Promise.allSettled([pull(), pullRhythms(), uploadRhythms(), ...(config.active ? [uploadContexts(), uploadApi()] : [])]);
       const failure = jobs.find((r) => r.status === 'rejected');
       if (failure?.status === 'rejected') throw failure.reason;
       if (version === connectionVersion) { lastSyncAt.value = Date.now(); error.value = ''; }
@@ -252,9 +303,11 @@ export const useHubStore = defineStore('hub', () => {
     navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.type === 'hub-inbox') void syncNow(); });
     watch(() => config.preview, () => { void save(); });
     let debounce: ReturnType<typeof setTimeout>;
-    watch(() => [contexts(), useAiStore().routes, useAiStore().outputFilters,
+    watch(() => [contexts(), rhythmContexts(), useAiStore().routes, useAiStore().outputFilters,
       useAiStore().keyOf(apiKeyId(useAiStore().system.router.source('proactive'))),
-      useAiStore().keyOf(apiKeyId(useAiStore().system.router.source('proactive'), true)), useChatStore().streams], () => {
+      useAiStore().keyOf(apiKeyId(useAiStore().system.router.source('proactive'), true)),
+      useAiStore().keyOf(apiKeyId(useAiStore().system.router.source('rhythm'))),
+      useAiStore().keyOf(apiKeyId(useAiStore().system.router.source('rhythm'), true)), useChatStore().streams], () => {
       clearTimeout(debounce); debounce = setTimeout(() => void syncNow(), 500);
     }, { deep: true });
   }

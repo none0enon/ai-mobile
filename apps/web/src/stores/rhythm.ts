@@ -1,20 +1,19 @@
-import { buildRhythmMessages, errorReport, errorText, samplerRequest, type RhythmFill } from '@app/ai';
+import { buildRhythmMessages, errorReport, errorText, samplerRequest, planDayInput, type RhythmFill } from '@app/ai';
 import {
-  checkSchedule,
   dayFromTemplate,
   DEFAULT_RHYTHM_SETTINGS,
-  defaultOutfits,
   getLocation,
   hasOwnWorld,
-  locationResolver,
-  OUTFIT_KINDS,
   outfitOfDay,
   parseBuiltWorld,
   parsePlanDay,
   registerWorld,
   rhythmDate,
+  rhythmDayFromPlan,
+  shiftDate,
+  wallDate,
+  type RhythmContext,
   slotIn,
-  solarTermNote,
   substituteMacros,
   templateFromWorld,
   unregisterWorld,
@@ -38,6 +37,8 @@ import { useAiStore } from './ai';
 import { useCharacterStore } from './characters';
 import { useChatStore } from './chat';
 import { useLibraryStore } from './library';
+import { useEnvironmentStore } from './environment';
+import { useHubStore } from './hub';
 import { autoSave, getEntries, write } from '@/db/idb';
 import { personas } from '@/mock/characters';
 import { uid } from '@/utils/id';
@@ -46,11 +47,11 @@ import { uid } from '@/utils/id';
  * 节律（设计文档 §9 开头）：她每天的作息、三餐和穿着，都挂在角色 id 下，存在本机。
  * - 每个角色在"我的 → 节律"里选：固定（一直用模板）/ 每天变化（作息、三餐、穿着可以分别勾；穿着从衣柜挑或每天新编）；
  * - 模板：演示角色来自她的世界；导入的角色先"建世界"（「节律」从角色卡和世界书里生成她的地点、身边的人、作息模板、三餐、衣柜）；
- * - 每天：固定的直接按模板；每天变化的在当天第一次打开 App 时交给「节律」排（也可以手动"重新排今天"），
+ * - 每天：固定的直接按模板；每天变化的由云端凌晨 4 点排，未连接云端时在打开 App 后排（也可以手动"重新排今天"），
  *   排出来的先检查（盖满一整天、不重叠、地点在她的世界里、固定的事没挪），不合格的部分用模板补；
  * - 用在：她此刻在哪、在做什么（每分钟按今天的作息更新）；陪伴学习里她的小目标；一起吃饭她吃什么；
  *   生图这个场景该穿哪套（同一天的图衣服一致）；【当前环境】里她今天穿什么。
- * 节律日从凌晨 4 点算起。云端（Worker）凌晨排今天还没做，现在是打开 App 时在本机排。
+ * 节律日按环境设置里的时区，从凌晨 4 点算起。云端结果同步后也保存在本机。
  */
 
 export type RhythmResult<T> = { ok: true; value: T } | { ok: false; reason: string; detail?: string; notConnected?: boolean };
@@ -76,11 +77,8 @@ function dayKey(characterId: string, date: string) {
 
 /** 最近 n 个节律日（不含今天），从近到远 */
 function previousDates(today: string, n: number): string[] {
-  const base = new Date(`${today}T12:00:00`);
-  return Array.from({ length: n }, (_, i) => rhythmDate(new Date(base.getTime() - (i + 1) * DAY + 4 * 3_600_000)));
+  return Array.from({ length: n }, (_, i) => shiftDate(today, -(i + 1)));
 }
-
-const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
 export const useRhythmStore = defineStore('rhythm', () => {
   const configs = reactive<Record<string, CharacterRhythm>>({});
@@ -92,7 +90,7 @@ export const useRhythmStore = defineStore('rhythm', () => {
   /** 最近一次排今天失败的原因（只在内存里）；节律页显示 */
   const errors = reactive<Record<string, { at: number; reason: string; detail?: string } | undefined>>({});
   /** 今天是哪个节律日（每分钟更新） */
-  const today = ref(rhythmDate(new Date()));
+  const today = ref(rhythmDate(new Date(), useEnvironmentStore().settings.timezone));
 
   const saver = autoSave(
     'rhythm',
@@ -106,7 +104,7 @@ export const useRhythmStore = defineStore('rhythm', () => {
 
   async function hydrate() {
     const entries = await getEntries<unknown>('rhythm');
-    const oldest = rhythmDate(new Date(Date.now() - KEEP_DAYS * DAY));
+    const oldest = rhythmDate(new Date(Date.now() - KEEP_DAYS * DAY), useEnvironmentStore().settings.timezone);
     const stale: string[] = [];
     for (const { key, value } of entries) {
       if (!value || typeof value !== 'object') continue;
@@ -188,7 +186,7 @@ export const useRhythmStore = defineStore('rhythm', () => {
   /** 她此刻按今天的作息在哪、在做什么 */
   function slotNow(characterId: string, now = new Date()): RhythmSlot | undefined {
     const d = todayOf(characterId);
-    return d?.schedule.length ? slotIn(d.schedule, now) : undefined;
+    return d?.schedule.length ? slotIn(d.schedule, wallDate(now.getTime(), useEnvironmentStore().settings.timezone)) : undefined;
   }
 
   // —— 改 ——
@@ -239,8 +237,10 @@ export const useRhythmStore = defineStore('rhythm', () => {
   }
 
   /** 恢复成按模板（去掉今天排过、改过的） */
-  function resetToday(characterId: string) {
-    delete days[dayKey(characterId, today.value)];
+  function resetToday(characterId: string, keepTemplate = true) {
+    const template = templateOf(characterId);
+    if (template && keepTemplate) days[dayKey(characterId, today.value)] = { ...dayFromTemplate(characterId, today.value, template), edited: true };
+    else delete days[dayKey(characterId, today.value)];
   }
 
   // —— 交给「节律」——
@@ -277,57 +277,6 @@ export const useRhythmStore = defineStore('rhythm', () => {
     return parts.length ? `世界书和设定：\n${parts.join('\n')}` : '';
   }
 
-  function worldLines(characterId: string): string {
-    const w = worldOf(characterId);
-    const people = configOf(characterId).people;
-    return [
-      `${w.name}：${w.blurb}`,
-      '地点（id：名字 · 室内或室外 · 能一起做的事 · 一句话）：',
-      ...w.locations.map((l) => `- ${l.id}：${l.name} · ${l.indoor ? '室内' : '室外'} · ${l.activities.map((a) => a.label).join('、') || '—'}${l.blurb ? ` · ${l.blurb}` : ''}`),
-      people.length ? `身边的人：\n${people.map((p) => `- ${p.name}（${p.relation}）${p.note ? `：${p.note}` : ''}`).join('\n')}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-  }
-
-  function scheduleLines(schedule: RhythmSlot[]): string {
-    return schedule.map((s) => `- ${s.from}–${s.to} ${getLocation(s.locationId)?.name ?? s.locationId}（${s.locationId}）${s.status}${s.fixed ? '（固定，不能挪）' : ''}`).join('\n');
-  }
-
-  function templateLines(t: RhythmTemplate): string {
-    return [
-      `作息模板：\n${scheduleLines(t.schedule)}`,
-      `三餐习惯：早饭${t.meals.breakfast || '—'}；午饭${t.meals.lunch || '—'}；晚饭${t.meals.dinner || '—'}`,
-      t.task ? `最近手头的事：${t.task}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-  }
-
-  function wardrobeLines(t: RhythmTemplate): string {
-    if (!t.wardrobe.length) return '衣柜：还是空的';
-    return `衣柜：\n${t.wardrobe.map((o) => `- [${OUTFIT_KINDS[o.kind]}] ${o.name}：${o.tags}`).join('\n')}`;
-  }
-
-  function todayLines(date: string): string {
-    const d = new Date(`${date}T12:00:00`);
-    const term = solarTermNote(d);
-    const weekend = d.getDay() === 0 || d.getDay() === 6;
-    return `今天：${date} ${WEEKDAYS[d.getDay()]}（${weekend ? '周末' : '工作日'}）${term ? ` · ${term}` : ''}`;
-  }
-
-  function recentLines(characterId: string): string {
-    const list = recentDays(characterId, 3);
-    if (!list.length) return '';
-    return `最近几天：\n${list
-      .map((d) => {
-        const busy = d.schedule.filter((s) => !/睡/.test(s.status)).map((s) => `${s.from} ${s.status}`).join('，');
-        const wear = (Object.entries(d.outfits) as [OutfitKind, DayOutfit][]).map(([k, o]) => `${OUTFIT_KINDS[k]}：${o.name}`).join('；');
-        return `- ${d.date}：${busy}${wear ? `；穿 ${wear}` : ''}${d.meals.dinner ? `；晚饭${d.meals.dinner}` : ''}`;
-      })
-      .join('\n')}`;
-  }
-
   function promiseLines(characterId: string): string {
     const chat = useChatStore();
     const c = chat.chatOfCharacter(characterId);
@@ -340,6 +289,40 @@ export const useRhythmStore = defineStore('rhythm', () => {
   function userName(characterId: string): string {
     const chat = useChatStore().chatOfCharacter(characterId);
     return personas.find((p) => p.id === chat?.personaId)?.name ?? personas.find((p) => p.isDefault)?.name ?? '你';
+  }
+
+  /** Upload only rhythm inputs; volatile location/presence changes do not invalidate a running plan. */
+  function cloudContext(characterId: string): RhythmContext | null {
+    const c = useCharacterStore().byId(characterId);
+    const template = templateOf(characterId);
+    if (!c || !template) return null;
+    const cfg = configOf(characterId);
+    return { character: { id: c.id, name: c.name, pronoun: c.pronoun, card: c.card }, userName: userName(characterId),
+      timezone: useEnvironmentStore().settings.timezone, settings: cfg.settings, template,
+      world: worldOf(characterId), people: cfg.people, preset: useLibraryStore().presetForUse('rhythm', c) ?? null,
+      promises: promiseLines(characterId) };
+  }
+
+  async function ingestCloud(incoming: RhythmDay[]) {
+    const accepted = incoming.filter((day) => {
+      if (!useCharacterStore().byId(day.characterId) || configOf(day.characterId).settings.mode !== 'daily' || busy[day.characterId]) return false;
+      const local = days[dayKey(day.characterId, day.date)];
+      return !local?.edited && (!local || local.at < day.at);
+    });
+    const previous = new Map(accepted.map((day) => [dayKey(day.characterId, day.date), days[dayKey(day.characterId, day.date)]]));
+    for (const day of accepted) { days[dayKey(day.characterId, day.date)] = day; delete errors[day.characterId]; }
+    if (!await write('rhythm', accepted.map((day) => ({ key: `day:${dayKey(day.characterId, day.date)}`, value: clone(day) })))) {
+      // Retry on the next pull; retain any edits made while the IDB transaction was running.
+      for (const day of accepted) {
+        const key = dayKey(day.characterId, day.date);
+        if (days[key]?.edited || days[key]?.at !== day.at) continue;
+        const old = previous.get(key);
+        if (old) days[key] = old;
+        else delete days[key];
+      }
+      throw new Error('节律未能写入本机存储，下次同步会重试');
+    }
+    tick();
   }
 
   /** 调「节律」：按节律预设拼提示词，读回 JSON */
@@ -379,69 +362,17 @@ export const useRhythmStore = defineStore('rhythm', () => {
     if (!template) return { ok: false, reason: '还没有小世界：先"建世界"' };
     const c = useCharacterStore().byId(characterId);
     if (!c) return { ok: false, reason: '找不到这个角色' };
-    const { settings } = configOf(characterId);
-    const vary = settings.mode === 'daily' ? settings.vary : { schedule: false, meals: false, outfits: false };
-    const asks = [vary.schedule ? '作息' : '', vary.meals ? '三餐' : '', vary.outfits ? '穿着' : '', '手头的事', '一两件小事'].filter(Boolean);
+    const context = clone(cloudContext(characterId)!);
     busy[characterId] = 'plan';
     try {
-      const user = userName(characterId);
-      const r = await callRhythm(
-        characterId,
-        'plan-day',
-        {
-          rhythmCharacter: characterLines(c, user),
-          rhythmWorld: worldLines(characterId),
-          rhythmTemplate: templateLines(template),
-          rhythmWardrobe: vary.outfits || settings.mode === 'fixed' ? wardrobeLines(template) : '',
-          rhythmToday: todayLines(date),
-          rhythmRecent: recentLines(characterId),
-          rhythmPromises: promiseLines(characterId),
-          rhythmAsk: `这次要排的：${asks.join('、')}${vary.schedule ? '' : '（作息按模板，不用写）'}`,
-        },
-        parsePlanDay,
-        vary.outfits ? settings.outfitMode : null,
-      );
+      const input = planDayInput(context, date, recentDays(characterId, 3));
+      const r = await callRhythm(characterId, 'plan-day', input.fills, parsePlanDay, input.outfitMode);
       if (!r.ok) {
         errors[characterId] = { at: Date.now(), reason: r.reason, detail: r.detail };
         return r;
       }
-      const out = r.value.value;
-      const base = dayFromTemplate(characterId, date, template);
-      const fixes: string[] = [];
-      let schedule = base.schedule;
-      if (vary.schedule && out.schedule.length) {
-        const checked = checkSchedule(out.schedule, { template, resolve: locationResolver(worldOf(characterId).locations, characterId) });
-        schedule = checked.schedule;
-        fixes.push(...checked.fixes);
-      } else if (vary.schedule) fixes.push('没有排作息，按模板');
-      const outfits = { ...base.outfits };
-      if (vary.outfits) {
-        for (const [kind, o] of Object.entries(out.outfits) as [OutfitKind, DayOutfit][]) if (o?.tags) outfits[kind] = o;
-        if (settings.outfitMode === 'pick') {
-          // 从衣柜挑：写了衣柜里没有的，换成那一类的第一套
-          const fallback = defaultOutfits(template.wardrobe);
-          for (const kind of Object.keys(outfits) as OutfitKind[]) {
-            const o = outfits[kind];
-            if (o && template.wardrobe.length && !template.wardrobe.some((w) => w.name === o.name || w.tags === o.tags)) {
-              fixes.push(`"${o.name}"不在衣柜里，换成衣柜里的`);
-              if (fallback[kind]) outfits[kind] = fallback[kind];
-            }
-          }
-        }
-      }
-      const day: RhythmDay = {
-        characterId,
-        date,
-        schedule,
-        meals: vary.meals ? { ...base.meals, ...out.meals } : base.meals,
-        outfits,
-        task: out.task || base.task,
-        events: out.events,
-        source: 'model',
-        model: r.value.model,
-        at: Date.now(),
-        ...(fixes.length ? { fixes } : {}),
-      };
+      const day = rhythmDayFromPlan({ characterId, date, template: context.template, settings: context.settings,
+        locations: context.world.locations, output: r.value.value, model: r.value.model, at: Date.now() });
       days[dayKey(characterId, date)] = day;
       delete errors[characterId];
       return { ok: true, value: day };
@@ -476,7 +407,7 @@ export const useRhythmStore = defineStore('rhythm', () => {
     c.template = clone(preview.template);
     c.people = clone(preview.people);
     c.updatedAt = Date.now();
-    resetToday(characterId);
+    resetToday(characterId, false);
     tick();
   }
 
@@ -488,17 +419,17 @@ export const useRhythmStore = defineStore('rhythm', () => {
     const c = ensureConfig(characterId);
     c.template = null;
     c.people = [];
-    resetToday(characterId);
+    resetToday(characterId, false);
   }
 
-  // —— 每分钟：她此刻在哪；每天变化的在当天第一次打开时排 ——
+  // —— 每分钟：更新位置；未连接云端的设备才自动在本机排 ——
 
   /** 自动排失败后，这个角色一小时内不再自动试（完整报错在节律页） */
   const backoff = new Map<string, number>();
   let timer: ReturnType<typeof setInterval> | undefined;
 
   function tick() {
-    today.value = rhythmDate(new Date());
+    today.value = rhythmDate(new Date(), useEnvironmentStore().settings.timezone);
     const chars = useCharacterStore();
     const chat = useChatStore();
     const ai = useAiStore();
@@ -508,6 +439,7 @@ export const useRhythmStore = defineStore('rhythm', () => {
       const slot = slotNow(c.id);
       if (slot && getLocation(slot.locationId)) Object.assign(c, { locationId: slot.locationId, status: slot.status });
       const cfg = configs[c.id];
+      if (useHubStore().connected) continue;
       if (cfg?.settings.mode !== 'daily' || days[dayKey(c.id, today.value)] || busy[c.id]) continue;
       if ((backoff.get(c.id) ?? 0) > Date.now() || !ai.isLive('rhythm') || !templateOf(c.id)) continue;
       void planToday(c.id).then((r) => {
@@ -526,6 +458,8 @@ export const useRhythmStore = defineStore('rhythm', () => {
 
   return {
     configs,
+    cloudContext,
+    ingestCloud,
     days,
     worlds,
     busy,
