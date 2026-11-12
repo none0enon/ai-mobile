@@ -9,7 +9,6 @@ import { personas } from '@/mock/characters';
 import { pwa } from '@/pwa';
 import { useLibraryStore } from '@/stores/library';
 import { memories, album } from '@/mock/memories';
-import { weather } from '@/mock/activity';
 import { services, writeSidestory, type SidestoryOutcome } from '@/services';
 import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
@@ -18,6 +17,8 @@ import { useChatStore } from '@/stores/chat';
 import { useProactiveStore } from '@/stores/proactive';
 import { useRhythmStore } from '@/stores/rhythm';
 import { useHubStore } from '@/stores/hub';
+import { useServicesStore } from '@/stores/services';
+import { useWeatherStore } from '@/stores/weather';
 import { showErrorDialog } from '@/utils/errors';
 
 const router = useRouter();
@@ -41,6 +42,14 @@ const rhythmValue = computed(() => {
 });
 const totalMessages = computed(() => Object.values(chat.messages).reduce((n, l) => n + l.length, 0) + 1268);
 const THEME_LABEL = { system: '跟随系统', dark: '夜', light: '昼' } as const;
+const svc = useServicesStore();
+const weather = useWeatherStore();
+/** 地图、天气、音乐接通了几个（Open-Meteo 天气免 Key，不算在里面） */
+const servicesValue = computed(() => {
+  const on = [svc.mapsReady && 'Google 地图', svc.qweatherReady && '和风天气', svc.musicReady && '网易云'].filter(Boolean);
+  return on.length ? `${on.length} 个已接通` : '';
+});
+const envValue = computed(() => (weather.mine ? `${weather.mine.place} · ${weather.mine.text} ${weather.temp(weather.mine.tempC)}` : '还没设置城市'));
 
 const groups = computed(() => [
   {
@@ -64,6 +73,13 @@ const groups = computed(() => [
         to: '/me/api',
       },
       { icon: 'i-lucide-audio-lines', label: '语音', value: '', desc: '她们的声音、语音识别、通话', to: '/me/voice' },
+      {
+        icon: 'i-lucide-plug-zap',
+        label: '地图、天气、音乐',
+        value: servicesValue.value,
+        desc: 'Google 地图、网易云音乐、和风天气（国内）；你那边的天气用 Open-Meteo，不用 Key',
+        to: '/me/services',
+      },
     ],
   },
   {
@@ -77,7 +93,7 @@ const groups = computed(() => [
         to: '/me/proactive',
       },
       { icon: 'i-lucide-calendar-clock', label: '节律', value: rhythmValue.value, desc: '她们每天的作息、三餐和穿着；导入的角色在这里建小世界', to: '/me/rhythm' },
-      { icon: 'i-lucide-cloud-sun', label: '环境与作息', value: `${weather.city} · ${weather.text}`, to: '/me/environment' },
+      { icon: weather.mine?.icon ?? 'i-lucide-cloud-sun', label: '环境与作息', value: envValue.value, to: '/me/environment' },
     ],
   },
   {

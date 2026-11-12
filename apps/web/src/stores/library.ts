@@ -47,6 +47,15 @@ function readSeeds(): Seed[] {
 }
 
 const SEEDS = readSeeds();
+
+/** 自带预设文件里某一块的内容（预设里没有这一块时用文件里的，例如导入的 SillyTavern 预设没有"识图看照片"） */
+export function seedBlockContent(identifier: string): string | undefined {
+  for (const s of SEEDS) {
+    const b = s.preset.blocks.find((x) => x.identifier === identifier);
+    if (b?.content.trim()) return b.content.trim();
+  }
+  return undefined;
+}
 const DEMO_BOOK_IDS = new Set(demoLorebooks.map((b) => b.id));
 
 /**
@@ -103,6 +112,24 @@ const SEED_UPGRADES: SeedUpgrade[] = [
       format: ['只输出一个 JSON 对象，不要任何其他文字：\n{"caption": "中文短标题（12 字以内）", "tags": "逗号分隔的英文 tags", "negative": "额外的负面 tags，可以为空字符串", "size": "portrait"}'],
     },
     added: ['momentMine'],
+  },
+  {
+    // 聊天 ＋ 发照片：识图先把照片看一遍（这一块交给识图，不发给对话模型）
+    id: 'chat-daily:photo-look',
+    file: 'chat-daily.json',
+    added: ['photoLook'],
+  },
+  {
+    id: 'chat-stage:photo-look',
+    file: 'chat-stage.json',
+    added: ['photoLook'],
+  },
+  {
+    // 一起听歌接上网易云：一首歌开始时按歌词批量写弹幕、边听边聊；后置指令不再限定"一句"（批量时要输出 JSON）
+    id: 'feature-music:netease',
+    file: 'feature-music.json',
+    replaced: { jailbreak: ['像弹幕一样短：一句，20 字以内。'] },
+    added: ['musicBatch', 'musicChat'],
   },
   {
     // 看链接时像发弹幕一样吐槽；认得出片名里的作品、角色时可以就着说

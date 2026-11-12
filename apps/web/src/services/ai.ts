@@ -36,6 +36,7 @@ import { useAiStore } from '@/stores/ai';
 import { useCharacterStore } from '@/stores/characters';
 import { useLibraryStore } from '@/stores/library';
 import { useRhythmStore } from '@/stores/rhythm';
+import { useWeatherStore } from '@/stores/weather';
 import { sleep } from '@/utils/id';
 
 /**
@@ -247,6 +248,10 @@ export class RoutedImage implements ImageClient {
     const now = new Date();
     // 节律里今天这个场景该穿的那套：一起做事时锁定（同一天的图衣服一致），配图时只告诉模型；画"你"时不用她的衣服
     const outfit = req.subject ? undefined : useRhythmStore().outfitFor(c.id, req.sceneId ?? null);
+    // 真实天气：画"你"、或者她在你这边真实的地方时用你那边的，否则用她那边的（她住在别的城市时是那里的）
+    const weatherStore = useWeatherStore();
+    const atReal = getLocation(c.locationId)?.area === 'real';
+    const sky = req.subject || atReal ? weatherStore.mine : weatherStore.forCharacter(c);
     const input: ImagePromptInput = {
       mode: req.mode,
       moment: req.moment,
@@ -261,7 +266,7 @@ export class RoutedImage implements ImageClient {
       scene: {
         place: req.place ?? getLocation(c.locationId)?.name,
         timeOfDay: TIME_OF_DAY_LABEL[timeOfDay(now.getHours())],
-        // 天气还没接真实数据（mock 里写死的"小雨"），不给生图：不然每张图都在下雨
+        ...(sky ? { weather: sky.text } : {}),
         expression: req.expression ?? undefined,
       },
       recent: req.recent,

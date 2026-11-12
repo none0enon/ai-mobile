@@ -24,12 +24,14 @@ import {
   type Preset,
 } from '@app/shared';
 import type { LLMChatMessage } from './types';
-import { mockToday, todayLine, weather } from '@/mock/activity';
+import { mockToday, todayLine } from '@/mock/activity';
 import { personas } from '@/mock/characters';
 import { memories } from '@/mock/memories';
 import { useAiStore } from '@/stores/ai';
 import { useLibraryStore } from '@/stores/library';
+import { useRealWorldStore } from '@/stores/realworld';
 import { useRhythmStore } from '@/stores/rhythm';
+import { useWeatherStore } from '@/stores/weather';
 
 /**
  * 每一轮的提示词：把这条聊天、角色卡、绑定的世界书、预设交给共享的拼装器（packages/shared/src/st/assemble.ts，
@@ -50,6 +52,8 @@ function partToText(p: MessagePart, character: Character, user: string): string 
     case 'voice':
       return `[语音] ${p.transcript}`;
     case 'image':
+      // 你发的照片：识图看到的内容代替图片；没看成就照实说看不到
+      if (p.photo) return p.seen ? `[照片：${p.seen}]` : `[照片（${character.name}看不到照片的内容）]`;
       return `[图片：${p.title || p.caption}]`;
     case 'music':
       return `[分享歌曲：${p.title} - ${p.artist}]`;
@@ -120,7 +124,7 @@ function appFills(chat: Chat, character: Character, history: Message[]): Record<
       ? isRealPlace(loc)
         ? `你带${character.name}出门了，你们一起在${loc.name}`
         : `你在${character.name}的小世界里陪${character.pronoun}，你们一起在${loc.name}`
-      : `${character.name}在${character.pronoun}的小世界里的${loc.name}${character.status ? `（${character.status}）` : ''}；你在家`;
+      : `${character.name}在${character.pronoun}的小世界里的${loc.name}${character.status ? `（${character.status}）` : ''}；${useRealWorldStore().whereLine}`;
 
   const mems = memories
     .filter((m) => m.characterId === character.id && m.status === 'active')
@@ -140,6 +144,8 @@ function appFills(chat: Chat, character: Character, history: Message[]): Record<
 
   // 她今天穿什么（节律里这个场景该穿的那套）
   const outfit = useRhythmStore().outfitFor(character.id, chat.currentScene);
+  // 真实天气：你那边；她住在别的城市（例如国内）时再加她那边的。取不到就不写，不编
+  const { weather, herWeather } = useWeatherStore().envInput(character);
 
   const written = chat.summaries ?? [];
   const summary: AppBlockFill = written.length
@@ -153,13 +159,14 @@ function appFills(chat: Chat, character: Character, history: Message[]): Record<
       content: formatEnvironmentBlock({
         now: new Date(),
         weather,
+        herWeather,
         todayLine: todayLine(mockToday()),
         sinceLastChatMin,
         place,
         outfit: outfit ? `${character.name}今天穿${outfit.name}` : null,
         sceneName: scene.id === 'free' ? null : scene.name,
       }),
-      source: '时间 / 节气 / 天气 / 今日活动 / 她在哪 / 她今天穿什么',
+      source: `时间 / 节气 / 天气（${[weather ? `你那边 ${weather.city}` : '你那边没取到', herWeather ? `${character.name}那边 ${herWeather.city}` : ''].filter(Boolean).join('，')}）/ 今日活动 / 她在哪 / 她今天穿什么`,
     },
     sceneRules: {
       content: `${scene.promptFragment.replaceAll('{{char}}', character.name)}\n${tagsLine(scene)}`,

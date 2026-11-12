@@ -1,15 +1,9 @@
 import { MockLLM } from './mock/llm';
-import {
-  createNativeBridge,
-  MockEmbedding,
-  MockMaps,
-  MockMusic,
-  MockPush,
-  MockSync,
-  MockTTS,
-  MockWeather,
-} from './mock/others';
+import { createNativeBridge, MockEmbedding, MockPush, MockSync, MockTTS } from './mock/others';
 import { RoutedEmbedding, RoutedImage, RoutedLLM, RoutedSTT, RoutedTTS } from './ai';
+import { RoutedMaps } from './maps';
+import { RoutedMusic } from './music';
+import { RealWeather } from './weather';
 import type {
   EmbeddingClient,
   ImageClient,
@@ -40,7 +34,9 @@ export interface Services {
 
 /**
  * 对话、语音合成、向量化、生图走多智能体（services/ai.ts）：分配的连接有 Key 时真的调用，否则用演示实现。
- * 语音识别走真实录音与转录接口；音乐、天气、地图、同步、推送仍为演示实现。
+ * 语音识别走真实录音与转录接口。
+ * 天气是真的（Open-Meteo 免 Key；国内的城市可以用和风天气）；网易云音乐（填了 Worker 地址）和 Google 地图（填了 Key）
+ * 在"我的 → 地图、天气、音乐"里接通，没接通时是演示的歌和示意图。同步、推送的这两个接口仍为演示实现。
  */
 export const services: Services = {
   llm: new RoutedLLM(new MockLLM()),
@@ -48,9 +44,9 @@ export const services: Services = {
   stt: new RoutedSTT(),
   embedding: new RoutedEmbedding(new MockEmbedding()),
   image: new RoutedImage(),
-  music: new MockMusic(),
-  weather: new MockWeather(),
-  maps: new MockMaps(),
+  music: new RoutedMusic(),
+  weather: new RealWeather(),
+  maps: new RoutedMaps(),
   sync: new MockSync(),
   push: new MockPush(),
   native: createNativeBridge(),

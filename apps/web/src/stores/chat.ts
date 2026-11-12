@@ -25,6 +25,9 @@ import { useRealWorldStore } from './realworld';
 import { autoSave, getAll, getEntries, write } from '@/db/idb';
 import { buildChats, buildMessages } from '@/mock/chats';
 import { services } from '@/services';
+import { putAsset } from '@/services/assets';
+import { describePhoto } from '@/services/photos';
+import { sessionSummary as musicSummary, stop as stopMusic } from '@/services/musicPlayer';
 import { assembleForChat, personaOf, toLLMMessages, type ChatPrompt } from '@/services/prompt';
 import { pendingForSummary, SUMMARY_EVERY, summarizeChat, type SummaryOutcome } from '@/services/summary';
 import { uid } from '@/utils/id';
@@ -341,7 +344,8 @@ export const useChatStore = defineStore('chat', () => {
       }
       const parts: MessagePart[] = [{ type: 'text', text: msg.text }];
       for (const { tag } of parsed.tags) {
-        if (tag.kind === 'music') parts.push({ type: 'music', songId: 's1', title: tag.title, artist: tag.artist });
+        // 歌曲卡片：点"一起听"时按歌名 + 歌手去网易云搜（还没有 id）
+        if (tag.kind === 'music') parts.push({ type: 'music', songId: '', title: tag.title, artist: tag.artist });
         if (tag.kind === 'cg') parts.push({ type: 'image', assetKey: null, caption: tag.value, generated: false });
         if (tag.kind === 'choice') msg.meta.choices = tag.options;
         if (tag.kind === 'call') {
@@ -591,6 +595,68 @@ export const useChatStore = defineStore('chat', () => {
     streams[chatId]?.abort.abort();
   }
 
+  // —— 发照片（＋ → 相册 / 拍照）——
+  /** 每条聊天里识图正在看的照片张数；正在看的照片（按素材 key） */
+  const looking = reactive<Record<string, number>>({});
+  const lookingKeys = reactive(new Set<string>());
+
+  /**
+   * 识图看这条消息里还没看过的照片，写下看到了什么（提示词里用它代替照片）。
+   * 识图没接通时照片照样留着，卡片上写原因；返回没接通的原因
+   */
+  async function lookAt(chatId: string, messageId: string, retry = false): Promise<{ notConnected?: string }> {
+    const chat = chatById(chatId);
+    const character = useCharacterStore().byId(chat?.characterId);
+    const pending = (find(chatId, messageId)?.parts ?? []).filter(
+      (p): p is Extract<MessagePart, { type: 'image' }> => p.type === 'image' && !!p.photo && !!p.assetKey && !p.seen && (retry || !p.seenError),
+    );
+    if (!pending.length) return {};
+    const st = useAiStore().status('vision');
+    if (!st.live) {
+      for (const p of pending) p.seenError = `识图还没接通：${st.reason}`;
+      return { notConnected: st.reason };
+    }
+    looking[chatId] = (looking[chatId] ?? 0) + pending.length;
+    const keys = pending.map((p) => p.assetKey as string);
+    for (const k of keys) lookingKeys.add(k);
+    await Promise.all(
+      keys.map(async (key) => {
+        // await 之后按 key 重新取卡片（这期间消息可能被换成了新对象）
+        const part = () => find(chatId, messageId)?.parts.find((x): x is Extract<MessagePart, { type: 'image' }> => x.type === 'image' && x.assetKey === key);
+        try {
+          const r = await describePhoto(key, character);
+          const p = part();
+          if (p) Object.assign(p, { seen: r.text, seenModel: r.model, seenError: undefined });
+        } catch (e) {
+          const p = part();
+          if (p) p.seenError = errorText(e);
+        } finally {
+          looking[chatId] = Math.max(0, (looking[chatId] ?? 1) - 1);
+          lookingKeys.delete(key);
+        }
+      }),
+    );
+    return {};
+  }
+
+  /**
+   * 发照片给她：压缩好的照片存进本机素材库 → 发一条你的消息（照片 + 你写的话）→ 识图看一遍 → 她回一条。
+   * 识图没接通时也发，她知道你发了照片、但看不到内容（不编）
+   */
+  async function sendPhotos(chatId: string, photos: { bytes: Uint8Array<ArrayBuffer>; mime: string }[], text?: string): Promise<{ notConnected?: string }> {
+    if (!photos.length) return {};
+    const keys = await Promise.all(photos.map((p) => putAsset(p.bytes, p.mime)));
+    const parts: MessagePart[] = keys.map((assetKey) => ({ type: 'image', assetKey, caption: '', generated: true, photo: true }));
+    const said = text?.trim();
+    if (said) parts.push({ type: 'text', text: said });
+    const last = list(chatId).at(-1);
+    if (last?.meta.choices) last.meta.choices = undefined;
+    const msg = push(chatId, 'user', parts);
+    const r = await lookAt(chatId, msg.id);
+    void generate(chatId);
+    return r;
+  }
+
   function swipe(chatId: string, messageId: string, dir: 1 | -1) {
     const msg = find(chatId, messageId);
     if (!msg || msg.swipes.length < 2) return;
@@ -674,6 +740,11 @@ export const useChatStore = defineStore('chat', () => {
     const real = useRealWorldStore();
     return getLocation(real.hereId) ?? real.home;
   }
+  /** 记进足迹的地点：在外面（不在家、也不在附近认得的地方）时不记 */
+  function footprintId() {
+    const id = yourPlace().id;
+    return id === 'real:out' ? undefined : id;
+  }
 
   function enterTitle(mode: TogetherMode, characterName: string, pronoun: string, locName: string, activity: string) {
     if (mode === 'remote') return { title: `和${characterName}连线 · ${activity}`, summary: `你在${yourPlace().name}，${pronoun}在${locName}` };
@@ -705,7 +776,7 @@ export const useChatStore = defineStore('chat', () => {
     if (last && lastPart?.type === 'scene' && lastPart.event === 'leave' && lastPart.locationId === locationId && !lastPart.summary && last.parts.length === 1) {
       messages.value[chat.id]?.pop();
     } else {
-      const youAt = how === 'bring' ? locationId : how === 'remote' ? yourPlace().id : undefined;
+      const youAt = how === 'bring' ? locationId : how === 'remote' ? footprintId() : undefined;
       push(chat.id, 'narrator', [
         { type: 'scene', event: 'enter', sceneId, locationId, mode: how, youAt, ...enterTitle(how, character.name, character.pronoun, loc?.name ?? '', activity) },
       ]);
@@ -731,7 +802,7 @@ export const useChatStore = defineStore('chat', () => {
       const loc = getLocation(chat.togetherAt);
       const activity = loc?.activities.find((a) => a.sceneId === part.sceneId)?.label ?? getScene(part.sceneId).name;
       const { title, summary } = enterTitle(mode, character.name, character.pronoun, loc?.name ?? '', activity) as { title: string; summary?: string };
-      Object.assign(part, { mode, title, summary, youAt: mode === 'remote' ? yourPlace().id : undefined });
+      Object.assign(part, { mode, title, summary, youAt: mode === 'remote' ? footprintId() : undefined });
     }
   }
 
@@ -742,6 +813,11 @@ export const useChatStore = defineStore('chat', () => {
   function leaveScene(characterId: string, summary?: string) {
     const chat = chatOfCharacter(characterId);
     if (!chat?.togetherAt) return;
+    // 不一起听了：歌停下，聊天里记一下听了哪几首
+    if (chat.currentScene === 'music') {
+      summary ??= musicSummary();
+      stopMusic();
+    }
     const character = useCharacterStore().byId(characterId);
     const before = beforeVisit.get(characterId);
     beforeVisit.delete(characterId);
@@ -845,6 +921,10 @@ export const useChatStore = defineStore('chat', () => {
     postCard,
     enterScene,
     leaveScene,
+    looking,
+    lookingKeys,
+    lookAt,
+    sendPhotos,
     setTogetherMode,
     footprints,
   };

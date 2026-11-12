@@ -7,7 +7,7 @@
   "defaultFor": [
     "scene:music"
   ],
-  "description": "一起听歌时用：像弹幕一样短。场景规则在\"场景规则\"那一块里，可以改；能用的标签和表情由程序按场景填。",
+  "description": "一起听歌时用：像弹幕一样短。场景规则在\"场景规则\"那一块里，可以改；一首歌开始时按歌词批量写弹幕、边听边聊各有一块；能用的标签和表情由程序按场景填。",
   "blocks": [
     {
       "identifier": "main",
@@ -194,10 +194,40 @@
       }
     },
     {
+      "identifier": "musicBatch",
+      "name": "批量写弹幕（一首歌开始时）",
+      "role": "system",
+      "content": "这一次不是聊天：场景任务里是你们正在一起听的这首歌（歌名、歌手、专辑）和带编号的歌词（编号 时间 歌词 / 译文）。像发弹幕一样，从歌词里挑你会忍不住开口的地方，按\"话量\"来，一句都不说也可以：可以是这句让你想到的你们之间的事、你此刻的心情、轻轻跟着哼一句，或者问{{user}}一句。每句 20 字以内；不要逐句复述歌词，不要编造歌词里没有的内容；认得这首歌、这位歌手时可以就着说。只输出一个 JSON 对象，不要别的文字：{\"reactions\": [{\"line\": 歌词编号, \"text\": \"你说的话\", \"expr\": \"表情\"}]}",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "music-batch"
+      ]
+    },
+    {
+      "identifier": "musicChat",
+      "name": "边听边聊（回你说的话）",
+      "role": "system",
+      "content": "{{user}}边听歌边跟你说了一句：回一句，20 字以内，像在耳边小声说；场景任务里有正在放的歌、放到哪、唱到哪一句。想推荐下一首时用 [music:歌名-歌手]（要是真实存在的歌）。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "music-chat"
+      ]
+    },
+    {
       "identifier": "jailbreak",
       "name": "后置指令",
       "role": "system",
-      "content": "像弹幕一样短：一句，20 字以内。",
+      "content": "像弹幕一样短：每句 20 字以内。要你输出 JSON 时只输出 JSON。",
       "marker": false,
       "enabled": true,
       "injection": {

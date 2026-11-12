@@ -31,6 +31,12 @@ export interface MapLocation {
   /** 真实地点：地址、离家多远（Google Places 返回） */
   address?: string;
   distanceKm?: number;
+  /** 真实地点的坐标（画在 Google 地图上） */
+  lat?: number;
+  lng?: number;
+  /** Google Places 的地点 id、在 Google 地图里打开的链接 */
+  placeId?: string;
+  mapsUri?: string;
 }
 
 /** 小地图底图的图形（400×300 坐标），按 cls 上色（配色跟随主题） */

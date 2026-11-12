@@ -5,6 +5,13 @@ import {
   type Message, type MessagePart, type ProactiveContext, type ProactiveCredentials, type Touchpoint,
 } from '@app/shared';
 
+/** 发给云端模型的一条消息：文字（没有文字时是语音的转写、配图的描述），再加上你发的照片（识图看到的内容） */
+function messageText(m: Message): string {
+  const base = m.text || m.parts.map((p) => (p.type === 'voice' ? p.transcript : p.type === 'image' && !p.photo ? `[图片：${p.caption}]` : '')).join(' ');
+  const photos = m.parts.flatMap((p) => (p.type === 'image' && p.photo ? [p.seen ? `[照片：${p.seen}]` : '[照片]'] : []));
+  return [base.trim(), ...photos].filter(Boolean).join(' ');
+}
+
 export function proactivePrompt(context: ProactiveContext, t: Touchpoint, now: number, model: string) {
   const { character: c, chat, persona, preset, history } = context;
   if (!preset) throw new Error('没有主动消息预设，请在 App 的预设页选择后同步');
@@ -16,7 +23,7 @@ export function proactivePrompt(context: ProactiveContext, t: Touchpoint, now: n
     history: history.filter((m) => !m.deleted).map((m) => ({
       role: m.role === 'user' || m.role === 'assistant' ? m.role : 'system',
       name: m.role === 'user' ? persona.name : m.role === 'assistant' ? c.name : '',
-      content: m.text || m.parts.map((p) => p.type === 'voice' ? p.transcript : p.type === 'image' ? `[图片：${p.caption}]` : '').join(' '),
+      content: messageText(m),
     })),
     app: {
       summary: { content: (chat.summaries ?? []).slice(-6).map((s) => s.text).join('\n'), source: '聊天摘要' },

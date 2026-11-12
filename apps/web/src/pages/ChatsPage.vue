@@ -3,9 +3,9 @@ import { getLocation, isRealPlace, type Character } from '@app/shared';
 import { computed } from 'vue';
 import ChatListItem from '@/components/chat/ChatListItem.vue';
 import Avatar from '@/components/common/Avatar.vue';
-import { weather } from '@/mock/activity';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { useWeatherStore } from '@/stores/weather';
 import { weekday } from '@/utils/time';
 
 const chat = useChatStore();
@@ -20,7 +20,15 @@ function whereOf(c: Character) {
   if (!loc) return '';
   return isRealPlace(loc) ? '在你那边' : loc.name;
 }
-const today = `${weekday(Date.now())} · ${weather.city} ${weather.text} ${weather.tempC}°C`;
+/** 今天：星期 + 你那边的天气（真实的；还不知道你在哪时提示去设置） */
+const weather = useWeatherStore();
+const today = computed(() => {
+  const w = weather.mine;
+  const day = weekday(Date.now());
+  if (w) return `${day} · ${weather.line(w)}`;
+  if (weather.mineEntry.loading) return `${day} · 天气加载中…`;
+  return weather.mineEntry.error ? `${day} · 天气没取到` : day;
+});
 </script>
 
 <template>
@@ -29,7 +37,8 @@ const today = `${weekday(Date.now())} · ${weather.city} ${weather.text} ${weath
       <div class="flex-1 min-w-0">
         <h1 class="m-0 text-[28px] font-700 leading-tight">消息</h1>
         <div class="flex items-center gap-1 text-[12.5px] text-ink-3 mt-0.5 whitespace-nowrap">
-          <span :class="weather.icon" class="shrink-0" /><span class="truncate">{{ today }}</span>
+          <span :class="weather.mine?.icon ?? 'i-lucide-calendar'" class="shrink-0" /><span class="truncate">{{ today }}</span>
+          <RouterLink v-if="!weather.mine && !weather.mineEntry.loading" to="/me/environment" class="text-accent-ink shrink-0">设置城市</RouterLink>
           <span class="i-lucide-cloud-check text-good shrink-0 ml-0.5" role="img" aria-label="已同步" title="已同步" />
         </div>
       </div>

@@ -27,6 +27,9 @@ import { useEnvironmentStore } from './stores/environment';
 import { useGalleryStore } from './stores/gallery';
 import { useRhythmStore } from './stores/rhythm';
 import { useVoiceStore } from './stores/voice';
+import { useServicesStore } from './stores/services';
+import { useRealWorldStore } from './stores/realworld';
+import { useWeatherStore } from './stores/weather';
 
 if (import.meta.env.MODE === 'preview') {
   // Claude Artifact 预览：外层已处理安全区
@@ -49,6 +52,8 @@ const app = createApp(App).use(createPinia()).use(router);
 // 个别 WebView 里 IndexedDB 可能一直不回应：最多等 1.5 秒，读到的数据之后再补进来
 const hydrated = Promise.allSettled([
   useAiStore().hydrate(),
+  // 地图、天气、音乐的 Key 和地址（真实世界、天气要先读出来）
+  useServicesStore().hydrate(),
   useLibraryStore().hydrate(),
   useCharacterStore().hydrate(),
   useChatStore().hydrate(),
@@ -86,6 +91,10 @@ Promise.race([hydrated, new Promise((r) => setTimeout(r, 1500))]).finally(() => 
     followLatestChat();
     // 她们此刻在哪（按今天的节律，每分钟更新）；每天变化的角色在当天第一次打开时排今天
     useRhythmStore().start();
+    // 你的真实世界（定位、家的坐标、附近的地方），然后是真实天气（你那边 + 住在别的城市的她们那边）
+    void useRealWorldStore()
+      .start()
+      .finally(() => useWeatherStore().start());
     const proactive = useProactiveStore();
     proactive.start();
     void hydrated.then((results) => {

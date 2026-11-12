@@ -1,22 +1,16 @@
-import type { MapLocation } from '@app/shared';
 import type {
   EmbeddingClient,
-  LatLng,
-  MapsClient,
   MusicClient,
   NativeBridge,
   PushClient,
-  RealPlaceKind,
   STTClient,
   SongInfo,
+  SongList,
   SyncClient,
   SyncStatus,
   TTSClient,
-  WeatherClient,
 } from '../types';
-import { weather } from '@/mock/activity';
 import { lyricLrc, lyricTranslation, songs } from '@/mock/music';
-import { NEARBY_PLACES } from '@/mock/realworld';
 import { sleep } from '@/utils/id';
 
 /** 假 TTS：不出声，只按字数估一个时长，期间不停报"音量"驱动声波和口型 */
@@ -91,7 +85,9 @@ export function cosine(a: Float32Array, b: Float32Array): number {
   return dot;
 }
 
+/** 没填网易云 Worker 时的演示：虚构的歌、原创占位歌词，不出声（界面上写着"示例歌曲"） */
 export class MockMusic implements MusicClient {
+  readonly ready = false;
   async search(keyword: string): Promise<SongInfo[]> {
     await sleep(300);
     const k = keyword.trim();
@@ -105,12 +101,12 @@ export class MockMusic implements MusicClient {
     await sleep(120);
     return { lrc: lyricLrc, tlyric: lyricTranslation };
   }
-}
-
-export class MockWeather implements WeatherClient {
-  async now() {
-    await sleep(100);
-    return weather;
+  async playlist(): Promise<SongList> {
+    await sleep(200);
+    return { name: '我们的歌单（示例）', cover: null, songs };
+  }
+  async album(): Promise<SongList> {
+    return this.playlist();
   }
 }
 
@@ -170,25 +166,4 @@ export function createNativeBridge(): NativeBridge {
       }
     },
   };
-}
-
-/** 地图：没有 Google Maps Key 时的假实现，返回演示用的附近地点 */
-export class MockMaps implements MapsClient {
-  readonly ready = false;
-  async geocode(): Promise<LatLng | null> {
-    return null;
-  }
-  async whereAmI(): Promise<LatLng | null> {
-    return null;
-  }
-  async nearby(_center: LatLng | null, kinds: RealPlaceKind[]): Promise<MapLocation[]> {
-    const KIND_OF: Record<string, RealPlaceKind> = {
-      'real:cafe': 'cafe',
-      'real:ramen': 'restaurant',
-      'real:park': 'park',
-      'real:gym': 'gym',
-      'real:library': 'library',
-    };
-    return NEARBY_PLACES.filter((p) => kinds.includes(KIND_OF[p.id] ?? 'cafe'));
-  }
 }

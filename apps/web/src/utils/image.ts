@@ -52,3 +52,34 @@ export async function compressImage(file: Blob, opts: CompressOptions): Promise<
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   return canvas.toDataURL('image/jpeg', quality);
 }
+
+/**
+ * 发给她看的照片：长边压到 max（默认 1600px）存成 JPEG（各家识图都认），返回字节和尺寸。
+ * 手机相机拍的照片常有几千万像素，原样存既占地方、识图也慢。
+ */
+export async function compressPhoto(file: Blob, max = 1600, quality = 0.86): Promise<{ bytes: Uint8Array<ArrayBuffer>; mime: string; width: number; height: number }> {
+  const img = await loadImage(await readAsDataUrl(file));
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  if (!w || !h) throw new Error('图片读不出来');
+  const scale = Math.min(1, max / Math.max(w, h));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(w * scale));
+  canvas.height = Math.max(1, Math.round(h * scale));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('浏览器不支持 canvas');
+  // 透明的 PNG 铺白底，转 JPEG 时不会变黑
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+  if (!blob) throw new Error('图片压缩失败');
+  return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: 'image/jpeg', width: canvas.width, height: canvas.height };
+}
+
+/** 字节 → base64（识图要的格式），分段转，大图也不会爆栈 */
+export function toBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}

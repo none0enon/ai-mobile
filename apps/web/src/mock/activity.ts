@@ -1,15 +1,6 @@
-import type { WeatherSnapshot } from '@app/shared';
 import { at } from '@/utils/time';
 
-export const weather: WeatherSnapshot & { icon: string; tomorrowC: number; aqi: number } = {
-  city: '上海',
-  text: '小雨',
-  tempC: 12,
-  outlook: '明天降到 6°C',
-  icon: 'i-lucide-cloud-rain',
-  tomorrowC: 6,
-  aqi: 42,
-};
+// 天气不在这里：是真的（stores/weather.ts：Open-Meteo / 和风天气）
 
 export interface TodayView {
   steps: number;

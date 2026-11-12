@@ -189,6 +189,21 @@
         "position": "relative",
         "depth": 4
       }
+    },
+    {
+      "identifier": "photoLook",
+      "name": "识图看照片（交给识图功能的说明）",
+      "role": "system",
+      "content": "这是聊天里发来的一张照片。用中文客观地描述照片里有什么，给接下来要回复的人看：拍的是什么（人、物、食物、风景、屏幕截图……）、大概在什么地方、什么时候，光线和天气；画面里的文字原样写出来；看得出的表情、动作、小细节也写上。只写看得到的，看不出来的不要猜，不评价，不扮演任何角色。150 字以内，只输出描述。",
+      "marker": false,
+      "enabled": false,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "photo-look"
+      ]
     }
   ],
   "sampler": {

@@ -4,15 +4,25 @@ import { computed, onBeforeUnmount, ref } from 'vue';
 import { showImagePreview, showToast } from 'vant';
 import { assetUrl } from '@/services/assets';
 import AssetImg from '@/components/common/AssetImg.vue';
+import { useChatStore } from '@/stores/chat';
 import GenImage from '@/components/figure/GenImage.vue';
 import RichText from '@/components/common/RichText.vue';
 import { clock } from '@/utils/time';
 
 /** 消息里各种"卡片"的渲染（文字以外的 part） */
 const props = defineProps<{ part: MessagePart; character: Character; mine: boolean }>();
-const emit = defineEmits<{ (e: 'open-music'): void; (e: 'answer-date', ok: boolean): void; (e: 'open-image'): void }>();
+const emit = defineEmits<{ (e: 'open-music', part: MessagePart): void; (e: 'answer-date', ok: boolean): void; (e: 'open-image'): void }>();
 
 const showTranscript = ref(false);
+const chatStore = useChatStore();
+/** 照片：识图正在看 / 看到了 / 没看成 */
+const photoState = computed<'looking' | 'seen' | 'failed' | 'idle'>(() => {
+  const p = props.part;
+  if (p.type !== 'image' || !p.photo) return 'idle';
+  if (p.seen) return 'seen';
+  if (p.assetKey && chatStore.lookingKeys.has(p.assetKey)) return 'looking';
+  return p.seenError ? 'failed' : 'idle';
+});
 const playing = ref(false);
 const MEAL: Record<string, string> = { breakfast: '早饭', lunch: '午饭', dinner: '晚饭', snack: '加餐' };
 
@@ -95,6 +105,15 @@ async function playVoice() {
     <p v-if="showTranscript" class="text-[13.5px] text-ink-2 mt-1">{{ part.transcript }}</p>
   </div>
 
+  <!-- 照片：你拍的、相册里选的 -->
+  <button v-else-if="part.type === 'image' && part.photo" class="pcard photo" :class="{ mine }" :data-photo-state="photoState" @click="emit('open-image')">
+    <GenImage :part="part" :character="character" class="rounded-[12px]" />
+    <div class="photo-note" :class="{ bad: photoState === 'failed' }">
+      <span :class="{ looking: 'i-lucide-loader-circle spin-icon', seen: 'i-lucide-scan-eye', failed: 'i-lucide-eye-off', idle: 'i-lucide-scan-eye' }[photoState]" class="shrink-0" />
+      <span class="truncate">{{ { looking: '识图在看这张照片…', seen: `识图：${part.seen}`, failed: part.seenError, idle: '还没识图 · 点开重试' }[photoState] }}</span>
+    </div>
+  </button>
+
   <!-- 图片 / 配图 -->
   <button v-else-if="part.type === 'image'" class="pcard image" :data-image-state="imageState" @click="emit('open-image')">
     <GenImage :part="part" :character="character" class="rounded-[14px]" />
@@ -112,7 +131,7 @@ async function playVoice() {
       <div class="font-600 text-[14.5px] truncate">{{ part.title }}</div>
       <div class="text-[12.5px] text-ink-3 truncate">{{ part.artist }} · 网易云</div>
     </div>
-    <button class="listen" @click="emit('open-music')">
+    <button class="listen" @click="emit('open-music', part)">
       <span class="i-lucide-headphones" />一起听
     </button>
   </div>
@@ -268,6 +287,28 @@ async function playVoice() {
 .image {
   padding: 6px 6px 8px;
   width: 210px;
+}
+.photo {
+  padding: 4px 4px 6px;
+  width: 190px;
+}
+.photo.mine {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+.photo-note {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 5px 4px 0;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.photo-note.bad {
+  color: var(--warn);
+}
+.spin-icon {
+  animation: spin 1s linear infinite;
 }
 .music {
   display: flex;

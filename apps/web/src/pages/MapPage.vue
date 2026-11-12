@@ -18,13 +18,17 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Avatar from '@/components/common/Avatar.vue';
 import HScroll from '@/components/common/HScroll.vue';
+import RealMap from '@/components/map/RealMap.vue';
 import WorldMap from '@/components/map/WorldMap.vue';
-import { mockToday, weather } from '@/mock/activity';
+import { mockToday } from '@/mock/activity';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 import { useRealWorldStore } from '@/stores/realworld';
+import { useServicesStore } from '@/stores/services';
+import { distanceText } from '@/services/maps';
 import { useRhythmStore } from '@/stores/rhythm';
+import { useWeatherStore } from '@/stores/weather';
 import { hhmm, listTime } from '@/utils/time';
 
 /**
@@ -61,6 +65,28 @@ function switchWorld(key: string) {
   charOpen.value = false;
   selectedLoc.value = null;
   void router.replace({ query: { world: key } });
+}
+
+/** 顶上的天气：看她的世界时是她那边的（她住在别的城市时是那里的），看我的世界时是你这边的 */
+const weatherStore = useWeatherStore();
+const shownWeather = computed(() => (owner.value ? weatherStore.forCharacter(owner.value) : weatherStore.mine));
+const weatherText = computed(() => {
+  const w = shownWeather.value;
+  if (!w) return '';
+  const where = owner.value ? (weatherStore.hasOwnCity(owner.value) ? `${owner.value.name}那边 ${w.place} ` : '') : `${w.place} `;
+  return `${where}${weatherStore.short(w)}`;
+});
+
+// —— 我的世界的真地图（填了 Google 地图的 Key、知道家或你在哪时）——
+const svc = useServicesStore();
+const mapError = ref('');
+/** 有坐标可画：家的地址换成了坐标，或者定位到了你 */
+const canDrawReal = computed(() => !!real.homeGeo || !!real.here);
+const showRealMap = computed(() => svc.mapsReady && canDrawReal.value && !mapError.value);
+const footprintIds = computed(() => chat.footprints.map((f) => f.placeId));
+/** 离家多远（附近的地方、地点面板里写） */
+function farText(l: MapLocation): string {
+  return l.distanceKm != null ? `离家 ${distanceText(l.distanceKm)}` : '';
 }
 
 /** 和她正在一起的真实地点（她来你这边了） */
@@ -209,7 +235,7 @@ watch(
       <div class="min-w-0">
         <h1 class="m-0 text-[28px] font-700 leading-tight">地图</h1>
         <div class="text-[12.5px] text-ink-3 mt-0.5 num truncate">
-          <span :class="weather.icon" /> {{ hhmm(now.getTime()) }} · {{ weather.text }} {{ weather.tempC }}°C
+          <span :class="shownWeather?.icon ?? 'i-lucide-clock'" /> {{ hhmm(now.getTime()) }}{{ weatherText ? ` · ${weatherText}` : '' }}
         </div>
       </div>
     </header>
@@ -279,7 +305,7 @@ watch(
           <span class="home-icon"><span :class="youAtRealLoc?.icon ?? 'i-lucide-house'" /></span>
           <div class="flex-1 min-w-0">
             <div class="text-[15px] font-600 truncate">
-              {{ youAtReal === real.hereId ? '你在家' : `你在${youAtRealLoc?.name}` }}<template v-if="withYou.length"> · 和{{ withYou.map((c) => c.name).join('、') }}一起</template>
+              {{ withYou.length ? `你在${youAtRealLoc?.name ?? '外面'}` : real.whereLine }}<template v-if="withYou.length"> · 和{{ withYou.map((c) => c.name).join('、') }}一起</template>
             </div>
             <div class="text-[12.5px] text-ink-3 truncate">{{ real.address ? `家 · ${real.address}` : '还没设置家的地址' }}</div>
           </div>
@@ -287,25 +313,46 @@ watch(
         </div>
 
         <div class="mx-4 mt-3 relative">
+          <RealMap
+            v-if="showRealMap"
+            :api-key="svc.mapsKey"
+            :places="real.world.locations"
+            :characters="withYou"
+            :you-at="youAtReal"
+            :you="real.here"
+            :focus="selectedLoc?.id ?? null"
+            :marked="footprintIds"
+            @select-location="openLoc"
+            @select-character="openChar"
+            @error="(m) => (mapError = m)"
+          />
           <WorldMap
+            v-else
             :world="real.world"
             :characters="withYou"
             :you-at="youAtReal"
             :focus="selectedLoc?.id ?? null"
-            :marked="chat.footprints.map((f) => f.placeId)"
+            :marked="footprintIds"
             @select-location="openLoc"
             @select-character="openChar"
           />
-          <span v-if="!real.mapsReady" class="maps-note"><span class="i-lucide-map shrink-0" />示意图 · 接入 Google 地图后显示真实地图</span>
+          <RouterLink v-if="!real.mapsReady" to="/me/services#maps" class="maps-note"><span class="i-lucide-map shrink-0" />示意图 · 填 Google 地图的 Key 显示真实地图</RouterLink>
+          <RouterLink v-else-if="mapError" to="/me/services#maps" class="maps-note bad" :title="mapError"><span class="i-lucide-map-pin-off shrink-0" /><span class="truncate">示意图 · {{ mapError }}</span></RouterLink>
+          <RouterLink v-else-if="!canDrawReal" to="/me/environment" class="maps-note"><span class="i-lucide-house shrink-0" />示意图 · 填家的地址（或打开定位）后显示真实地图</RouterLink>
         </div>
 
-        <div class="group-title">附近可以一起去</div>
+        <div class="group-title">
+          附近可以一起去
+          <span class="text-[11.5px]">{{ real.nearbySource === 'google' ? '· Google 地图' : '· 演示' }}</span>
+          <button v-if="real.mapsReady" class="action" :disabled="real.nearbyLoading" @click="real.refreshNearby(true)">{{ real.nearbyLoading ? '正在找…' : '刷新' }}</button>
+        </div>
+        <p v-if="real.nearbyError" class="note !mt-0 !mb-2 text-bad" role="alert">{{ real.nearbyError }}<template v-if="real.nearbyDetail">（{{ real.nearbyDetail }}）</template></p>
         <div class="px-4 grid gap-2">
           <button v-for="p in real.nearby" :key="p.id" class="near-row press" :data-place="p.id" @click="openLoc(p)">
             <span class="near-icon"><span :class="p.icon" /></span>
             <div class="flex-1 min-w-0 text-left">
               <div class="text-[15px] font-600 truncate">{{ p.name }}</div>
-              <div class="text-[12px] text-ink-3 truncate num">{{ p.distanceKm }} km · {{ p.activities.map((a) => a.label).join(' / ') }}</div>
+              <div class="text-[12px] text-ink-3 truncate num">{{ [p.distanceKm != null ? distanceText(p.distanceKm) : '', p.activities.map((a) => a.label).join(' / ')].filter(Boolean).join(' · ') }}</div>
             </div>
             <span class="i-lucide-chevron-right text-ink-3" />
           </button>
@@ -368,7 +415,7 @@ watch(
           <div class="flex-1 min-w-0">
             <div class="sheet-title">{{ selectedLoc.name }}</div>
             <div class="text-[12.5px] text-ink-3 truncate">
-              <template v-if="sheetIsReal">{{ selectedLoc.id === real.hereId ? selectedLoc.blurb : `离家 ${selectedLoc.distanceKm} km · ${selectedLoc.blurb}` }}</template>
+              <template v-if="sheetIsReal">{{ selectedLoc.id === 'real:home' ? selectedLoc.blurb : [farText(selectedLoc), selectedLoc.blurb].filter(Boolean).join(' · ') }}</template>
               <template v-else>{{ areaLabel(selectedLoc) }} · {{ selectedLoc.blurb }}</template>
             </div>
           </div>
@@ -394,6 +441,7 @@ watch(
             <span class="i-lucide-chevron-right text-ink-3" />
           </button>
         </div>
+        <a v-if="selectedLoc.mapsUri" :href="selectedLoc.mapsUri" target="_blank" rel="noopener" class="gmaps-link"><span class="i-lucide-map" />在 Google 地图里看（营业时间、路线）</a>
       </div>
     </van-popup>
 
@@ -661,6 +709,18 @@ watch(
   text-decoration: none;
   white-space: nowrap;
   flex-shrink: 0;
+}
+.maps-note.bad {
+  color: var(--bad);
+}
+.gmaps-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--accent-ink);
 }
 .maps-note {
   position: absolute;

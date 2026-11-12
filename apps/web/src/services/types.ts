@@ -1,4 +1,4 @@
-import type { AgentRole, ImageMode, MapLocation, PresetUseId, WeatherSnapshot } from '@app/shared';
+import type { AgentRole, ImageMode, MapLocation, PresetUseId, WeatherProviderChoice, WeatherReport } from '@app/shared';
 
 /**
  * 服务接口。界面只依赖这些接口。
@@ -144,24 +144,55 @@ export interface SongInfo {
   id: string;
   title: string;
   artist: string;
+  album?: string;
+  /** 封面（网易云的图片地址）；没有时用 hue 画唱片 */
+  cover?: string | null;
   durationMs: number;
   hue: number;
 }
 
-export interface MusicClient {
-  search(keyword: string): Promise<SongInfo[]>;
-  /** 歌曲地址约 20 分钟过期：播放前现取，播放出错时重取 */
-  resolve(id: string): Promise<{ url: string; expiresAt: number }>;
-  lyric(id: string): Promise<{ lrc: string; tlyric?: string }>;
+/** 一个歌单 / 专辑：名字、封面、歌 */
+export interface SongList {
+  name: string;
+  cover: string | null;
+  songs: SongInfo[];
 }
 
-export interface WeatherClient {
-  now(city: string): Promise<WeatherSnapshot & { icon: string }>;
+/**
+ * 网易云音乐（同 SleepTogether：对接你自己部署的 Netease_url Worker，浏览器不能直接请求 music.163.com）。
+ * 没填 Worker 地址时是演示实现（虚构的歌、不出声）
+ */
+export interface MusicClient {
+  /** 填了 Worker 地址：搜到的是真的歌，能真的播放 */
+  readonly ready: boolean;
+  search(keyword: string, limit?: number): Promise<SongInfo[]>;
+  /** 歌曲地址约 20 分钟过期：播放前现取，播放出错时重取 */
+  resolve(id: string): Promise<{ url: string; expiresAt: number; level?: string }>;
+  lyric(id: string): Promise<{ lrc: string; tlyric?: string }>;
+  /** 歌单（id 或链接） */
+  playlist(idOrUrl: string): Promise<SongList>;
+  /** 专辑（id 或链接） */
+  album(idOrUrl: string): Promise<SongList>;
 }
 
 export interface LatLng {
   lat: number;
   lng: number;
+}
+
+/** 一个查得到天气的地方：坐标 + 名字（+ 国家代码、时区，挑天气来源、判断白天黑夜用） */
+export interface GeoPlace extends LatLng {
+  name: string;
+  countryCode?: string;
+  timezone?: string;
+}
+
+/** 天气：Open-Meteo（免 Key，你那边）/ 和风天气（国内的角色），美国另取气象局的预警 */
+export interface WeatherClient {
+  /** 城市名 → 坐标 */
+  geocode(city: string, signal?: AbortSignal): Promise<GeoPlace | null>;
+  /** 这个地方现在的天气；choice 是用哪家（auto 按国家挑） */
+  report(place: GeoPlace, choice: WeatherProviderChoice, signal?: AbortSignal): Promise<WeatherReport>;
 }
 
 /** 附近地点的种类（对应 Google Places 的类型），决定能一起做什么 */
@@ -175,11 +206,13 @@ export interface MapsClient {
   /** 有没有可用的 Google Maps Key（没有时界面显示示意图） */
   readonly ready: boolean;
   /** 地址 → 坐标（只在设置家的时候调用一次，结果缓存） */
-  geocode(address: string): Promise<LatLng | null>;
+  geocode(address: string): Promise<(LatLng & { formatted: string; city?: string; countryCode?: string }) | null>;
+  /** 坐标 → 城市（定位以后显示"你在哪座城市"、查天气用） */
+  reverse(at: LatLng): Promise<(LatLng & { formatted: string; city?: string; countryCode?: string }) | null>;
   /** 我此刻在哪（网页定位；安卓壳里可以用后台定位做"出门 / 到家"） */
   whereAmI(): Promise<LatLng | null>;
-  /** 附近可以带她一起去的地方 */
-  nearby(center: LatLng | null, kinds: RealPlaceKind[]): Promise<MapLocation[]>;
+  /** 附近可以带她一起去的地方（有 Key 时是 Google Places 的结果，缓存一天；force 不用缓存） */
+  nearby(center: LatLng | null, kinds: RealPlaceKind[], opts?: { force?: boolean }): Promise<MapLocation[]>;
 }
 
 export interface SyncStatus {

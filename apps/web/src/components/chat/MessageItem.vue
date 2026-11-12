@@ -32,7 +32,7 @@ const emit = defineEmits<{
   (e: 'save-edit', text: string): void;
   (e: 'cancel-edit'): void;
   (e: 'choose', text: string): void;
-  (e: 'open-music'): void;
+  (e: 'open-music', part: MessagePart): void;
   (e: 'open-image', part: MessagePart): void;
   (e: 'answer-date', ok: boolean): void;
 }>();
@@ -143,7 +143,7 @@ function segments(text: string) {
           :part="p"
           :character="character"
           :mine="mine"
-          @open-music="emit('open-music')"
+          @open-music="(part) => emit('open-music', part)"
           @open-image="emit('open-image', p)"
           @answer-date="(ok) => emit('answer-date', ok)"
         />

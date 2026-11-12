@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { getLocation, isRealPlace, worldOf, type ImageMode, type MapLocation, type MessagePart } from '@app/shared';
+import { getLocation, isRainy, isRealPlace, worldOf, type ImageMode, type MapLocation, type MessagePart } from '@app/shared';
 import { isAbortError } from '@app/ai';
 import { closeToast, showConfirmDialog, showLoadingToast, showToast } from 'vant';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import CameraSheet from '@/components/chat/CameraSheet.vue';
 import Composer from '@/components/chat/Composer.vue';
+import PhotoSendSheet from '@/components/chat/PhotoSendSheet.vue';
 import DrawSheet from '@/components/chat/DrawSheet.vue';
 import MessageItem from '@/components/chat/MessageItem.vue';
 import Avatar from '@/components/common/Avatar.vue';
@@ -18,19 +20,24 @@ import PresetPicker from '@/components/settings/PresetPicker.vue';
 import StageView from '@/components/stage/StageView.vue';
 import { usePoke } from '@/composables/usePoke';
 import PageHeader from '@/layouts/PageHeader.vue';
-import { mockToday, weather } from '@/mock/activity';
+import { mockToday } from '@/mock/activity';
 import { goBack } from '@/router';
 import { services } from '@/services';
 import { assetUrl, putAsset } from '@/services/assets';
 import type { VoiceRecording } from '@/services/recorder';
 import { presetFor, presetForTurn, useLabel } from '@/services/prompt';
 import { pendingForSummary, SUMMARY_EVERY, type SummaryOutcome } from '@/services/summary';
+import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { useWeatherStore } from '@/stores/weather';
 import { dividerTime, hhmm } from '@/utils/time';
 import { copyWithToast, showErrorDialog } from '@/utils/errors';
+import { cameraSupported } from '@/utils/camera';
+import { uid } from '@/utils/id';
+import { compressPhoto } from '@/utils/image';
 
 const route = useRoute();
 const router = useRouter();
@@ -166,9 +173,96 @@ function onAction(id: string) {
       // 直接调生图：选画什么、写一句画面（可以不写），不经过聊天模型
       drawOpen.value = true;
       break;
+    case 'album':
+      // 还在这次点击里：直接打开系统的相册 / 文件选择（iPhone 是照片图库，安卓是照片选择器）
+      openAlbum();
+      break;
+    case 'camera':
+      openCamera();
+      break;
     default:
-      showToast('M1 接入：选图后交给视觉模型看');
+      showToast('这个还没做');
   }
+}
+
+// —— 发照片（＋ → 相册 / 拍照）——
+const ai = useAiStore();
+const MAX_PHOTOS = 9;
+const albumInput = ref<HTMLInputElement | null>(null);
+const cameraInput = ref<HTMLInputElement | null>(null);
+const cameraOpen = ref(false);
+const picked = ref<{ id: string; file: Blob; url: string }[]>([]);
+const visionStatus = computed(() => ai.status('vision'));
+function openAlbum() {
+  albumInput.value?.click();
+}
+/** 系统相机（<input capture>）：App 里开不了相机、没给权限时用它 */
+function openSystemCamera() {
+  cameraInput.value?.click();
+}
+/** App 里开相机（会弹相机权限）；浏览器不支持时直接用系统相机 */
+function openCamera() {
+  if (cameraSupported()) cameraOpen.value = true;
+  else openSystemCamera();
+}
+function addPicked(files: Blob[]) {
+  const room = MAX_PHOTOS - picked.value.length;
+  if (files.length > room) showToast(`一次最多发 ${MAX_PHOTOS} 张`);
+  for (const f of files.slice(0, Math.max(0, room))) picked.value.push({ id: uid('ph'), file: f, url: URL.createObjectURL(f) });
+}
+function onPhotoFiles(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const files = [...(input.files ?? [])].filter((f) => f.type.startsWith('image/') || /\.(heic|heif|jpe?g|png|webp|gif|avif)$/i.test(f.name));
+  input.value = '';
+  if (!files.length) return;
+  cameraOpen.value = false;
+  addPicked(files);
+}
+function onShot(blob: Blob) {
+  addPicked([blob]);
+}
+function removePicked(id: string) {
+  const p = picked.value.find((x) => x.id === id);
+  if (p) URL.revokeObjectURL(p.url);
+  picked.value = picked.value.filter((x) => x.id !== id);
+}
+function clearPicked() {
+  for (const p of picked.value) URL.revokeObjectURL(p.url);
+  picked.value = [];
+}
+const photoSheetOpen = computed({ get: () => picked.value.length > 0 && !cameraOpen.value, set: (v) => !v && clearPicked() });
+/** 压缩（长边 1600px 的 JPEG）→ 发出去 → 识图看 → 她回；识图没接通时照样发，告诉你为什么她看不到 */
+async function sendPicked(text: string) {
+  const list = picked.value.slice();
+  const target = chatId.value;
+  picked.value = [];
+  showLoadingToast({ message: '正在处理照片…', duration: 0, forbidClick: true });
+  let photos: Awaited<ReturnType<typeof compressPhoto>>[] = [];
+  try {
+    photos = await Promise.all(list.map((p) => compressPhoto(p.file)));
+  } catch (e) {
+    closeToast();
+    showErrorDialog('照片读不出来', new Error(`${e instanceof Error ? e.message : String(e)}（HEIC 格式的照片可以在相册里先导出成 JPG 再选）`));
+    return;
+  } finally {
+    for (const p of list) URL.revokeObjectURL(p.url);
+  }
+  closeToast();
+  void scrollToBottom(true);
+  const r = await chatStore.sendPhotos(target, photos, text);
+  if (r.notConnected) showToast({ message: `识图还没接通，${character.value?.name ?? '她'}看不到照片内容：${r.notConnected}`, duration: 3500 });
+}
+/** 照片查看器里"重新识图" */
+function relook() {
+  const p = imagePart.value;
+  const m = p?.type === 'image' ? messages.value.find((x) => x.parts.includes(p)) : undefined;
+  if (m) void chatStore.lookAt(chatId.value, m.id, true);
+}
+
+/** 歌曲卡片"一起听"：去一起听歌，按歌名 + 歌手搜这首放 */
+function openMusic(p: MessagePart) {
+  const q = p.type === 'music' ? `${p.title} ${p.artist}`.trim() : '';
+  void router.push({ path: '/scene/music', query: q ? { q } : {} });
 }
 
 function answerDate(messageId: string, ok: boolean) {
@@ -361,7 +455,17 @@ const logOpen = ref(false);
 const autoOn = ref(false);
 const voiceOn = ref(true);
 const stageText = computed(() => lastAi.value?.text || character.value?.card.firstMes || '');
-const timeChip = `${hhmm(Date.now())} · ${weather.text} ${weather.tempC}°`;
+/** 她那边的天气（她在别的城市时是那里的，否则和你一样）；顶栏、剧场的时间条用 */
+const weatherStore = useWeatherStore();
+const herWeather = computed(() => weatherStore.forCharacter(character.value));
+const herWeatherText = computed(() => {
+  const w = herWeather.value;
+  if (!w) return '';
+  return weatherStore.hasOwnCity(character.value) ? `${w.place} ${weatherStore.short(w)}` : weatherStore.short(w);
+});
+/** 剧场背景所在地点的天气：你真实世界里的地方看你那边的，她小世界里的看她那边的 */
+const stageWeather = computed(() => (isRealPlace(stageLoc.value) ? weatherStore.mine : herWeather.value));
+const timeChip = computed(() => [hhmm(Date.now()), stageWeather.value ? weatherStore.short(stageWeather.value) : ''].filter(Boolean).join(' · '));
 
 /** 剧场背景：你们一起在的地方，否则是她此刻在的地方（家里按正在做的事选房间，平时是卧室） */
 const stageLoc = computed<MapLocation>(
@@ -374,7 +478,7 @@ const mapLink = computed(() => `/map?world=${isRealPlace(stageLoc.value) ? 'me' 
 const stageBackdrop = computed(() =>
   chat.value?.togetherAt && chat.value.currentScene ? backdropAt(stageLoc.value, chat.value.currentScene) : stageLoc.value.area === 'home' ? 'bedroom' : stageLoc.value.backdrop,
 );
-const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.value.indoor || ['bedroom', 'library', 'cafe'].includes(stageBackdrop.value)));
+const stageRain = computed(() => isRainy(stageWeather.value?.text) && (!stageLoc.value.indoor || ['bedroom', 'library', 'cafe'].includes(stageBackdrop.value)));
 </script>
 
 <template>
@@ -392,11 +496,11 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
                 <span class="aff"><span class="i-lucide-heart" />{{ character.relationship.affection }}</span>
               </RouterLink>
               <span v-if="!placeKnown" class="where">
-                <span class="truncate">{{ stream ? '对方正在输入…' : character.status || '在线' }} · {{ weather.text }} {{ weather.tempC }}°C</span>
+                <span class="truncate">{{ stream ? '对方正在输入…' : character.status || '在线' }}{{ herWeatherText ? ` · ${herWeatherText}` : '' }}</span>
               </span>
               <RouterLink v-else :to="mapLink" class="where" aria-label="在地图上看她在哪">
                 <span class="i-lucide-map-pin text-accent-ink shrink-0" />
-                <span class="truncate">{{ chat.togetherAt ? `你们在${stageLoc.name}` : stageLoc.name }} · {{ stream ? '对方正在输入…' : character.status }} · {{ weather.text }} {{ weather.tempC }}°C</span>
+                <span class="truncate">{{ chat.togetherAt ? `你们在${stageLoc.name}` : stageLoc.name }} · {{ stream ? '对方正在输入…' : character.status }}{{ herWeatherText ? ` · ${herWeatherText}` : '' }}</span>
               </RouterLink>
             </div>
           </div>
@@ -430,7 +534,7 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
               @save-edit="(t) => saveEdit(r.id, t)"
               @cancel-edit="editingId = null"
               @choose="(t) => chatStore.send(chatId, t)"
-              @open-music="router.push('/scene/music')"
+              @open-music="openMusic"
               @open-image="openImage"
               @answer-date="(ok) => answerDate(r.id, ok)"
             />
@@ -438,6 +542,24 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
         </div>
       </div>
       <Composer :key="chatId" :busy="!!stream" :voice-busy="recognizing > 0" @send="(t) => chatStore.send(chatId, t)" @stop="chatStore.stop(chatId)" @voice="onVoice" @voice-error="(e) => showErrorDialog('录音失败', e)" @action="onAction" />
+      <!-- 相册（可以多选）、系统相机：真的系统选择器，选完先预览再发 -->
+      <input ref="albumInput" type="file" accept="image/*" multiple class="file-hidden" aria-hidden="true" tabindex="-1" data-testid="album-input" @change="onPhotoFiles" />
+      <input ref="cameraInput" type="file" accept="image/*" capture="environment" class="file-hidden" aria-hidden="true" tabindex="-1" data-testid="camera-input" @change="onPhotoFiles" />
+      <CameraSheet v-model:show="cameraOpen" @shot="onShot" @system-camera="openSystemCamera" @album="openAlbum" />
+      <van-popup v-model:show="photoSheetOpen" position="bottom" round>
+        <PhotoSendSheet
+          :photos="picked"
+          :max="MAX_PHOTOS"
+          :vision-live="visionStatus.live"
+          :vision-reason="visionStatus.live ? '' : visionStatus.reason"
+          :her-name="character.name"
+          @send="sendPicked"
+          @remove="removePicked"
+          @add="openAlbum"
+          @camera="openCamera"
+          @close="clearPicked"
+        />
+      </van-popup>
     </template>
 
     <!-- 剧场模式 -->
@@ -525,7 +647,19 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
     </van-popup>
 
     <van-popup v-model:show="imageOpen" round class="w-[88%] max-w-[400px]">
-      <div v-if="imagePart && imagePart.type === 'image'" class="p-3 max-h-[86vh] overflow-y-auto" data-testid="image-viewer">
+      <div v-if="imagePart && imagePart.type === 'image' && imagePart.photo" class="p-3 max-h-[86vh] overflow-y-auto" data-testid="photo-viewer">
+        <GenImage :part="imagePart" :character="character" class="rounded-[16px] overflow-hidden" />
+        <div class="mt-3 text-[13px] font-600">识图看到的</div>
+        <p v-if="imagePart.seen" class="text-[13.5px] leading-relaxed text-ink-2 mt-1 whitespace-pre-wrap">{{ imagePart.seen }}</p>
+        <p v-else-if="imagePart.assetKey && chatStore.lookingKeys.has(imagePart.assetKey)" class="text-[13px] text-ink-3 mt-1">正在看…</p>
+        <p v-else class="text-[13px] text-warn mt-1">{{ imagePart.seenError || '还没识图' }}</p>
+        <div v-if="imagePart.seenModel" class="text-[12px] text-ink-3 mt-1">{{ imagePart.seenModel }} · 聊天里{{ character.name }}看到的是这段描述</div>
+        <div class="flex gap-2 mt-3">
+          <van-button v-if="!imagePart.seen" size="small" round block :disabled="!!imagePart.assetKey && chatStore.lookingKeys.has(imagePart.assetKey)" @click="relook">重新识图</van-button>
+          <van-button size="small" round block type="primary" :disabled="!imagePart.assetKey" @click="saveImage">保存图片</van-button>
+        </div>
+      </div>
+      <div v-else-if="imagePart && imagePart.type === 'image'" class="p-3 max-h-[86vh] overflow-y-auto" data-testid="image-viewer">
         <GenImage :part="imagePart" :character="character" class="rounded-[16px] overflow-hidden" />
         <div class="mt-3 text-[15px] font-600">{{ imagePart.title || imagePart.caption }}</div>
         <div v-if="imagePart.title" class="text-[12px] text-ink-3 mt-0.5">画的是：{{ imagePart.caption }}</div>
@@ -546,6 +680,15 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
 /* 背景图层（Wallpaper，z-index -1）只在这一页里垫在底下 */
 .chat-page {
   isolation: isolate;
+}
+/* 相册、系统相机的文件框：看不见，但能用 .click() 打开（iPhone 上 display: none 的有时打不开） */
+.file-hidden {
+  position: fixed;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 .chat-bg {
   background:

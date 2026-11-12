@@ -1,10 +1,21 @@
 import type { EnvironmentSettings, PushChannel } from '@app/shared';
 import { at } from '@/utils/time';
 
+/** 这台设备的时区（第一次打开时的默认值；在"环境与作息"里能改） */
+function zone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
+  } catch {
+    return 'Asia/Shanghai';
+  }
+}
+
 export const envSettings: EnvironmentSettings = {
-  city: '上海',
-  timezone: 'Asia/Shanghai',
-  weatherProvider: 'qweather',
+  // 你在哪座城市（查天气用）：第一次打开时空着，在"环境与作息"里填，或者填家的地址、打开定位
+  city: '',
+  timezone: zone(),
+  weatherProvider: 'auto',
+  tempUnit: 'c',
   useLocation: false,
   wakeTime: '07:30',
   sleepTime: '23:30',

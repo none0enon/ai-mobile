@@ -16,6 +16,7 @@ export * from './expressions.ts';
 export * from './scenes.ts';
 export * from './locations.ts';
 export * from './environment.ts';
+export * from './weather.ts';
 export * from './proactive.ts';
 export * from './presetUses.ts';
 export * from './presetFile.ts';
