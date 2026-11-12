@@ -10,6 +10,7 @@ import { useChatStore } from '@/stores/chat';
 /**
  * 场景都发生在地图上的某个地点，算作你们那条聊天里的一段：
  * 进来时在聊天里记"来到…"，离开时记"离开…"（什么都没发生就不留痕迹）。
+ * 场景只在这一页上：离开这一页就是结束这件事，去聊天、打电话也一样（聊天页只是聊天）。
  */
 const route = useRoute();
 const app = useAppStore();
@@ -45,10 +46,8 @@ watch(
   { immediate: true },
 );
 
-// 去和她的聊天、给她打电话还算在一起；去别处就算离开了
-onBeforeRouteLeave((to) => {
-  const chatId = chat.chatOfCharacter(app.activeCharacterId)?.id;
-  if (to.path === `/chat/${chatId}` || to.path === `/call/${app.activeCharacterId}`) return;
+// 离开这一页就结束这件事，去哪儿都一样
+onBeforeRouteLeave(() => {
   chat.leaveScene(app.activeCharacterId);
 });
 </script>

@@ -5,8 +5,8 @@ import { services } from './index';
 import type { SongInfo } from './types';
 
 /**
- * 一起听歌的播放器（同 SleepTogether 的网易云面板：播放器放在模块里，离开页面不断）：
- * - 去聊天、打电话时还在放（还算"在一起"），离开这件事（ScenePage 的 leaveScene）时停；
+ * 一起听歌的播放器（同 SleepTogether 的网易云面板：播放器放在模块里）：
+ * - 离开"一起听歌"这一页时停（ScenePage 的 leaveScene；去聊天、打电话也算离开）；
  * - 歌曲地址播放前现取（约 20 分钟过期），播放出错先重取一次地址接着放，还不行就跳下一首；
  * - 播放列表、播放模式记在本机，下次打开还在（不自动播放）；
  * - 锁屏 / 通知栏的播放控制（Media Session）；iPhone 静音键打开时也有声（audioSession = playback）。

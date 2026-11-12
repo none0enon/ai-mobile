@@ -203,6 +203,7 @@ export interface Chat extends SyncMeta {
   title: string;
   /** 上次用的看法：聊天气泡 / 剧场立绘 */
   mode: 'im' | 'stage';
+  /** 正在一起做的事（场景 id）。场景只在场景页开着时有，离开场景页（去聊天也是）就清空，这三项一起 */
   currentScene: string | null;
   /** 一起做事时她那边在哪（连线 / 去她那：她世界里的地点；带她来：你真实世界里的地点）；为空表示只是在发消息 */
   togetherAt: string | null;
