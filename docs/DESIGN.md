@@ -465,8 +465,8 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 | 时间、时段（清晨…深夜）、星期 | 设备时钟 + 你的时区（Worker 端按时区换算，Cron 是 UTC） |
 | 节气、农历 | lunar-javascript（M0 用近似表：`packages/shared/src/environment.ts`） |
 | 法定节假日、调休 | 年度表（例如 chinese-days 数据） |
-| 天气：当前、未来 24 小时、预警 | 和风天气（国内准，需要 key 和你的 API Host；由 Worker 代取，缓存 30 分钟）或 Open-Meteo（免 key） |
-| 家、你在哪 | 家的地址在"环境与作息"里填（只存本机，Google 地理编码成坐标）；你在不在家、离家多远来自定位。天气和时区默认跟着家的位置 |
+| 天气：当前、今明两天、接下来几小时会不会下雨、预警 | **已实现**（`packages/shared/src/weather.ts` 换算各家的返回，`apps/web/src/services/weather.ts` 请求，`stores/weather.ts` 半小时取一次、存本机）。你那边默认 Open-Meteo（免 Key、全球；美国用 NOAA 的 HRRR / GFS，另取美国国家气象局 api.weather.gov 的预警）；国内的地方、填了和风天气（Key + 自己的 API Host，先用 `/weather/v1/*`、`/weatheralert/v1/*`，账号没有新接口时退回 v7）时用和风。都支持浏览器直接请求，没经过 Worker。每个角色可以设"住在哪座城市"（`Character.weather`），她在别的城市时【当前环境】里分开写你那边、她那边。取不到不写，不编 |
+| 家、你在哪 | 家的地址在"环境与作息"里填（只存本机，Google 地理编码成坐标，也可以"用现在的位置"）；你在不在家、离家多远、是不是就在附近哪个地方来自打开 App 时的一次定位（"用定位"打开时）。天气按 定位 → 家 → 你填的城市 |
 | 今日活动 | 步数 / 运动、三餐、学习、昨晚睡眠、听歌（§9） |
 | 她在哪、在做什么 | 她自己小世界里的位置，按她的作息走（M3 由主动消息的 Cron 顺便推进；第二阶段先看她今天的节律）；你带她出门时暂时在你那边。显示在消息页、地图和聊天顶栏，也写进【当前环境】（例如"苏晚在她的小世界里的图书馆（自习中）；你在家"） |
 | 她今天穿什么（第二阶段） | 今天的节律或她的固定衣柜（§9 开头的"节律"）。写进【当前环境】，聊天时说得对得上；生图也用同一套 |
@@ -546,7 +546,7 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 - 从聊天的 ＋ 面板直接进场景时，去她世界里做这件事的默认地点（`defaultLocationFor`）。
 - 没填 Google 地图 Key 时，我的世界显示示意图（同一套地图组件画几条街），附近地点用演示数据。
 
-**Google 地图接入**（M3）：
+**Google 地图接入**（M3，**已实现**：`services/maps.ts`、`stores/realworld.ts`、`components/map/RealMap.vue`；Key 在"我的 → 地图、天气、音乐"）：
 - 在"连接"里加一个 Google 地图连接，Key 只存本机，并在 Google Cloud 里按 App 包名 / 网址限制。
 - 用到三个接口：
   - Geocoding：设置家时把地址换成坐标，只调一次，结果缓存；
@@ -554,6 +554,8 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
   - Maps JavaScript API：画真地图，你和带出门的她标在上面。
 - 定位先只做前台：打开 App 时取一次（网页定位；安卓壳里用系统定位），不做后台定位和地理围栏。
 - 接口统一放在 `services/types.ts` 的 `MapsClient`，所以以后换高德等地图服务时，页面不用改。
+- 实现上：附近搜索直接调 Places API (New) 的 REST 接口（`places:searchNearby`，`X-Goog-FieldMask` 只要名字、地址、坐标、类型名、Google 地图链接），按种类各搜一次（`includedTypes`，咖啡店 / 餐厅 1.5 km，公园 / 健身房 3 km，图书馆 5 km），每种留最近的 3 个；搜到过的地点存在本机（最多 200 个），足迹过几天也认得出名字。
+- 真地图用 `OverlayView` 的一层 DOM 画地点、你（定位的蓝点）、跟着你出门的她，不需要 Map ID；脚本加载失败或 `gm_authFailure`（Key 被拒）时退回示意图并写明原因。换 Key 要刷新页面（脚本只加载一次）。
 
 **消息按人分**：一个角色只有一条聊天。场景不另开会话，而是这条聊天里的一段：
 - 开始时插一条分隔（例如"和苏晚连线 · 陪伴学习"），结束时插一条（例如"结束连线 · 学了 50 分钟"）。用的是 `MessagePart` 的 `scene` 类型，记着方式 `mode` 和你在哪 `youAt`，在聊天里显示成分隔条。
@@ -730,7 +732,8 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
   - iPhone 的 PWA 锁屏后 JS 和 WebAudio 会暂停，长音频只能用单个 `<audio>` 元素，效果有限。
 
 ### 9.5 一起听歌（`MusicScene.vue`）
-- **数据**：网易云模块并入 Worker（`/v1/music/*`）：
+- **现在（已实现）**：同 SleepTogether，对接你自己部署的 Netease_url Worker（`POST /search`、`/song`、`/lyric`、`/playlist`、`/album`，`GET /health`），地址和黑胶 Cookie 在"我的 → 地图、天气、音乐"（Cookie 只存本机）。播放器在 `services/musicPlayer.ts`：去聊天、打电话时不断，离开这件事时停，地址播放前现取、出错重取一次，拿不到地址就说明原因跳下一首；锁屏控制（Media Session）。她的弹幕：一首歌开始时「陪伴 · 快速」按"一起听歌"预设的"批量写弹幕"（`music-batch`）读带编号的歌词，返回 `{reactions: [{line, text, expr}]}`，唱到那一行时出现并记进聊天；边听边说一句走 `music-chat`。聊天里的歌曲卡片（`[music:]`）"一起听"按歌名 + 歌手去搜。
+- **以后**：网易云模块并入 Worker（`/v1/music/*`）：
   - cookie 存成 secret；
   - 歌曲地址约 20 分钟过期，播放前现取、出错重取；
   - http 链接改成 https；
@@ -738,6 +741,11 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 - **歌词**：用 `parseLrc`（`packages/shared/src/lrc.ts`）。修掉了 Netease_url 自带解析器的问题：毫秒精度、一行多个时间戳、跳过 JSON 署名行、合并译文。
 - **AI 行为**：按当前歌词偶尔发一句"弹幕"（20 字以内），不是每句都评；用 `[music:]` 推荐下一首；记住你的口味。
 - **安全**：Netease_url 仓库里提交过一个像真的 `MUSIC_U`，应到网易云退出登录让它失效。
+
+### 9.5.1 聊天 ＋ → 拍照 / 相册（已实现）
+- **拍照**：`CameraSheet.vue` 用 `getUserMedia` 在 App 里开相机（第一次弹相机权限，前后摄像头切换，拍完能重拍）；不支持、没权限、不是 https 时改用系统相机（`<input capture>`）或相册。
+- **相册**：系统的照片选择（`<input type="file" accept="image/*" multiple>`，iPhone 是照片图库，安卓是照片选择器），一次最多 9 张，发之前能去掉、再加、配一句话。
+- **她怎么"看"**：照片压到长边 1600 像素（JPEG）存进本机素材库，消息里是 `image` part（`photo: true`）。发出去先交给"识图"看一遍，看到的写进 `seen`；拼提示词时这张照片写成 `[照片：…]`，所以主对话用不能看图的模型也行，之后的每一轮、总结、主动消息也都知道照片里有什么。看法在对话预设的"识图看照片"一块（`photoLook`，不发给对话模型；导入的 ST 预设没有这一块时用自带预设文件里的）。识图没接通时照样发，写成"看不到照片的内容"。
 
 ### 9.6 约会（`DateScene.vue`）
 - **地点**：
@@ -1182,8 +1190,8 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
 | `POST /v1/relay` | 经 Worker 转发；只允许"连接"里配置过的主机，不是开放代理 | 设备令牌 |
 | `PUT /v1/secrets/:connectionId` | 写入交给 Worker 的 Key（只写不读） | 设备令牌 |
 | `POST /v1/image/novelai` | 生图（解 zip → R2） | 设备令牌 |
-| `GET /v1/music/search｜song｜lyric` | 网易云 | 设备令牌 |
-| `GET /v1/weather` | 天气（缓存） | 设备令牌 |
+| `GET /v1/music/search｜song｜lyric` | 网易云（还没做：现在浏览器直接请求你部署的 Netease_url Worker，同 SleepTogether） | 设备令牌 |
+| `GET /v1/weather` | 天气（缓存；还没做：现在浏览器直接请求 Open-Meteo / 和风天气，都支持跨域） | 设备令牌 |
 | `POST /v1/ingest/:kind` | 快捷指令 / 安卓上报健康数据 | 单独的上报令牌 |
 | `POST /v1/push/subscribe` | Web Push 订阅、webhook 通道 | 设备令牌 |
 | `GET /v1/inbox?since=` | 安卓壳轮询：新的主动消息 + 今天的计划 | 设备令牌 |

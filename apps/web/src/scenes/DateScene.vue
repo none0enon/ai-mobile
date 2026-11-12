@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { worldOf, type MapLocation } from '@app/shared';
+import { isRainy, worldOf, type MapLocation } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, inject, ref } from 'vue';
 import CgArt from '@/components/figure/CgArt.vue';
 import DialogBox from '@/components/stage/DialogBox.vue';
 import { SCENE_LOCATION } from '@/components/scene/location';
 import SceneShell from '@/components/scene/SceneShell.vue';
-import { weather } from '@/mock/activity';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { useWeatherStore } from '@/stores/weather';
 
 /**
  * 约会：从地图上点了地点就直接开始；没指定地点（比如从聊天进来）先从她小世界里能约会的地方选，她会按天气推荐。
@@ -37,9 +37,11 @@ const TONE: Record<string, string> = {
 };
 const toneOf = (l: MapLocation) => TONE[l.backdrop] ?? '#f5b8a6';
 
-const raining = weather.text.includes('雨');
+/** 下没下雨：约会在她的世界里（去她那）看她那边的天气；带她出门在你这边的地方看你那边的 */
+const weatherStore = useWeatherStore();
+const raining = computed(() => isRainy((location.value?.area === 'real' ? weatherStore.mine : weatherStore.forCharacter(character.value))?.text));
 /** 下雨推荐室内，天晴推荐室外 */
-const recommended = computed(() => datePlaces.value.find((l) => l.indoor === raining) ?? datePlaces.value[0]!);
+const recommended = computed(() => datePlaces.value.find((l) => l.indoor === raining.value) ?? datePlaces.value[0]!);
 const fromMap = location.value?.activities.some((a) => a.sceneId === 'date') ? location.value : null;
 const phase = ref<'pick' | 'date' | 'end'>(fromMap ? 'date' : 'pick');
 const place = ref<MapLocation>(fromMap ?? recommended.value);
@@ -57,7 +59,7 @@ const cgReady = ref(false);
 
 const nodes = computed<Node[]>(() => [
   {
-    narration: `（周六下午，${place.value.name}。${raining ? '外面的雨还没停，' : ''}你们并肩走了进来。）`,
+    narration: `（周六下午，${place.value.name}。${raining.value ? '外面的雨还没停，' : ''}你们并肩走了进来。）`,
     line: '哇……比我想象的还要好看！',
     expression: 'laugh',
     choices: ['牵起她的手', '给她拍张照', '去买两杯热饮'],

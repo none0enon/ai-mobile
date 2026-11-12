@@ -8,8 +8,10 @@ import type { MapLocation } from '@app/shared';
 export const DEMO_HOME_ADDRESS: string = (import.meta.env.VITE_HOME_ADDRESS as string | undefined) ?? '';
 
 export const REAL_HOME_ID = 'real:home';
+/** 你出门了、又不在附近哪个认得的地方时，"你在哪"就是它（不记进足迹） */
+export const REAL_OUT_ID = 'real:out';
 
-export function realHome(address: string): MapLocation {
+export function realHome(address: string, at?: { lat: number; lng: number } | null): MapLocation {
   return {
     id: REAL_HOME_ID,
     name: '家',
@@ -22,6 +24,7 @@ export function realHome(address: string): MapLocation {
     blurb: address || '还没设置家的地址',
     address,
     distanceKm: 0,
+    ...(at ? { lat: at.lat, lng: at.lng } : {}),
     activities: [
       { sceneId: 'sleep', label: '哄睡' },
       { sceneId: 'meal', label: '在家吃饭' },
@@ -108,3 +111,25 @@ export const NEARBY_PLACES: MapLocation[] = [
     activities: [{ sceneId: 'exercise', label: '一起练' }],
   },
 ];
+
+/** 你在外面（定位到离家有点远、又不在附近哪个认得的地方）：只用来在地图上标"你"、场景里写"你在外面" */
+export function realOut(at: { lat: number; lng: number }, awayKm: number | null): MapLocation {
+  return {
+    id: REAL_OUT_ID,
+    name: '外面',
+    area: 'real',
+    icon: 'i-lucide-navigation',
+    x: 50,
+    y: 20,
+    backdrop: 'park',
+    indoor: false,
+    blurb: awayKm != null ? `离家 ${awayKm < 1 ? `${Math.round(awayKm * 1000)} 米` : `${awayKm.toFixed(1)} 公里`}` : '出门了',
+    distanceKm: awayKm ?? undefined,
+    lat: at.lat,
+    lng: at.lng,
+    activities: [
+      { sceneId: 'music', label: '一起听歌' },
+      { sceneId: 'exercise', label: '散步' },
+    ],
+  };
+}

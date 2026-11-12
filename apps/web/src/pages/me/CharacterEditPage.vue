@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { EXPRESSION_LABELS, EXPRESSIONS, imageAppearance, isFandom, OUTFITS, type PokeHotspot } from '@app/shared';
+import { EXPRESSION_LABELS, EXPRESSIONS, imageAppearance, isFandom, OUTFITS, WEATHER_PROVIDER_LABEL, type PokeHotspot, type WeatherProviderChoice } from '@app/shared';
 import { showImagePreview, showToast } from 'vant';
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AssetImg from '@/components/common/AssetImg.vue';
 import Avatar from '@/components/common/Avatar.vue';
@@ -22,6 +22,8 @@ import { useLibraryStore } from '@/stores/library';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
 import { useRhythmStore } from '@/stores/rhythm';
+import { useServicesStore } from '@/stores/services';
+import { useWeatherStore } from '@/stores/weather';
 import { errorReport, errorText } from '@app/ai';
 
 const route = useRoute();
@@ -96,6 +98,38 @@ async function openTrial() {
   if (url) showImagePreview({ images: [url], closeable: true });
 }
 
+// —— 她那边的天气：住在哪座城市（不写 = 和你一样）——
+const weather = useWeatherStore();
+const svc = useServicesStore();
+const cityDraft = ref(character.value.weather?.city ?? '');
+watch(
+  () => character.value.id,
+  () => (cityDraft.value = character.value.weather?.city ?? ''),
+);
+function saveCity() {
+  const c = character.value;
+  const city = cityDraft.value.trim();
+  if (city === (c.weather?.city ?? '')) return;
+  if (city) c.weather = { city, ...(c.weather?.provider ? { provider: c.weather.provider } : {}) };
+  else delete c.weather;
+  c.updatedAt = Date.now();
+}
+const herProvider = computed<WeatherProviderChoice>({
+  get: () => character.value.weather?.provider ?? 'auto',
+  set: (v) => {
+    const c = character.value;
+    if (!c.weather?.city) return;
+    c.weather = { city: c.weather.city, ...(v === 'auto' ? {} : { provider: v }) };
+    c.updatedAt = Date.now();
+  },
+});
+const herWeather = computed(() => weather.forCharacter(character.value));
+const herEntry = computed(() => weather.entryFor(character.value));
+// 从"环境与作息 → 她们那边的天气"点进来时滚到这一块
+onMounted(() => {
+  if (route.hash === '#weather') setTimeout(() => document.getElementById('ce-weather')?.scrollIntoView({ block: 'center' }), 300);
+});
+
 const TABS = ['basic', 'persona', 'greeting', 'example', 'lore', 'preset', 'sprite', 'voice', 'proactive', 'look'] as const;
 const tab = ref<string>(TABS.includes(route.query.tab as (typeof TABS)[number]) ? (route.query.tab as string) : 'basic');
 const ACCENTS = ['#f5b8a6', '#f39cc0', '#b7a6f5', '#8ec5e8', '#7fd1b1', '#f2c66d'];
@@ -140,6 +174,37 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
                 { value: 'TA', label: 'TA' },
               ]"
             />
+            <label class="field-label" for="ce-weather">住在哪座城市（{{ character.pronoun }}那边的天气）</label>
+            <input
+              id="ce-weather"
+              v-model="cityDraft"
+              class="input"
+              placeholder="不写 = 和你在同一个地方；国内的角色写例如 上海"
+              enterkeyhint="done"
+              data-testid="char-city"
+              @blur="saveCity"
+              @keydown.enter="saveCity"
+            />
+            <template v-if="weather.hasOwnCity(character)">
+              <Segmented
+                v-model="herProvider"
+                class="mt-2"
+                :options="[
+                  { value: 'auto', label: '自动' },
+                  { value: 'qweather', label: '和风天气' },
+                  { value: 'open-meteo', label: 'Open-Meteo' },
+                ]"
+              />
+              <div class="text-[12.5px] mt-1.5" :class="herEntry.error && !herWeather ? 'text-bad' : 'text-ink-3'" data-testid="char-weather">
+                <template v-if="herWeather">
+                  <span :class="herWeather.icon" /> {{ herWeather.place }} {{ herWeather.text }} {{ weather.temp(herWeather.tempC) }} · {{ WEATHER_PROVIDER_LABEL[herWeather.provider] }}
+                  <template v-if="herProvider !== 'open-meteo' && herWeather.provider === 'open-meteo' && !svc.qweatherReady"> · 没填和风天气，先用 Open-Meteo</template>
+                </template>
+                <template v-else-if="herEntry.loading">正在取{{ character.weather?.city }}的天气…</template>
+                <template v-else>{{ herEntry.error || '保存后会取那里的天气' }}</template>
+              </div>
+            </template>
+            <div v-else class="text-[12px] text-ink-3 mt-1">聊天里写进【当前环境】：{{ character.pronoun }}那边下不下雨、冷不冷。国内的城市用和风天气（在"我的 → 地图、天气、音乐"里填 Key），其他地方用 Open-Meteo。</div>
             <label class="field-label" for="ce-status">状态行（{{ character.pronoun }}此刻在做什么，按节律里的作息自动更新）</label>
             <input id="ce-status" v-model="character.status" class="input" />
             <RouterLink :to="`/me/rhythm?char=${character.id}`" class="link-row press" data-testid="to-rhythm">

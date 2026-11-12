@@ -33,6 +33,14 @@ export type MessagePart =
       error?: string;
       /** 完整报错 */
       errorDetail?: string;
+      /** 你用相机拍的、从相册选的照片（不是画的）：发给她看 */
+      photo?: boolean;
+      /** 识图看到了什么（提示词里用它代替这张照片）；还没看、没接通时为空 */
+      seen?: string;
+      /** 识图用的模型 */
+      seenModel?: string;
+      /** 识图没看成的原因（没接通、调用失败） */
+      seenError?: string;
     }
   | { type: 'music'; songId: string; title: string; artist: string; cover?: string | null }
   /** 拍一拍："你拍了拍她的头" / "她拍了拍你" */

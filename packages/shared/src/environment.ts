@@ -51,6 +51,8 @@ export interface WeatherSnapshot {
   city: string;
   text: string;
   tempC: number;
+  /** 你用华氏时，温度后面括号里带一个华氏（她说的时候两种都能用） */
+  unit?: 'c' | 'f';
   /** 例如"明天降到 6°C" */
   outlook?: string;
   alert?: string;
@@ -58,7 +60,10 @@ export interface WeatherSnapshot {
 
 export interface EnvironmentInput {
   now: Date;
+  /** 你那边的天气 */
   weather?: WeatherSnapshot | null;
+  /** 她那边的天气：她住在别的城市时（例如国内的角色用中国的天气）；和你在同一个地方时不给 */
+  herWeather?: (WeatherSnapshot & { name: string }) | null;
   /** 今日活动的一句话描述，例如"你今天走了 8,432 步，午饭吃了拉面，晚饭还没记录" */
   todayLine?: string;
   sinceLastChatMin?: number | null;
@@ -80,6 +85,15 @@ export function formatDuration(min: number): string {
   return `${Math.floor(h / 24)} 天`;
 }
 
+/** "上海 小雨 12°C，今天 9~13°C，明天降温（暴雨黄色预警）"；用华氏的人温度后面带一个华氏 */
+export function weatherLine(w: WeatherSnapshot): string {
+  const f = w.unit === 'f' ? `（${Math.round((w.tempC * 9) / 5 + 32)}°F）` : '';
+  let line = `${w.city} ${w.text} ${w.tempC}°C${f}`;
+  if (w.outlook) line += `，${w.outlook}`;
+  if (w.alert) line += `（${w.alert}）`;
+  return line;
+}
+
 /**
  * 拼出注入提示词的【当前环境】块。客户端每轮对话前调用，Worker 写主动消息时也用同一个函数。
  */
@@ -91,12 +105,14 @@ export function formatEnvironmentBlock(input: EnvironmentInput): string {
   );
   const term = solarTermNote(d);
   if (term) parts.push(term);
-  if (input.weather) {
-    const w = input.weather;
-    let line = `${w.city} ${w.text} ${w.tempC}°C`;
-    if (w.outlook) line += `，${w.outlook}`;
-    if (w.alert) line += `（${w.alert}）`;
-    parts.push(line);
+  const her = input.herWeather;
+  if (input.weather && her) {
+    parts.push(`你那边：${weatherLine(input.weather)}`);
+    parts.push(`${her.name}那边：${weatherLine(her)}`);
+  } else if (input.weather) {
+    parts.push(weatherLine(input.weather));
+  } else if (her) {
+    parts.push(`${her.name}那边：${weatherLine(her)}`);
   }
   if (input.todayLine) parts.push(input.todayLine);
   if (input.sinceLastChatMin != null) parts.push(`距上次聊天 ${formatDuration(input.sinceLastChatMin)}`);

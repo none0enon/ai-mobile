@@ -112,7 +112,7 @@ export const useProactiveStore = defineStore('proactive', () => {
     for (const { tag } of parsed.tags) {
       if (tag.kind === 'expr') expression = tag.value;
       if (tag.kind === 'cg') parts.push({ type: 'image', assetKey: null, caption: tag.value, generated: false });
-      if (tag.kind === 'music') parts.push({ type: 'music', songId: 's1', title: tag.title, artist: tag.artist });
+      if (tag.kind === 'music') parts.push({ type: 'music', songId: '', title: tag.title, artist: tag.artist });
     }
     if (!parts.length) throw new AiError('empty', '模型回了一条空消息');
     chat.lastPrompt[ch.id] = { prompt, at: Date.now() };

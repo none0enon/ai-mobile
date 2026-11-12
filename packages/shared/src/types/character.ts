@@ -1,4 +1,5 @@
 import type { HHMM, SyncMeta } from './common.ts';
+import type { WeatherProviderChoice } from '../weather.ts';
 
 /**
  * SillyTavern V2/V3 角色卡里保留的字段，导入导出时一一对应：
@@ -95,6 +96,15 @@ export interface CharacterFandom {
   copyrightTag: string;
 }
 
+/**
+ * 她那边的天气：她住在哪座城市。不写 = 和你在同一个地方，用你那边的天气。
+ * 例如住在国内的角色写"上海"：国内的城市用和风天气（填了 Key 时），其他地方用 Open-Meteo
+ */
+export interface CharacterWeather {
+  city: string;
+  provider?: WeatherProviderChoice;
+}
+
 export interface Character extends SyncMeta {
   name: string;
   /** 界面里怎么称呼：她 / 他 / TA（"她叫你…""去找他"） */
@@ -117,6 +127,8 @@ export interface Character extends SyncMeta {
   voice: CharacterVoice;
   proactive: CharacterProactive;
   relationship: Relationship;
+  /** 她那边的天气（住在哪座城市）；没有 = 跟你一样 */
+  weather?: CharacterWeather;
   /** 状态行，例如"在图书馆自习" */
   status: string;
   /**
