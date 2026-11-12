@@ -187,8 +187,10 @@ export function presetFor(character: Character | undefined): Preset | undefined 
 /** 这一轮用的是哪个用途的预设：主动消息 → 在一起做某件事（功能预设）→ 平时聊天（这个角色的对话预设） */
 export type ChatPresetUse = PresetUseId | 'chat';
 
-export function presetForTurn(chat: Chat, character: Character, agent?: AgentRole): { preset: Preset | undefined; use: ChatPresetUse } {
+export function presetForTurn(chat: Chat, character: Character, agent?: AgentRole, use?: PresetUseId): { preset: Preset | undefined; use: ChatPresetUse } {
   const lib = useLibraryStore();
+  // 指定了用途（语音通话）：按那个用途选，不看场景
+  if (use) return { preset: lib.presetForUse(use, character), use };
   if (agent === 'proactive') return { preset: lib.presetForUse('proactive', character), use: 'proactive' };
   const scene = sceneUse(chat.currentScene);
   if (scene) return { preset: lib.presetForUse(scene, character), use: scene };
@@ -245,15 +247,17 @@ export interface ChatAssembleOptions {
    * input 是程序写的这一次的输入（只放数据，填进"场景任务"块；预设里没有这一块时接在最后）
    */
   task?: { name: string; input: string };
+  /** 指定按哪个用途选预设（语音通话用 call）；不给时按主动消息 / 场景 / 对话预设 */
+  use?: PresetUseId;
 }
 
 /**
  * 拼这一轮的提示词。history 是要发出去的聊天记录（从旧到新，最后一条通常是你刚发的）。
- * 预设按用途选：主动消息用"主动消息"预设，在一起做某件事时用那件事的功能预设，平时用这个角色的对话预设。
+ * 预设按用途选：语音通话用"语音通话"选的预设，主动消息用"主动消息"预设，在一起做某件事时用那件事的功能预设，平时用这个角色的对话预设。
  */
 export function assembleForChat(chat: Chat, character: Character, history: Message[], opts: ChatAssembleOptions = {}): ChatPrompt {
   const lib = useLibraryStore();
-  const { preset, use } = presetForTurn(chat, character, opts.agent);
+  const { preset, use } = presetForTurn(chat, character, opts.agent, opts.use);
   if (!preset) throw new MissingPresetError(use === 'chat' ? '对话' : useLabel(use));
   const persona = personaOf(chat);
   const model = modelOf(opts.agent);

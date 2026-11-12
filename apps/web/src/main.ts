@@ -1,3 +1,5 @@
+// 别的 App 分享过来的链接：要在路由创建之前处理（见 shareTarget.ts）
+import './shareTarget';
 import { createPinia } from 'pinia';
 import { createApp } from 'vue';
 // Vant 的函数式组件（Toast / Dialog / ImagePreview）不会被自动引入样式，这里手动引入
@@ -11,7 +13,7 @@ import 'virtual:uno.css';
 import App from './App.vue';
 import { initPwa } from './pwa';
 import { router } from './router';
-import { unlockAudio } from './services/audio';
+import { resumeAudioContext, unlockAudio } from './services/audio';
 import { useAiStore } from './stores/ai';
 import { useAppStore } from './stores/app';
 import { useCharacterStore } from './stores/characters';
@@ -24,6 +26,7 @@ import { useHubStore } from './stores/hub';
 import { useEnvironmentStore } from './stores/environment';
 import { useGalleryStore } from './stores/gallery';
 import { useRhythmStore } from './stores/rhythm';
+import { useVoiceStore } from './stores/voice';
 
 if (import.meta.env.MODE === 'preview') {
   // Claude Artifact 预览：外层已处理安全区
@@ -56,6 +59,7 @@ const hydrated = Promise.allSettled([
   // 节律要先读出来：导入角色"建世界"生成的世界要在打开地图、场景之前登记好
   useRhythmStore().hydrate(),
   useGalleryStore().hydrate(),
+  useVoiceStore().hydrate(),
 ]);
 
 // iPhone 上只有用户点过屏幕后"解锁"的 <audio> 才能在网络请求之后播放语音：第一次点屏幕时解锁
@@ -63,6 +67,8 @@ const unlock = () => {
   if (unlockAudio()) document.removeEventListener('pointerdown', unlock, true);
 };
 document.addEventListener('pointerdown', unlock, true);
+// 之后每次点屏幕顺手恢复被挂起的 AudioContext（切后台回来、iPhone 来电之后白噪音和通话的说话检测会停）
+document.addEventListener('pointerdown', resumeAudioContext, true);
 
 /** "一起""回忆"、地图默认陪着你的角色：最近聊过的那个（不是固定的第一个） */
 function followLatestChat() {

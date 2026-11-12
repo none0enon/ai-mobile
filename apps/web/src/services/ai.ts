@@ -124,7 +124,8 @@ export class RoutedTTS implements TTSClient {
         signal: ctrl.signal,
       });
       if (ctrl.signal.aborted) return;
-      await playBytes(audio.bytes, audio.mime, { onLevel: opts.onLevel, signal: ctrl.signal });
+      const played = await playBytes(audio.bytes, audio.mime, { onLevel: opts.onLevel, signal: ctrl.signal });
+      if (!played.ok) toastOnce('play', played.reason);
     } catch (e) {
       if (isAbortError(e) || ctrl.signal.aborted) return;
       if (e instanceof AiError && e.code === 'empty') return;

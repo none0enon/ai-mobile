@@ -219,7 +219,7 @@ function drawStory() {
           >
             <template #icon><span class="i-lucide-message-circle-heart row-icon" /></template>
           </van-cell>
-          <van-cell :title="`模拟${target.name}打来电话`" label="来电界面：接听 / 拒绝 / 回消息" is-link center @click="demoCall">
+          <van-cell :title="`让${target.name}打来电话`" label="来电界面：接听后是真的通话（主对话 + 语音识别 + 语音合成）" is-link center @click="demoCall">
             <template #icon><span class="i-lucide-phone-incoming row-icon" /></template>
           </van-cell>
         </van-cell-group>
