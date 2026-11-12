@@ -1,7 +1,6 @@
 /**
  * 角色点缀色的派生色在 JS 里算好，再以内联 CSS 变量注入（AccentScope）。
- * 不用 CSS color-mix()：国内一些厂商 WebView 停在 Chrome 111 以前，不支持。
- * 也顺带避开"自定义属性在声明处求值"的继承陷阱：子元素只改 --accent 不会让 :root 上派生的变量跟着变。
+ * 避开"自定义属性在声明处求值"的继承陷阱：子元素只改 --accent 不会让 :root 上派生的变量跟着变。
  */
 type RGB = [number, number, number];
 

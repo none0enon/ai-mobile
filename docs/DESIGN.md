@@ -1293,7 +1293,7 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
     - 每套都有白天、夜里两版，跟着模式切换；也可以白天、夜里分开选。
     - 每版只写几种基础色（底色、卡片、输入框、边框、三级文字、点缀色），毛玻璃、遮罩、地图等其余变量按规则算出来，注入到 `<html>`。
     - 默认的暮紫不注入任何变量，直接用样式表。
-  - 点缀色默认跟随当前角色：`AccentScope` 用 JS 算好派生色（`utils/color.ts`）再内联注入，并同步给 Vant 主色。不用 CSS `color-mix()`，因为有些国产 WebView 不支持。也可以改成"跟随配色"，用配色自带的点缀色。
+  - 点缀色默认跟随当前角色：`AccentScope` 用 JS 算好派生色（`utils/color.ts`）再内联注入，并同步给 Vant 主色。也可以改成"跟随配色"，用配色自带的点缀色。
   - Vant 变量统一映射到主题变量（`styles/vant.css`），所以换配色时 Vant 组件也跟着变。
 - **聊天背景与头像**：
   - 聊天背景：
