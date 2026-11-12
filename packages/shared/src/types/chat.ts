@@ -40,7 +40,22 @@ export type MessagePart =
   | { type: 'call-log'; durationSec: number; scene?: string; missed?: boolean; transcriptId?: string }
   | { type: 'workout'; logId: string; sport: string; distanceKm?: number; durationSec: number; pace?: string }
   | { type: 'meal'; logId: string; meal: MealSlot; food: string; photo?: string | null }
-  | { type: 'study'; logId: string; pomodoros: number; minutes: number }
+  | {
+      type: 'study';
+      logId: string;
+      pomodoros: number;
+      minutes: number;
+      /** 这次要完成的任务和完成了没有 */
+      tasks?: { text: string; done: boolean }[];
+      /** 中途离开 App 的次数 */
+      away?: number;
+      /** 开场时的约定，以及做到了没有 */
+      promise?: { text: string; kept: boolean };
+      /** 她这次在忙的事和进度（0–100） */
+      her?: { goal: string; progress: number };
+      /** 她写的自习日记 */
+      diary?: string;
+    }
   | {
       type: 'date';
       logId?: string;
@@ -100,7 +115,10 @@ export interface Message extends SyncMeta {
     agent?: string;
     tokens?: number;
     latencyMs?: number;
+    /** 在一起做哪件事时说的（场景 id） */
     scene?: string;
+    /** 在这件事里的位置："第 2 个番茄"、"00:41:08"、"第 12 页"、"第 7 问" */
+    cue?: string;
     /** [choice:] 标签给出的选项，显示成快捷回复 */
     choices?: string[];
     /** 回复被打断（切后台、断网）时保留半截内容，界面显示"继续" */

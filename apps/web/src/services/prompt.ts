@@ -60,8 +60,14 @@ function partToText(p: MessagePart, character: Character, user: string): string 
       return `[运动记录：${p.sport} ${p.distanceKm ?? ''} 公里，用时 ${Math.round(p.durationSec / 60)} 分钟]`;
     case 'meal':
       return `[饭照：${p.food}]`;
-    case 'study':
-      return `[陪伴学习：${p.pomodoros} 个番茄，${p.minutes} 分钟]`;
+    case 'study': {
+      const done = p.tasks?.filter((t) => t.done).map((t) => t.text) ?? [];
+      const extra = [
+        done.length ? `完成：${done.join('、')}` : '',
+        p.promise ? `约定"${p.promise.text}"${p.promise.kept ? '做到了' : '没做到'}` : '',
+      ].filter(Boolean);
+      return `[陪伴学习：${p.pomodoros} 个番茄，${p.minutes} 分钟${extra.length ? `；${extra.join('；')}` : ''}]`;
+    }
     case 'date':
       return `[约会邀请：${p.when} ${p.place}]`;
     case 'gift':
@@ -79,8 +85,10 @@ export function messageToText(m: Message, character: Character, user = personas[
 export function toTurns(history: Message[], character: Character, user: string): ChatTurn[] {
   const out: ChatTurn[] = [];
   for (const m of history) {
-    const content = messageToText(m, character, user);
-    if (!content) continue;
+    const text = messageToText(m, character, user);
+    if (!text) continue;
+    // 一起做事时说的话带上位置（第几个番茄、片内时间……），她知道是在哪一刻说的
+    const content = m.meta?.cue ? `（${m.meta.cue}）${text}` : text;
     if (m.role === 'user') out.push({ role: 'user', name: user, content });
     else if (m.role === 'assistant') out.push({ role: 'assistant', name: character.name, content });
     else out.push({ role: 'system', name: '', content });
@@ -221,6 +229,11 @@ export interface ChatAssembleOptions {
   quiet?: string;
   /** 哪个功能在调用：决定用哪个用途的预设、请求体里写谁的模型；默认主对话 */
   agent?: AgentRole;
+  /**
+   * 一起做事时这一次要做的事：name 是任务名（预设里触发条件写了它的块只在这时发送），
+   * input 是程序写的这一次的输入（只放数据，填进"场景任务"块；预设里没有这一块时接在最后）
+   */
+  task?: { name: string; input: string };
 }
 
 /**
@@ -238,6 +251,7 @@ export function assembleForChat(chat: Chat, character: Character, history: Messa
   const prevUser = [...history].reverse().filter((m) => m.role === 'user')[1];
   const app = appFills(chat, character, history);
   if (opts.quiet) app.proactive = { content: opts.quiet, source: '主动消息：这一次要她做的事' };
+  if (opts.task) app.sceneTask = { content: opts.task.input, source: `场景任务：${opts.task.name}` };
   // 功能预设里写了自己的"场景规则"：程序那块只填能用的标签和表情，不再重复场景规则
   if (preset.blocks.some((b) => b.identifier === 'sceneRule' && !b.marker && b.enabled) && app.sceneRules) app.sceneRules = sceneTagsOnly(chat);
   const result = assemblePrompt({
@@ -254,10 +268,15 @@ export function assembleForChat(chat: Chat, character: Character, history: Messa
     loreState: chat.loreState,
     dryRun: opts.dryRun,
     model,
+    task: opts.task?.name,
   });
   if (opts.quiet && !result.blocks.some((b) => b.identifier === 'proactive' && b.sent)) {
     result.messages.push({ role: 'system', content: opts.quiet, source: 'quiet', label: '主动消息：这一次要她做的事（预设里没有这一块，接在最后）' });
     result.tokens += estimateTokens(opts.quiet);
+  }
+  if (opts.task && opts.task.input.trim() && !result.blocks.some((b) => b.identifier === 'sceneTask' && b.sent)) {
+    result.messages.push({ role: 'system', content: opts.task.input, source: 'sceneTask', label: '场景任务：这一次的输入（预设里没有这一块，接在最后）' });
+    result.tokens += estimateTokens(opts.task.input);
   }
   return { ...result, preset, use, persona, request: buildChatRequest(result, preset, model) };
 }

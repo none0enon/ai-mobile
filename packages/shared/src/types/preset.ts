@@ -156,6 +156,7 @@ export const PROMPT_MARKERS = {
   sceneRules: '当前场景规则 + 可用标签',
   chatHistory: '聊天历史',
   proactive: '主动消息：这一次要她做的事',
+  sceneTask: '场景任务：这一次的输入',
 } as const;
 
 /** App 自己的程序填充块：ST 预设里没有，导入时补进去 */

@@ -43,6 +43,11 @@ export interface AssembleInput {
   /** App 自己的程序填充块：memory / summary / environment / sceneRules */
   app?: Partial<Record<string, AppBlockFill>>;
   type?: GenerationType;
+  /**
+   * 一起做事时这一次要做的事（场景任务名，例如 study-break）：触发条件里写了这个名字的块，只在做这件事时发送。
+   * 没写触发条件的块照常发送
+   */
+  task?: string;
   now?: Date;
   idleMs?: number | null;
   vars?: Record<string, string>;
@@ -277,7 +282,7 @@ export function assemblePrompt(input: AssembleInput): AssembleResult {
       }
       continue;
     }
-    if (b.triggers?.length && !b.triggers.includes(type)) {
+    if (b.triggers?.length && !b.triggers.includes(type) && !(input.task && b.triggers.includes(input.task))) {
       report.note = `只在 ${b.triggers.map((t) => TYPE_LABEL[t] ?? t).join(' / ')} 时发送`;
       continue;
     }
