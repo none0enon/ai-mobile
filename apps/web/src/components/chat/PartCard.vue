@@ -143,6 +143,16 @@ async function playVoice() {
   </div>
 
   <!-- 学习 -->
+  <div v-else-if="part.type === 'game'" class="pcard row-card" style="--tone: #b9a3e6">
+    <span class="icon-wrap" style="color: var(--tone)"><span class="i-lucide-puzzle" /></span>
+    <div class="flex-1 min-w-0">
+      <div class="text-[14.5px] truncate">海龟汤 · 《{{ part.title }}》</div>
+      <div class="text-[12px] text-ink-3">
+        {{ { solved: '猜出来了', partial: '猜对了一半', 'gave-up': '认输了' }[part.result] }} · 问了 {{ part.questions }} 个问题<template v-if="part.hints"> · 提示 {{ part.hints }} 次</template>
+      </div>
+      <div v-if="part.truth" class="text-[12.5px] text-ink-2 mt-0.5">汤底：{{ part.truth }}</div>
+    </div>
+  </div>
   <div v-else-if="part.type === 'watch'" class="pcard row-card" style="--tone: #e07a7a">
     <span class="icon-wrap" style="color: var(--tone)"><span class="i-lucide-ticket" /></span>
     <div class="flex-1 min-w-0">

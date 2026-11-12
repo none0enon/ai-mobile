@@ -2,6 +2,7 @@ import type { SceneId } from '@app/shared';
 import type { Component } from 'vue';
 import DateScene from './DateScene.vue';
 import ExerciseScene from './ExerciseScene.vue';
+import GameScene from './GameScene.vue';
 import MealScene from './MealScene.vue';
 import MusicScene from './MusicScene.vue';
 import PokeScene from './PokeScene.vue';
@@ -19,4 +20,5 @@ export const SCENE_COMPONENTS: Partial<Record<SceneId, Component>> = {
   date: DateScene,
   poke: PokeScene,
   watch: WatchScene,
+  game: GameScene,
 };

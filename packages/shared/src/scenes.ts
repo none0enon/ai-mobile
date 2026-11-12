@@ -2,7 +2,7 @@ import type { Outfit, Pose } from './expressions.ts';
 import type { ControlTagKind } from './tags.ts';
 import type { ProactiveTriggerId } from './types/proactive.ts';
 
-export type SceneId = 'free' | 'exercise' | 'meal' | 'study' | 'sleep' | 'music' | 'date' | 'poke' | 'watch';
+export type SceneId = 'free' | 'exercise' | 'meal' | 'study' | 'sleep' | 'music' | 'date' | 'poke' | 'watch' | 'game';
 
 export type TimeOfDay = 'dawn' | 'morning' | 'noon' | 'afternoon' | 'dusk' | 'night' | 'late';
 
@@ -162,6 +162,22 @@ export const SCENES: SceneDef[] = [
     allowedTags: ['expr'],
     proactiveTriggers: [],
     dataSources: ['本地视频（不上传）', '外挂字幕文件 srt / vtt / ass'],
+  },
+  {
+    id: 'game',
+    name: '一起游戏',
+    icon: 'i-lucide-puzzle',
+    tagline: '先从海龟汤开始：她出题你猜、一起猜，或者你出题她猜',
+    backdrop: 'room',
+    ambient: [],
+    outfit: 'daily',
+    pose: 'sit',
+    tint: '#b9a3e6',
+    // 规则写在"一起游戏"的功能预设里（不写死在代码里）
+    promptFragment: '',
+    allowedTags: ['expr'],
+    proactiveTriggers: [],
+    dataSources: ['海龟汤题库（src/soups/ 里的题库文件，可以增删改）', '现编的题'],
   },
 ];
 

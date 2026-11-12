@@ -64,6 +64,20 @@ export type MessagePart =
       status: 'invite' | 'accepted' | 'declined' | 'memory';
     }
   | { type: 'gift'; giftId: string; name: string }
+  /** 一起玩的一局（先只有海龟汤） */
+  | {
+      type: 'game';
+      logId: string;
+      game: 'soup';
+      title: string;
+      /** host 她出题你猜；coop 一起猜；guest 你出题她猜 */
+      mode: 'host' | 'coop' | 'guest';
+      result: 'solved' | 'partial' | 'gave-up';
+      questions: number;
+      hints: number;
+      /** 揭晓后的汤底 */
+      truth?: string;
+    }
   /** 一起观影的票根 */
   | {
       type: 'watch';
