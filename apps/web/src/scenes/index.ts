@@ -6,6 +6,7 @@ import GameScene from './GameScene.vue';
 import MealScene from './MealScene.vue';
 import MusicScene from './MusicScene.vue';
 import PokeScene from './PokeScene.vue';
+import ReadScene from './ReadScene.vue';
 import SleepScene from './SleepScene.vue';
 import StudyScene from './StudyScene.vue';
 import WatchScene from './WatchScene.vue';
@@ -21,4 +22,5 @@ export const SCENE_COMPONENTS: Partial<Record<SceneId, Component>> = {
   poke: PokeScene,
   watch: WatchScene,
   game: GameScene,
+  read: ReadScene,
 };

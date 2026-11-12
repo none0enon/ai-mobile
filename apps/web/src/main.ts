@@ -19,6 +19,7 @@ import { useChatStore } from './stores/chat';
 import { useLibraryStore } from './stores/library';
 import { useProactiveStore } from './stores/proactive';
 import { useSoupStore } from './stores/soups';
+import { useBookStore } from './stores/books';
 import { useHubStore } from './stores/hub';
 import { useEnvironmentStore } from './stores/environment';
 
@@ -41,7 +42,7 @@ const app = createApp(App).use(createPinia()).use(router);
 
 // 先读本机数据库（导入的角色、世界书、预设、聊天），再挂载：刷新后直接打开导入角色的聊天也找得到
 // 个别 WebView 里 IndexedDB 可能一直不回应：最多等 1.5 秒，读到的数据之后再补进来
-const hydrated = Promise.allSettled([useAiStore().hydrate(), useLibraryStore().hydrate(), useCharacterStore().hydrate(), useChatStore().hydrate(), useHubStore().hydrate(), useEnvironmentStore().hydrate(), useSoupStore().hydrate()]);
+const hydrated = Promise.allSettled([useAiStore().hydrate(), useLibraryStore().hydrate(), useCharacterStore().hydrate(), useChatStore().hydrate(), useHubStore().hydrate(), useEnvironmentStore().hydrate(), useSoupStore().hydrate(), useBookStore().hydrate()]);
 
 // iPhone 上只有用户点过屏幕后"解锁"的 <audio> 才能在网络请求之后播放语音：第一次点屏幕时解锁
 const unlock = () => {

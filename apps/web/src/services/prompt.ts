@@ -72,6 +72,8 @@ function partToText(p: MessagePart, character: Character, user: string): string 
       return `[约会邀请：${p.when} ${p.place}]`;
     case 'gift':
       return `[礼物：${p.name}]`;
+    case 'read':
+      return `[一起读《${p.title}》：读到${p.chapter}，全书 ${p.progress}%，写了 ${p.notes} 条批注${p.quote ? `；划了"${p.quote}"` : ''}]`;
     case 'game':
       return `[海龟汤《${p.title}》：${{ solved: '猜出来了', partial: '猜对了一半', 'gave-up': '认输了' }[p.result]}，问了 ${p.questions} 个问题${p.truth ? `；汤底：${p.truth}` : ''}]`;
     case 'watch':

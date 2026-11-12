@@ -2,7 +2,7 @@ import type { Outfit, Pose } from './expressions.ts';
 import type { ControlTagKind } from './tags.ts';
 import type { ProactiveTriggerId } from './types/proactive.ts';
 
-export type SceneId = 'free' | 'exercise' | 'meal' | 'study' | 'sleep' | 'music' | 'date' | 'poke' | 'watch' | 'game';
+export type SceneId = 'free' | 'exercise' | 'meal' | 'study' | 'sleep' | 'music' | 'date' | 'poke' | 'watch' | 'game' | 'read';
 
 export type TimeOfDay = 'dawn' | 'morning' | 'noon' | 'afternoon' | 'dusk' | 'night' | 'late';
 
@@ -178,6 +178,22 @@ export const SCENES: SceneDef[] = [
     allowedTags: ['expr'],
     proactiveTriggers: [],
     dataSources: ['海龟汤题库（src/soups/ 里的题库文件，可以增删改）', '现编的题'],
+  },
+  {
+    id: 'read',
+    name: '一起看书',
+    icon: 'i-lucide-book-open-text',
+    tagline: '同一本书，她提前读几页，在页边留批注',
+    backdrop: 'library',
+    ambient: ['pages'],
+    outfit: 'daily',
+    pose: 'sit',
+    tint: '#d9a77a',
+    // 规则写在"一起看书"的功能预设里（不写死在代码里）
+    promptFragment: '',
+    allowedTags: ['expr'],
+    proactiveTriggers: [],
+    dataSources: ['EPUB / TXT / PDF（只存在本机）', '粘贴的文章', '拍下的书页（识图）'],
   },
 ];
 

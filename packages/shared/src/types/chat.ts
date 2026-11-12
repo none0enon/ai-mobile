@@ -64,6 +64,20 @@ export type MessagePart =
       status: 'invite' | 'accepted' | 'declined' | 'memory';
     }
   | { type: 'gift'; giftId: string; name: string }
+  /** 一起看书：这一次读到哪、划了几句 */
+  | {
+      type: 'read';
+      logId: string;
+      title: string;
+      /** 读到的章 */
+      chapter: string;
+      /** 全书进度（0–100） */
+      progress: number;
+      /** 你们这次写了几条批注 */
+      notes: number;
+      /** 你划的一句 */
+      quote?: string;
+    }
   /** 一起玩的一局（先只有海龟汤） */
   | {
       type: 'game';

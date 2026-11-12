@@ -41,7 +41,7 @@ export { buildNovelaiPayload, novelaiSubscription, varietySigma, type NovelaiSub
 export { IMAGE_SIZES, NOVELAI_MODELS, freeForOpus, joinTags, resolveSize } from './image/presets.ts';
 export { applyImageStyle, composePrompt, DEFAULT_IMAGE_STYLE } from './image/style.ts';
 export { extractImage, sniffImageMime } from './image/extract.ts';
-export { unzipFirst } from './image/zip.ts';
+export { listZip, readZipEntry, unzipFirst, type ZipEntry } from './image/zip.ts';
 
 export { embedTexts, canEmbed, instructionPrefix, type EmbedPurpose, type EmbedRequest, type EmbedResult } from './embedding/client.ts';
 export * from './embedding/vector.ts';
