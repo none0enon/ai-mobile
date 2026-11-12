@@ -38,6 +38,7 @@ import { copyWithToast, showErrorDialog } from '@/utils/errors';
 import { cameraSupported } from '@/utils/camera';
 import { uid } from '@/utils/id';
 import { compressPhoto } from '@/utils/image';
+import { withoutFolds } from '@/utils/folds';
 
 const route = useRoute();
 const router = useRouter();
@@ -376,11 +377,12 @@ const wall = computed(() => looks.backgroundOf(chatId.value));
 const hasWall = computed(() => !!looks.imageUrl(wall.value?.assetKey));
 const wallOpen = ref(false);
 
-/** 现在这一轮会用哪个预设：在一起做某件事时是那件事的功能预设 */
+/** 现在这一轮会用哪个预设：在一起做某件事时是那件事的功能预设（导入的 SillyTavern 预设除外） */
 const turnPreset = computed(() => (chat.value && character.value ? presetForTurn(chat.value, character.value) : null));
 const presetLine = computed(() => {
   const t = turnPreset.value;
   if (!t?.preset) return '没有可用的预设，点这里看看';
+  if (t.use === 'chat' && t.keptIn) return `正在用「${t.preset.name}」，${useLabel(t.keptIn).split(' · ').at(-1)}时也用它；点这里换`;
   if (t.use === 'chat') return `正在用「${t.preset.name}」，点这里换`;
   return `现在${useLabel(t.use).split(' · ').at(-1)}，用功能预设「${t.preset.name}」；平时用「${preset.value?.name ?? '—'}」`;
 });
@@ -454,7 +456,8 @@ watch(combo, () => (firstPoke.value = false));
 const logOpen = ref(false);
 const autoOn = ref(false);
 const voiceOn = ref(true);
-const stageText = computed(() => lastAi.value?.text || character.value?.card.firstMes || '');
+// 剧场对话框只显示她说的话：回复末尾折起来的 summary 不打出来（聊天气泡里能点开看）
+const stageText = computed(() => withoutFolds(lastAi.value?.text || character.value?.card.firstMes || ''));
 /** 她那边的天气（她在别的城市时是那里的，否则和你一样）；顶栏、剧场的时间条用 */
 const weatherStore = useWeatherStore();
 const herWeather = computed(() => weatherStore.forCharacter(character.value));
