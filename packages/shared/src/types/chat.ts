@@ -64,6 +64,20 @@ export type MessagePart =
       status: 'invite' | 'accepted' | 'declined' | 'memory';
     }
   | { type: 'gift'; giftId: string; name: string }
+  /** 一起观影的票根 */
+  | {
+      type: 'watch';
+      logId: string;
+      title: string;
+      /** 一起看了多久（分钟） */
+      minutes: number;
+      yourScore?: number;
+      herScore?: number;
+      /** 她散场后说的话 */
+      review?: string;
+      /** 她看的时候说过的几句 */
+      highlights?: string[];
+    }
   /**
    * 场景分段：和她一起做某件事的开始 / 结束。聊天里显示成一条居中的分隔提示。
    * mode 是怎么在一起的；youAt 是你在真实世界的哪儿（连线、带她出门时记下，成为"我们的足迹"）

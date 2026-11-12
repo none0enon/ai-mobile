@@ -72,6 +72,8 @@ function partToText(p: MessagePart, character: Character, user: string): string 
       return `[约会邀请：${p.when} ${p.place}]`;
     case 'gift':
       return `[礼物：${p.name}]`;
+    case 'watch':
+      return `[一起看了《${p.title}》${p.minutes} 分钟${p.yourScore ? `；${user}打 ${p.yourScore}/5` : ''}${p.herScore ? `；${character.name}打 ${p.herScore}/5` : ''}]`;
     case 'scene':
       return `（${p.title}${p.summary ? `：${p.summary}` : ''}）`;
   }

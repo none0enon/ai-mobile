@@ -13,7 +13,7 @@ import {
   type TogetherMode,
   type AgentRole,
 } from '@app/shared';
-import { errorReport, errorText, isAbortError } from '@app/ai';
+import { errorReport, errorText, isAbortError, samplerRequest } from '@app/ai';
 import { defineStore } from 'pinia';
 import { computed, reactive, ref } from 'vue';
 import { useAiStore } from './ai';
@@ -354,6 +354,33 @@ export const useChatStore = defineStore('chat', () => {
     if (!msg) return { ok: false, reason: '没有生成回复' };
     if (msg.meta.error) return { ok: false, reason: msg.meta.error };
     return { ok: true, message: msg };
+  }
+
+  /**
+   * 一起做事时要她按格式写一批东西（观影时接下来一段的弹幕、看书时接下来几页的批注……）：
+   * 同样用这个场景的功能预设 + 场景任务，交给「陪伴 · 快速」，按 JSON 读回来。不推进世界书的粘性 / 冷却。
+   * 写出来的东西由场景决定什么时候显示、显示时再存进聊天
+   */
+  async function sceneJson<T>(
+    chatId: string,
+    task: { name: string; input: string },
+    parse: (value: unknown) => T | null,
+    signal?: AbortSignal,
+  ): Promise<{ ok: true; value: T } | { ok: false; reason: string; notConnected?: boolean }> {
+    const chat = chatById(chatId);
+    const character = useCharacterStore().byId(chat?.characterId);
+    if (!chat || !character) return { ok: false, reason: '找不到这条聊天' };
+    const ai = useAiStore();
+    const status = ai.status('companion');
+    if (!status.live) return { ok: false, reason: `「陪伴 · 快速」还没接通：${status.reason}`, notConnected: true };
+    try {
+      const prompt = assembleForChat(chat, character, list(chatId), { agent: 'companion', task, dryRun: true });
+      lastPrompt[chatId] = { prompt, at: Date.now() };
+      const { value } = await ai.system.json('companion', { messages: toLLMMessages(prompt), ...samplerRequest(prompt.preset.sampler) }, parse, { signal });
+      return { ok: true, value };
+    } catch (e) {
+      return { ok: false, reason: errorText(e) };
+    }
   }
 
   // —— 总结：攒够 SUMMARY_EVERY 条定稿的消息就在后台整理一段（"总结 / 记忆"接通了 API 时） ——
@@ -720,6 +747,7 @@ export const useChatStore = defineStore('chat', () => {
     stop,
     generate,
     sceneReply,
+    sceneJson,
     swipe,
     regenerate,
     editMessage,

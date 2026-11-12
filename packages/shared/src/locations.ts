@@ -144,6 +144,7 @@ const SUWAN_WORLD: World = {
         { sceneId: 'sleep', label: '卧室 · 哄睡' },
         { sceneId: 'meal', label: '餐桌 · 一起吃饭' },
         { sceneId: 'music', label: '客厅 · 一起听歌' },
+        { sceneId: 'watch', label: '客厅 · 一起看片' },
         { sceneId: 'poke', label: '沙发 · 戳戳乐' },
       ],
     },
@@ -232,7 +233,10 @@ const SUWAN_WORLD: World = {
       backdrop: 'cinema',
       indoor: true,
       blurb: '一桶爆米花两个人',
-      activities: [{ sceneId: 'date', label: '约会' }],
+      activities: [
+        { sceneId: 'watch', label: '一起看电影' },
+        { sceneId: 'date', label: '约会' },
+      ],
     },
     {
       id: 'night-market',
@@ -374,6 +378,7 @@ const JIANGYU_WORLD: World = {
       activities: [
         { sceneId: 'sleep', label: '宿舍 · 哄睡' },
         { sceneId: 'music', label: '宿舍 · 一起听歌' },
+        { sceneId: 'watch', label: '宿舍 · 一起看片' },
         { sceneId: 'poke', label: '宿舍 · 戳戳乐' },
       ],
     },
@@ -462,7 +467,10 @@ const JIANGYU_WORLD: World = {
       backdrop: 'cinema',
       indoor: true,
       blurb: '只放老片子的二轮影院',
-      activities: [{ sceneId: 'date', label: '约会' }],
+      activities: [
+        { sceneId: 'watch', label: '一起看电影' },
+        { sceneId: 'date', label: '约会' },
+      ],
     },
     {
       id: 'jy-arcade',

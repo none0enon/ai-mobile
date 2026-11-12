@@ -2,7 +2,7 @@ import type { Outfit, Pose } from './expressions.ts';
 import type { ControlTagKind } from './tags.ts';
 import type { ProactiveTriggerId } from './types/proactive.ts';
 
-export type SceneId = 'free' | 'exercise' | 'meal' | 'study' | 'sleep' | 'music' | 'date' | 'poke';
+export type SceneId = 'free' | 'exercise' | 'meal' | 'study' | 'sleep' | 'music' | 'date' | 'poke' | 'watch';
 
 export type TimeOfDay = 'dawn' | 'morning' | 'noon' | 'afternoon' | 'dusk' | 'night' | 'late';
 
@@ -146,6 +146,22 @@ export const SCENES: SceneDef[] = [
     allowedTags: ['expr', 'poke'],
     proactiveTriggers: [],
     dataSources: ['立绘热区（在立绘编辑里画）'],
+  },
+  {
+    id: 'watch',
+    name: '一起观影',
+    icon: 'i-lucide-clapperboard',
+    tagline: '同一部片，她跟着字幕在对的那一秒说话',
+    backdrop: 'cinema',
+    ambient: [],
+    outfit: 'daily',
+    pose: 'sit',
+    tint: '#e07a7a',
+    // 场景规则写在"一起观影"的功能预设里（不写死在代码里）
+    promptFragment: '',
+    allowedTags: ['expr'],
+    proactiveTriggers: [],
+    dataSources: ['本地视频（不上传）', '外挂字幕文件 srt / vtt / ass'],
   },
 ];
 

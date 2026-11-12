@@ -143,6 +143,16 @@ async function playVoice() {
   </div>
 
   <!-- 学习 -->
+  <div v-else-if="part.type === 'watch'" class="pcard row-card" style="--tone: #e07a7a">
+    <span class="icon-wrap" style="color: var(--tone)"><span class="i-lucide-ticket" /></span>
+    <div class="flex-1 min-w-0">
+      <div class="text-[14.5px] truncate">票根 · 《{{ part.title }}》</div>
+      <div class="text-[12px] text-ink-3">
+        一起看了 {{ part.minutes }} 分钟<template v-if="part.yourScore"> · 你 {{ part.yourScore }}/5</template><template v-if="part.herScore"> · {{ character.pronoun }} {{ part.herScore }}/5</template>
+      </div>
+      <div v-for="(h, i) in part.highlights ?? []" :key="i" class="text-[12.5px] text-ink-2 mt-0.5 truncate">「{{ h }}」</div>
+    </div>
+  </div>
   <div v-else-if="part.type === 'study'" class="pcard row-card" style="--tone: #8fb3f0">
     <span class="icon-wrap" style="color: var(--tone)"><span class="i-lucide-book-open" /></span>
     <div class="flex-1 min-w-0">
