@@ -4,21 +4,24 @@ import type { AgentRoute } from '@app/shared';
 /**
  * 第一次打开时各功能的设置。API 设置按功能分：每个功能自己选渠道、填地址、Key、模型。
  * - 主对话还没设置：选渠道、填 Key 之后真的调用；
- * - 番外、总结、生图提示词、主动消息、识图默认跟随主对话，填好主对话就都能用；
+ * - 「陪伴 · 快速」先跟随主对话，想用便宜快的模型就单独设置；
+ * - 生图提示词、节律跟随「陪伴 · 快速」；番外、总结、主动消息、识图跟随主对话；
  * - 向量化、语音合成、语音识别先选好硅基流动，生图先选好 NovelAI，只差 Key。
  * 没填 Key 的功能继续用演示模型，所以不填也能逛。
  */
 export function defaultRoutes(): AgentRoute[] {
   return [
     { role: 'main', api: null, backup: null, runsOn: 'device', params: { temperature: 0.9 } },
-    { role: 'sidestory', sameAsMain: true, api: null, backup: null, runsOn: 'auto', params: { temperature: 1 }, dailyTokenBudget: 60_000 },
-    { role: 'summary', sameAsMain: true, api: null, backup: null, runsOn: 'auto', dailyTokenBudget: 200_000 },
+    { role: 'companion', follow: 'main', api: null, backup: null, runsOn: 'device' },
+    { role: 'sidestory', follow: 'main', api: null, backup: null, runsOn: 'auto', params: { temperature: 1 }, dailyTokenBudget: 60_000 },
+    { role: 'summary', follow: 'main', api: null, backup: null, runsOn: 'auto', dailyTokenBudget: 200_000 },
     { role: 'embedding', api: newFeatureApi('siliconflow', 'embedding'), backup: null, runsOn: 'auto', dims: 1024 },
-    { role: 'imagePrompt', sameAsMain: true, api: null, backup: null, runsOn: 'auto' },
+    { role: 'imagePrompt', follow: 'companion', api: null, backup: null, runsOn: 'auto' },
     { role: 'image', api: newFeatureApi('novelai', 'image'), backup: null, runsOn: 'hub' },
+    { role: 'rhythm', follow: 'companion', api: null, backup: null, runsOn: 'auto' },
     // 主动消息不设每日 token 上限：设了的话消息一多就被拦住，看起来像她不来找你了（要省钱可以在 API 设置里自己填）
-    { role: 'proactive', sameAsMain: true, api: null, backup: null, runsOn: 'hub' },
-    { role: 'vision', sameAsMain: true, api: null, backup: null, runsOn: 'device' },
+    { role: 'proactive', follow: 'main', api: null, backup: null, runsOn: 'hub' },
+    { role: 'vision', follow: 'main', api: null, backup: null, runsOn: 'device' },
     { role: 'tts', api: newFeatureApi('siliconflow', 'tts'), backup: null, runsOn: 'device' },
     { role: 'stt', api: newFeatureApi('siliconflow', 'stt'), backup: null, runsOn: 'device' },
   ];

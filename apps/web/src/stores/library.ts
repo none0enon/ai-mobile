@@ -121,11 +121,17 @@ export const useLibraryStore = defineStore('library', () => {
         else if (typeof v === 'string') uses[u.id] = v;
       }
     }
-    // 新放进来的预设文件写了默认给哪些用途：那个用途还没选过才用它
-    for (const [u, id] of Object.entries(defaultUses(fresh)) as [PresetUseId, string][]) if (!(u in uses)) uses[u] = id;
+    // 预设文件写了默认给哪些用途：那个用途你还没选过、而且那个预设还在，就用它。
+    // 以前只在第一次放进来时用一次、又没存下来，第二次打开就全变成"这一类的第一个"（场景都用成了约会的预设）
+    for (const [u, id] of Object.entries(defaultUses(SEEDS)) as [PresetUseId, string][]) {
+      if (!(u in uses) && list.some((p) => p.id === id)) uses[u] = id;
+    }
 
     for (const s of SEEDS) done.add(s.file);
-    await write('settings', [{ key: 'seededPresetFiles', value: [...done] }]);
+    await write('settings', [
+      { key: 'seededPresetFiles', value: [...done] },
+      { key: 'presetUses', value: { ...uses } },
+    ]);
     for (const b of bs.sort((a, b) => a.createdAt - b.createdAt)) if (!lorebooks.value.some((x) => x.id === b.id)) lorebooks.value.push(b);
     presetSaver.start();
     bookSaver.start();

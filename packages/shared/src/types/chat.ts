@@ -40,7 +40,22 @@ export type MessagePart =
   | { type: 'call-log'; durationSec: number; scene?: string; missed?: boolean; transcriptId?: string }
   | { type: 'workout'; logId: string; sport: string; distanceKm?: number; durationSec: number; pace?: string }
   | { type: 'meal'; logId: string; meal: MealSlot; food: string; photo?: string | null }
-  | { type: 'study'; logId: string; pomodoros: number; minutes: number }
+  | {
+      type: 'study';
+      logId: string;
+      pomodoros: number;
+      minutes: number;
+      /** 这次要完成的任务和完成了没有 */
+      tasks?: { text: string; done: boolean }[];
+      /** 中途离开 App 的次数 */
+      away?: number;
+      /** 开场时的约定，以及做到了没有 */
+      promise?: { text: string; kept: boolean };
+      /** 她这次在忙的事和进度（0–100） */
+      her?: { goal: string; progress: number };
+      /** 她写的自习日记 */
+      diary?: string;
+    }
   | {
       type: 'date';
       logId?: string;
@@ -49,6 +64,48 @@ export type MessagePart =
       status: 'invite' | 'accepted' | 'declined' | 'memory';
     }
   | { type: 'gift'; giftId: string; name: string }
+  /** 一起看书：这一次读到哪、划了几句 */
+  | {
+      type: 'read';
+      logId: string;
+      title: string;
+      /** 读到的章 */
+      chapter: string;
+      /** 全书进度（0–100） */
+      progress: number;
+      /** 你们这次写了几条批注 */
+      notes: number;
+      /** 你划的一句 */
+      quote?: string;
+    }
+  /** 一起玩的一局（先只有海龟汤） */
+  | {
+      type: 'game';
+      logId: string;
+      game: 'soup';
+      title: string;
+      /** host 她出题你猜；coop 一起猜；guest 你出题她猜 */
+      mode: 'host' | 'coop' | 'guest';
+      result: 'solved' | 'partial' | 'gave-up';
+      questions: number;
+      hints: number;
+      /** 揭晓后的汤底 */
+      truth?: string;
+    }
+  /** 一起观影的票根 */
+  | {
+      type: 'watch';
+      logId: string;
+      title: string;
+      /** 一起看了多久（分钟） */
+      minutes: number;
+      yourScore?: number;
+      herScore?: number;
+      /** 她散场后说的话 */
+      review?: string;
+      /** 她看的时候说过的几句 */
+      highlights?: string[];
+    }
   /**
    * 场景分段：和她一起做某件事的开始 / 结束。聊天里显示成一条居中的分隔提示。
    * mode 是怎么在一起的；youAt 是你在真实世界的哪儿（连线、带她出门时记下，成为"我们的足迹"）
@@ -100,7 +157,10 @@ export interface Message extends SyncMeta {
     agent?: string;
     tokens?: number;
     latencyMs?: number;
+    /** 在一起做哪件事时说的（场景 id） */
     scene?: string;
+    /** 在这件事里的位置："第 2 个番茄"、"00:41:08"、"第 12 页"、"第 7 问" */
+    cue?: string;
     /** [choice:] 标签给出的选项，显示成快捷回复 */
     choices?: string[];
     /** 回复被打断（切后台、断网）时保留半截内容，界面显示"继续" */

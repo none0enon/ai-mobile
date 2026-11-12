@@ -143,11 +143,42 @@ async function playVoice() {
   </div>
 
   <!-- 学习 -->
+  <div v-else-if="part.type === 'read'" class="pcard row-card" style="--tone: #d9a77a">
+    <span class="icon-wrap" style="color: var(--tone)"><span class="i-lucide-book-open-text" /></span>
+    <div class="flex-1 min-w-0">
+      <div class="text-[14.5px] truncate">一起读《{{ part.title }}》</div>
+      <div class="text-[12px] text-ink-3 truncate">{{ part.chapter }} · 全书 {{ part.progress }}%<template v-if="part.notes"> · {{ part.notes }} 条批注</template></div>
+      <div v-if="part.quote" class="text-[12.5px] text-ink-2 mt-0.5">「{{ part.quote }}」</div>
+    </div>
+  </div>
+  <div v-else-if="part.type === 'game'" class="pcard row-card" style="--tone: #b9a3e6">
+    <span class="icon-wrap" style="color: var(--tone)"><span class="i-lucide-puzzle" /></span>
+    <div class="flex-1 min-w-0">
+      <div class="text-[14.5px] truncate">海龟汤 · 《{{ part.title }}》</div>
+      <div class="text-[12px] text-ink-3">
+        {{ { solved: '猜出来了', partial: '猜对了一半', 'gave-up': '认输了' }[part.result] }} · 问了 {{ part.questions }} 个问题<template v-if="part.hints"> · 提示 {{ part.hints }} 次</template>
+      </div>
+      <div v-if="part.truth" class="text-[12.5px] text-ink-2 mt-0.5">汤底：{{ part.truth }}</div>
+    </div>
+  </div>
+  <div v-else-if="part.type === 'watch'" class="pcard row-card" style="--tone: #e07a7a">
+    <span class="icon-wrap" style="color: var(--tone)"><span class="i-lucide-ticket" /></span>
+    <div class="flex-1 min-w-0">
+      <div class="text-[14.5px] truncate">票根 · 《{{ part.title }}》</div>
+      <div class="text-[12px] text-ink-3">
+        一起看了 {{ part.minutes }} 分钟<template v-if="part.yourScore"> · 你 {{ part.yourScore }}/5</template><template v-if="part.herScore"> · {{ character.pronoun }} {{ part.herScore }}/5</template>
+      </div>
+      <div v-for="(h, i) in part.highlights ?? []" :key="i" class="text-[12.5px] text-ink-2 mt-0.5 truncate">「{{ h }}」</div>
+    </div>
+  </div>
   <div v-else-if="part.type === 'study'" class="pcard row-card" style="--tone: #8fb3f0">
     <span class="icon-wrap" style="color: var(--tone)"><span class="i-lucide-book-open" /></span>
-    <div class="flex-1">
+    <div class="flex-1 min-w-0">
       <div class="text-[14.5px]">陪伴学习 · {{ part.pomodoros }} 个番茄</div>
-      <div class="text-[12px] text-ink-3">专注 {{ part.minutes }} 分钟，她一直在旁边</div>
+      <div class="text-[12px] text-ink-3">
+        专注 {{ part.minutes }} 分钟<template v-if="part.tasks?.length"> · 完成 {{ part.tasks.filter((t) => t.done).length }} / {{ part.tasks.length }} 个任务</template><template v-if="part.promise"> · 约定{{ part.promise.kept ? '做到了' : '没做到' }}</template>
+      </div>
+      <div v-if="part.diary" class="text-[12.5px] text-ink-2 mt-1">{{ part.diary }}</div>
     </div>
   </div>
 

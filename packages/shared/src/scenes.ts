@@ -2,7 +2,7 @@ import type { Outfit, Pose } from './expressions.ts';
 import type { ControlTagKind } from './tags.ts';
 import type { ProactiveTriggerId } from './types/proactive.ts';
 
-export type SceneId = 'free' | 'exercise' | 'meal' | 'study' | 'sleep' | 'music' | 'date' | 'poke';
+export type SceneId = 'free' | 'exercise' | 'meal' | 'study' | 'sleep' | 'music' | 'date' | 'poke' | 'watch' | 'game' | 'read';
 
 export type TimeOfDay = 'dawn' | 'morning' | 'noon' | 'afternoon' | 'dusk' | 'night' | 'late';
 
@@ -146,6 +146,54 @@ export const SCENES: SceneDef[] = [
     allowedTags: ['expr', 'poke'],
     proactiveTriggers: [],
     dataSources: ['立绘热区（在立绘编辑里画）'],
+  },
+  {
+    id: 'watch',
+    name: '一起观影',
+    icon: 'i-lucide-clapperboard',
+    tagline: '同一部片，她跟着字幕在对的那一秒说话',
+    backdrop: 'cinema',
+    ambient: [],
+    outfit: 'daily',
+    pose: 'sit',
+    tint: '#e07a7a',
+    // 场景规则写在"一起观影"的功能预设里（不写死在代码里）
+    promptFragment: '',
+    allowedTags: ['expr'],
+    proactiveTriggers: [],
+    dataSources: ['本地视频（不上传）', '外挂字幕文件 srt / vtt / ass'],
+  },
+  {
+    id: 'game',
+    name: '一起游戏',
+    icon: 'i-lucide-puzzle',
+    tagline: '先从海龟汤开始：她出题你猜、一起猜，或者你出题她猜',
+    backdrop: 'room',
+    ambient: [],
+    outfit: 'daily',
+    pose: 'sit',
+    tint: '#b9a3e6',
+    // 规则写在"一起游戏"的功能预设里（不写死在代码里）
+    promptFragment: '',
+    allowedTags: ['expr'],
+    proactiveTriggers: [],
+    dataSources: ['海龟汤题库（src/soups/ 里的题库文件，可以增删改）', '现编的题'],
+  },
+  {
+    id: 'read',
+    name: '一起看书',
+    icon: 'i-lucide-book-open-text',
+    tagline: '同一本书，她提前读几页，在页边留批注',
+    backdrop: 'library',
+    ambient: ['pages'],
+    outfit: 'daily',
+    pose: 'sit',
+    tint: '#d9a77a',
+    // 规则写在"一起看书"的功能预设里（不写死在代码里）
+    promptFragment: '',
+    allowedTags: ['expr'],
+    proactiveTriggers: [],
+    dataSources: ['EPUB / TXT / PDF（只存在本机）', '粘贴的文章', '拍下的书页（识图）'],
   },
 ];
 

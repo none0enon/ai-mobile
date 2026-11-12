@@ -7,7 +7,7 @@
   "defaultFor": [
     "scene:study"
   ],
-  "description": "陪伴学习时用：轻声、简短，不打扰专注。场景规则在\"场景规则\"那一块里，可以改；能用的标签和表情由程序按场景填。",
+  "description": "陪伴学习时用：轻声、简短，不打扰专注。场景规则和开场、番茄结束、休息聊天、卡住了、结束这几步怎么说都在这里，可以改；每一步的块只在做那件事时发送（触发条件写着任务名）。能用的标签和表情由程序按场景填。",
   "blocks": [
     {
       "identifier": "main",
@@ -182,6 +182,100 @@
       }
     },
     {
+      "identifier": "studyStart",
+      "name": "开场",
+      "role": "system",
+      "content": "现在是开场。先用一两句说你自己今天的小目标，再回应{{user}}今天要学的东西和状态：{{user}}累就建议番茄短一点；有约定就答应下来。别说教，三句以内。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 0,
+        "order": 90
+      },
+      "triggers": [
+        "study-start"
+      ]
+    },
+    {
+      "identifier": "studyBreak",
+      "name": "番茄结束",
+      "role": "system",
+      "content": "一个番茄刚结束，进入休息。先说一句你这边进展得怎么样（卡住了就说卡住了），再具体夸{{user}}做完的一件事；有纸条就回纸条；{{user}}中途离开过就轻轻问一句，不指责。三句以内。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 0,
+        "order": 90
+      },
+      "triggers": [
+        "study-break"
+      ]
+    },
+    {
+      "identifier": "studyChat",
+      "name": "休息时聊天",
+      "role": "system",
+      "content": "现在是休息时间，{{user}}在和你聊天。轻松、简短地回，可以聊学的东西，也可以聊别的。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 0,
+        "order": 90
+      },
+      "triggers": [
+        "study-chat"
+      ]
+    },
+    {
+      "identifier": "studyStuck",
+      "name": "卡住了",
+      "role": "system",
+      "content": "{{user}}卡住了，你放下笔小声问。会的就按你的性格讲清楚，不会就说陪{{user}}一起查；讲完提醒回去接着学。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 0,
+        "order": 90
+      },
+      "triggers": [
+        "study-stuck"
+      ]
+    },
+    {
+      "identifier": "studyEnd",
+      "name": "结束",
+      "role": "system",
+      "content": "今天的自习结束了。说说你今天做完了多少，具体夸{{user}}完成的事，提一句约定有没有做到。最后另起一段，以\"日记：\"开头，用你的口吻写一两句今天的自习日记。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 0,
+        "order": 90
+      },
+      "triggers": [
+        "study-end"
+      ]
+    },
+    {
+      "identifier": "sceneTask",
+      "name": "场景任务（程序填这一次的输入）",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 0,
+        "order": 100
+      },
+      "origin": "app"
+    },
+    {
       "identifier": "tagDirective",
       "name": "控制标签说明",
       "role": "system",
@@ -209,7 +303,7 @@
   "sampler": {
     "temperature": 0.8,
     "topP": 0.95,
-    "maxTokens": 220,
+    "maxTokens": 320,
     "contextTokens": 24000,
     "frequencyPenalty": 0.2,
     "presencePenalty": 0.1,

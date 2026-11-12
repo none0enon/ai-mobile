@@ -126,23 +126,30 @@ export interface TtsTextOptions {
 /** 功能（智能体）。每个功能单独选渠道、填地址、Key 和模型 */
 export type AgentRole =
   | 'main'
+  | 'companion'
   | 'sidestory'
   | 'summary'
   | 'embedding'
   | 'imagePrompt'
   | 'image'
+  | 'rhythm'
   | 'proactive'
   | 'vision'
   | 'tts'
   | 'stt';
 
+/** 文本功能可以跟随的功能：主对话，或者「陪伴 · 快速」 */
+export type FollowTarget = 'main' | 'companion';
+
 /** 一个功能的设置：用哪个 API（渠道 + 地址 + 模型）、失败时改用哪个、调用参数 */
 export interface AgentRoute {
   role: AgentRole;
   /**
-   * 仅主对话以外的文本功能：用主对话的 API（连同它的备用 API），不用自己的 api / backup。
-   * 新装时默认打开：填好主对话，番外、总结这些就都能用
+   * 仅主对话以外的文本功能：用哪个功能的 API（连同它的备用 API），不用自己的 api / backup；为空 = 单独设置。
+   * 「陪伴 · 快速」只能跟随主对话
    */
+  follow?: FollowTarget | null;
+  /** 以前的"跟随主对话"开关；读的时候换成 follow（见 followOf） */
   sameAsMain?: boolean;
   /** 这个功能自己的 API；null = 还没设置 */
   api: FeatureApi | null;
@@ -188,6 +195,13 @@ export const AGENT_META: Record<
     runsOn: 'client',
     icon: 'i-lucide-message-circle-heart',
   },
+  companion: {
+    label: '陪伴 · 快速',
+    desc: '一起做事时的短句：场景里的即时回应、批量弹幕和批注、前情提要、台词池；生图提示词默认也用它。选便宜、快的模型',
+    capability: 'chat',
+    runsOn: 'client',
+    icon: 'i-lucide-zap',
+  },
   sidestory: {
     label: '番外 · 她的生活',
     desc: '你不在的时候她那边发生了什么：按她的作息、地点和身边的人写一小段故事，可以引出主动消息或配图',
@@ -223,6 +237,13 @@ export const AGENT_META: Record<
     runsOn: 'worker',
     icon: 'i-lucide-image',
   },
+  rhythm: {
+    label: '节律',
+    desc: '导入角色时建她的世界；每天排她的作息、三餐和穿着（穿着用于生图）',
+    capability: 'chat',
+    runsOn: 'both',
+    icon: 'i-lucide-calendar-clock',
+  },
   proactive: {
     label: '主动消息',
     desc: '定时规则命中后，用角色口吻写主动消息',
@@ -257,4 +278,18 @@ export const AGENT_META: Record<
 export function isTextRole(role: AgentRole): boolean {
   const cap = AGENT_META[role].capability;
   return cap === 'chat' || cap === 'vision';
+}
+
+/** 这个功能能跟随谁：主对话不跟随；「陪伴 · 快速」只能跟随主对话；其余文本功能能跟随主对话或「陪伴 · 快速」 */
+export function followOptions(role: AgentRole): FollowTarget[] {
+  if (role === 'main' || !isTextRole(role)) return [];
+  return role === 'companion' ? ['main'] : ['main', 'companion'];
+}
+
+/** 这个功能现在跟随谁（以前的 sameAsMain 当作跟随主对话）；单独设置时为空 */
+export function followOf(route: Pick<AgentRoute, 'role' | 'follow' | 'sameAsMain'> | undefined): FollowTarget | null {
+  if (!route) return null;
+  const options = followOptions(route.role);
+  const target = route.follow !== undefined ? route.follow : route.sameAsMain ? 'main' : null;
+  return target && options.includes(target) ? target : null;
 }

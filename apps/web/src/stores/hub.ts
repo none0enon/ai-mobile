@@ -142,9 +142,11 @@ export const useHubStore = defineStore('hub', () => {
   async function uploadApi() {
     const ai = useAiStore();
     if (!ai.isLive('proactive')) throw new Error('请先在 API 设置中接通主动消息');
-    const source = ai.system.router.source('proactive');
+    // 主动消息可能跟随「陪伴 · 快速」、它再跟随主对话：一路上的设置都要带上，云端才解析得出用哪个 API
+    const chain = ai.system.router.chain('proactive');
+    const source = chain.at(-1) ?? 'proactive';
     const credentials: ProactiveCredentials = clone({
-      routes: ai.routes.filter((r) => r.role === 'proactive' || r.role === source),
+      routes: ai.routes.filter((r) => chain.includes(r.role)),
       keys: Object.fromEntries([apiKeyId(source), apiKeyId(source, true)].map((id) => [id, ai.keyOf(id) ?? ''])),
       outputFilters: ai.outputFilters,
     });

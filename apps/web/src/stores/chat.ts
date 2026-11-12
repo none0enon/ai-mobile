@@ -11,8 +11,9 @@ import {
   type MessagePart,
   type MessageRole,
   type TogetherMode,
+  type AgentRole,
 } from '@app/shared';
-import { errorReport, errorText, isAbortError } from '@app/ai';
+import { errorReport, errorText, isAbortError, samplerRequest } from '@app/ai';
 import { defineStore } from 'pinia';
 import { computed, reactive, ref } from 'vue';
 import { useAiStore } from './ai';
@@ -25,6 +26,26 @@ import { services } from '@/services';
 import { assembleForChat, personaOf, toLLMMessages, type ChatPrompt } from '@/services/prompt';
 import { pendingForSummary, SUMMARY_EVERY, summarizeChat, type SummaryOutcome } from '@/services/summary';
 import { uid } from '@/utils/id';
+
+/** generate 的选项：一起做事时用哪个功能、这一次的场景任务、在这件事里的位置 */
+export interface GenerateOptions {
+  agent?: AgentRole;
+  task?: { name: string; input: string };
+  cue?: string;
+}
+
+export interface SceneReplyOptions {
+  /** 场景任务名：功能预设里触发条件写了它的块只在这时发送 */
+  task: string;
+  /** 程序写的这一次的输入（只放数据） */
+  input: string;
+  /** 你这一次说的话（纸条、提问……）：先存进聊天，再让她回 */
+  userText?: string;
+  /** 在这件事里的位置，存在两条消息上（"第 2 个番茄"） */
+  cue?: string;
+}
+
+export type SceneReplyResult = { ok: true; message: Message } | { ok: false; reason: string; notConnected?: boolean };
 
 /** 正在生成的回复。只放内存，不进同步数据（math-reader 回滚提交的教训） */
 interface StreamState {
@@ -194,15 +215,17 @@ export const useChatStore = defineStore('chat', () => {
   /**
    * 让角色回一条：流式更新正文、实时切表情，结束后执行其他标签（歌曲卡、配图、选项、来电）。
    * target 不为空时是"重新生成"：结果作为新的 swipe 追加到这条消息上。
+   * opts：一起做事时用「陪伴 · 快速」、带上这一次的场景任务，回复记下场景和位置。返回这条回复的 id
    */
-  async function generate(chatId: string, target?: string) {
-    if (streams[chatId]) return;
+  async function generate(chatId: string, target?: string, opts: GenerateOptions = {}): Promise<string | undefined> {
+    if (streams[chatId]) return undefined;
     const chat = chatById(chatId);
     const chars = useCharacterStore();
     const character = chars.byId(chat?.characterId);
-    if (!chat || !character) return;
+    if (!chat || !character) return undefined;
+    const agent = opts.agent ?? 'main';
 
-    const id = target ?? push(chatId, 'assistant', [{ type: 'text', text: '' }]).id;
+    const id = target ?? push(chatId, 'assistant', [{ type: 'text', text: '' }], opts.task ? { meta: { scene: chat.currentScene ?? undefined, cue: opts.cue } } : {}).id;
     const history = list(chatId).filter((m) => m.id !== id && (!target || m.createdAt < (find(chatId, id)?.createdAt ?? Infinity)));
     const abort = new AbortController();
     streams[chatId] = { messageId: id, thinking: true, reasoning: '', abort };
@@ -212,14 +235,14 @@ export const useChatStore = defineStore('chat', () => {
     try {
       // 拼提示词（真实发送：推进世界书粘性 / 冷却，保存 {{setvar}} 改过的变量）。
       // 预设按用途选：在一起做某件事时用那件事的功能预设，平时用这个角色的对话预设；一个都选不到时报错
-      const prompt = assembleForChat(chat, character, history, { type: target ? 'swipe' : 'normal' });
+      const prompt = assembleForChat(chat, character, history, { type: target ? 'swipe' : 'normal', agent, task: opts.task });
       chat.loreState = prompt.loreState;
       chat.vars = prompt.vars;
       lastPrompt[chatId] = { prompt, at: Date.now() };
 
       const result = await services.llm.chat(
         {
-          agent: 'main',
+          agent,
           messages: toLLMMessages(prompt),
           body: prompt.request,
           characterId: character.id,
@@ -265,7 +288,7 @@ export const useChatStore = defineStore('chat', () => {
       msg.meta.interrupted = undefined;
       if (!result.demo) {
         msg.meta.model = result.model;
-        msg.meta.agent = 'main';
+        msg.meta.agent = agent;
         msg.meta.latencyMs = result.latencyMs;
         msg.meta.tokens = result.tokens;
         msg.meta.fellBack = result.fellBack || undefined;
@@ -311,6 +334,53 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       delete streams[chatId];
     }
+    return id;
+  }
+
+  /**
+   * 一起做事时让她回一句（回纸条、休息时聊天、讲题……）：你说的话和她的回复都存进这条聊天，带上场景和位置。
+   * 用「陪伴 · 快速」，提示词是这个场景的功能预设 + 这一次的场景任务。没接通时不出演示台词，告诉界面原因
+   */
+  async function sceneReply(chatId: string, opts: SceneReplyOptions): Promise<SceneReplyResult> {
+    const chat = chatById(chatId);
+    if (!chat) return { ok: false, reason: '找不到这条聊天' };
+    const said = opts.userText?.trim();
+    if (said) push(chatId, 'user', [{ type: 'text', text: said }], { meta: { scene: chat.currentScene ?? undefined, cue: opts.cue } });
+    const status = useAiStore().status('companion');
+    if (!status.live) return { ok: false, reason: `「陪伴 · 快速」还没接通：${status.reason}`, notConnected: true };
+    if (streams[chatId]) return { ok: false, reason: '她还在回上一句' };
+    const id = await generate(chatId, undefined, { agent: 'companion', task: { name: opts.task, input: opts.input }, cue: opts.cue });
+    const msg = id ? find(chatId, id) : undefined;
+    if (!msg) return { ok: false, reason: '没有生成回复' };
+    if (msg.meta.error) return { ok: false, reason: msg.meta.error };
+    return { ok: true, message: msg };
+  }
+
+  /**
+   * 一起做事时要她按格式写一批东西（观影时接下来一段的弹幕、看书时接下来几页的批注……）：
+   * 同样用这个场景的功能预设 + 场景任务，交给「陪伴 · 快速」，按 JSON 读回来。不推进世界书的粘性 / 冷却。
+   * 写出来的东西由场景决定什么时候显示、显示时再存进聊天
+   */
+  async function sceneJson<T>(
+    chatId: string,
+    task: { name: string; input: string },
+    parse: (value: unknown) => T | null,
+    signal?: AbortSignal,
+  ): Promise<{ ok: true; value: T } | { ok: false; reason: string; notConnected?: boolean }> {
+    const chat = chatById(chatId);
+    const character = useCharacterStore().byId(chat?.characterId);
+    if (!chat || !character) return { ok: false, reason: '找不到这条聊天' };
+    const ai = useAiStore();
+    const status = ai.status('companion');
+    if (!status.live) return { ok: false, reason: `「陪伴 · 快速」还没接通：${status.reason}`, notConnected: true };
+    try {
+      const prompt = assembleForChat(chat, character, list(chatId), { agent: 'companion', task, dryRun: true });
+      lastPrompt[chatId] = { prompt, at: Date.now() };
+      const { value } = await ai.system.json('companion', { messages: toLLMMessages(prompt), ...samplerRequest(prompt.preset.sampler) }, parse, { signal });
+      return { ok: true, value };
+    } catch (e) {
+      return { ok: false, reason: errorText(e) };
+    }
   }
 
   // —— 总结：攒够 SUMMARY_EVERY 条定稿的消息就在后台整理一段（"总结 / 记忆"接通了 API 时） ——
@@ -320,7 +390,8 @@ export const useChatStore = defineStore('chat', () => {
 
   async function maybeSummarize(chatId: string) {
     const chat = chatById(chatId);
-    if (!chat || summarizing[chatId] || streams[chatId] || !useAiStore().isLive('summary')) return;
+    // 一起做事的过程中不整理，结束（leaveScene）以后再整理
+    if (!chat || chat.currentScene || summarizing[chatId] || streams[chatId] || !useAiStore().isLive('summary')) return;
     if ((summaryBackoff.get(chatId) ?? 0) > Date.now()) return;
     if (pendingForSummary(chat, list(chatId)).length < SUMMARY_EVERY) return;
     summarizing[chatId] = true;
@@ -618,6 +689,8 @@ export const useChatStore = defineStore('chat', () => {
     chat.togetherAt = null;
     chat.togetherMode = null;
     chat.currentScene = null;
+    // 活动进行中攒下的消息，结束以后再整理
+    setTimeout(() => void maybeSummarize(chat.id), 0);
   }
 
   function lastEnterYouAt(chatId: string): string | undefined {
@@ -673,6 +746,8 @@ export const useChatStore = defineStore('chat', () => {
     send,
     stop,
     generate,
+    sceneReply,
+    sceneJson,
     swipe,
     regenerate,
     editMessage,

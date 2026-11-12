@@ -142,8 +142,11 @@ const SUWAN_WORLD: World = {
       blurb: '她一个人住，卧室、餐桌、客厅',
       activities: [
         { sceneId: 'sleep', label: '卧室 · 哄睡' },
+        { sceneId: 'read', label: '沙发 · 一起看书' },
         { sceneId: 'meal', label: '餐桌 · 一起吃饭' },
         { sceneId: 'music', label: '客厅 · 一起听歌' },
+        { sceneId: 'watch', label: '客厅 · 一起看片' },
+        { sceneId: 'game', label: '客厅 · 海龟汤' },
         { sceneId: 'poke', label: '沙发 · 戳戳乐' },
       ],
     },
@@ -157,7 +160,10 @@ const SUWAN_WORLD: World = {
       backdrop: 'library',
       indoor: true,
       blurb: '三楼靠窗的位置',
-      activities: [{ sceneId: 'study', label: '陪伴学习' }],
+      activities: [
+        { sceneId: 'study', label: '陪伴学习' },
+        { sceneId: 'read', label: '一起看书' },
+      ],
     },
     {
       id: 'canteen',
@@ -208,6 +214,8 @@ const SUWAN_WORLD: World = {
       activities: [
         { sceneId: 'date', label: '约会' },
         { sceneId: 'study', label: '一起自习' },
+        { sceneId: 'read', label: '一起看书' },
+        { sceneId: 'game', label: '一起玩海龟汤' },
       ],
     },
     {
@@ -232,7 +240,10 @@ const SUWAN_WORLD: World = {
       backdrop: 'cinema',
       indoor: true,
       blurb: '一桶爆米花两个人',
-      activities: [{ sceneId: 'date', label: '约会' }],
+      activities: [
+        { sceneId: 'watch', label: '一起看电影' },
+        { sceneId: 'date', label: '约会' },
+      ],
     },
     {
       id: 'night-market',
@@ -374,6 +385,9 @@ const JIANGYU_WORLD: World = {
       activities: [
         { sceneId: 'sleep', label: '宿舍 · 哄睡' },
         { sceneId: 'music', label: '宿舍 · 一起听歌' },
+        { sceneId: 'watch', label: '宿舍 · 一起看片' },
+        { sceneId: 'read', label: '宿舍 · 一起看书' },
+        { sceneId: 'game', label: '宿舍 · 海龟汤' },
         { sceneId: 'poke', label: '宿舍 · 戳戳乐' },
       ],
     },
@@ -449,6 +463,7 @@ const JIANGYU_WORLD: World = {
       blurb: '训练完的烧烤',
       activities: [
         { sceneId: 'meal', label: '吃夜宵' },
+        { sceneId: 'game', label: '边吃边猜海龟汤' },
         { sceneId: 'date', label: '约会' },
       ],
     },
@@ -462,7 +477,10 @@ const JIANGYU_WORLD: World = {
       backdrop: 'cinema',
       indoor: true,
       blurb: '只放老片子的二轮影院',
-      activities: [{ sceneId: 'date', label: '约会' }],
+      activities: [
+        { sceneId: 'watch', label: '一起看电影' },
+        { sceneId: 'date', label: '约会' },
+      ],
     },
     {
       id: 'jy-arcade',

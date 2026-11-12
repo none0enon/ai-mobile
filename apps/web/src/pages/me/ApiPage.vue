@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { apiLabel, channelsFor, compileFilter, DEFAULT_IMAGE_STYLE, DEFAULT_OUTPUT_FILTERS, encodeVector, errorReport, kindOf, newFeatureApi, type VoiceSpec } from '@app/ai';
-import { AGENT_META, apiKeyId, isTextRole, type AgentRole, type AgentRoute, type FeatureApi, type ReasoningEffort } from '@app/shared';
+import { AGENT_META, apiKeyId, followOf, followOptions, isTextRole, type AgentRole, type AgentRoute, type FeatureApi, type FollowTarget, type ReasoningEffort } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -31,15 +31,15 @@ const chars = useCharacterStore();
 const GROUPS: { title: string; roles: AgentRole[]; note: string }[] = [
   {
     title: '文字',
-    roles: ['main', 'sidestory', 'summary', 'imagePrompt', 'proactive', 'vision'],
-    note: '渠道可选自定义、Claude、OpenAI 兼容、Gemini、Vertex Agent、DeepSeek。番外、总结这些默认跟随主对话，也可以单独设置。',
+    roles: ['main', 'companion', 'sidestory', 'summary', 'imagePrompt', 'rhythm', 'proactive', 'vision'],
+    note: '渠道可选自定义、Claude、OpenAI 兼容、Gemini、Vertex Agent、DeepSeek。「陪伴 · 快速」写一起做事时的短句，选便宜、快的模型；生图提示词和节律默认跟随它。其余功能可以跟随主对话或「陪伴 · 快速」，也可以单独设置。',
   },
   { title: '语音', roles: ['tts', 'stt'], note: '语音合成可选自定义（OpenAI 格式 /audio/speech）、硅基流动、MiniMax、火山引擎、Fish Audio、GPT-SoVITS；音色在"我的 → 语音"里按角色设置。' },
   { title: '图片', roles: ['image'], note: '生图可选自定义（OpenAI 格式 /images/generations）、NovelAI（含公益站）、硅基流动。' },
   { title: '记忆', roles: ['embedding'], note: '向量化可选自定义（OpenAI 格式 /embeddings）、硅基流动、Gemini。备用 API 只在模型相同时才会用：不同模型的向量不能互相比较，换了模型要重算向量。' },
 ];
 /** 提示词和采样参数在预设里的功能（温度不在这里调） */
-const PRESET_DRIVEN: Partial<Record<AgentRole, string>> = { sidestory: '"小剧场"', summary: '"总结"', imagePrompt: '"生图"', proactive: '"主动消息"' };
+const PRESET_DRIVEN: Partial<Record<AgentRole, string>> = { companion: '"功能"', sidestory: '"小剧场"', summary: '"总结"', imagePrompt: '"生图"', proactive: '"主动消息"' };
 /** 后台跑的功能可以设每日上限 */
 const BUDGETED = new Set<AgentRole>(['sidestory', 'summary', 'imagePrompt', 'proactive', 'embedding']);
 /** 推理强度：OpenAI 的 reasoning_effort、Claude 的思考预算 / effort、Gemini 的 thinkingBudget / thinkingLevel */
@@ -58,12 +58,15 @@ const NAI_SCHEDULES = ['karras', 'native', 'exponential', 'polyexponential'];
 function clone<T>(x: T): T {
   return JSON.parse(JSON.stringify(x)) as T;
 }
-const following = (role: AgentRole) => role !== 'main' && isTextRole(role) && !!ai.routeOf(role).sameAsMain;
+/** 这个功能跟随谁；单独设置时为空 */
+const following = (role: AgentRole): FollowTarget | null => followOf(ai.routeOf(role));
 
-/** 卡片上的一行：用的哪个渠道、哪个模型 */
+/** 卡片上的一行：用的哪个渠道、哪个模型（跟随别的功能时是最终用的那个） */
 function cardLine(role: AgentRole): string {
-  if (following(role)) return `跟随主对话 · ${ai.apiLine('main', ai.routeOf('main').api)}`;
-  return ai.apiLine(role, ai.routeOf(role).api);
+  const target = following(role);
+  if (!target) return ai.apiLine(role, ai.routeOf(role).api);
+  const source = ai.system.router.source(role);
+  return `跟随${AGENT_META[target].label} · ${ai.apiLine(source, ai.routeOf(source).api)}`;
 }
 function backupLine(role: AgentRole): string {
   const b = ai.effectiveRoute(role).backup;
@@ -85,7 +88,15 @@ const draft = ref<AgentRoute | null>(null);
 const keys = reactive({ api: '', backup: '' });
 const sheetOpen = computed({ get: () => !!draft.value, set: (v) => !v && (draft.value = null) });
 const draftRole = computed(() => draft.value?.role ?? 'main');
-const draftFollow = computed(() => !!draft.value && draft.value.role !== 'main' && isTextRole(draft.value.role) && !!draft.value.sameAsMain);
+/** 正在改的功能跟随谁；单独设置时为空 */
+const draftFollow = computed<FollowTarget | null>(() => (draft.value ? followOf(draft.value) : null));
+/** 跟随时最终用哪个功能的 API（跟随「陪伴 · 快速」、它又跟随主对话时是主对话） */
+const draftSource = computed<AgentRole | null>(() => (draftFollow.value ? ai.system.router.source(draftFollow.value) : null));
+/** "用哪个 API"能选的：跟随谁 + 单独设置 */
+const followChoices = computed(() => [
+  ...followOptions(draftRole.value).map((t) => ({ value: t as string, label: `跟随${AGENT_META[t].label}` })),
+  { value: 'own', label: '单独设置' },
+]);
 const isText = computed(() => isTextRole(draftRole.value));
 const cap = computed(() => AGENT_META[draftRole.value].capability);
 
@@ -106,9 +117,11 @@ watch(
   { immediate: true },
 );
 const followModel = computed({
-  get: () => (draftFollow.value ? 'main' : 'own'),
+  get: () => draftFollow.value ?? 'own',
   set: (v: string) => {
-    if (draft.value) draft.value.sameAsMain = v === 'main';
+    if (!draft.value) return;
+    draft.value.follow = v === 'main' || v === 'companion' ? v : null;
+    delete draft.value.sameAsMain;
   },
 });
 /** 照搬别的功能的设置（同一类渠道的）：渠道、地址、模型、Key 一起 */
@@ -277,7 +290,7 @@ async function runReindex() {
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5">
                   <span class="text-[14.5px] font-600">{{ AGENT_META[role].label }}</span>
-                  <span v-if="following(role)" class="tag">跟随主对话</span>
+                  <span v-if="following(role)" class="tag">跟随{{ AGENT_META[following(role)!].label }}</span>
                 </div>
                 <div class="text-[12.5px] text-ink-2 truncate">{{ cardLine(role) }}</div>
                 <div v-if="backupLine(role)" class="text-[11.5px] text-ink-3 truncate">{{ backupLine(role) }}</div>
@@ -330,22 +343,18 @@ async function runReindex() {
         <div class="sheet-title">{{ AGENT_META[draft.role].label }}</div>
         <div class="text-[12.5px] text-ink-3 mt-0.5">{{ AGENT_META[draft.role].desc }}</div>
 
-        <template v-if="draft.role !== 'main' && isText">
+        <template v-if="followOptions(draft.role).length">
           <label class="field-label">用哪个 API</label>
-          <Segmented
-            v-model="followModel"
-            :options="[
-              { value: 'main', label: '跟随主对话' },
-              { value: 'own', label: '单独设置' },
-            ]"
-          />
+          <Segmented v-model="followModel" :options="followChoices" />
         </template>
 
-        <template v-if="draftFollow">
+        <template v-if="draftFollow && draftSource">
           <div class="follow-box">
-            <div class="text-[13px] text-ink-2">现在用：{{ ai.apiLine('main', ai.routeOf('main').api) }}</div>
-            <div v-if="backupLine('main')" class="text-[12px] text-ink-3 mt-0.5">{{ backupLine('main') }}</div>
-            <button class="text-[13px] text-accent-ink mt-1.5" @click="openFeature('main')">去设置主对话</button>
+            <div class="text-[13px] text-ink-2">
+              现在用：{{ ai.apiLine(draftSource, ai.routeOf(draftSource).api) }}<template v-if="draftSource !== draftFollow">（{{ AGENT_META[draftFollow].label }}跟随{{ AGENT_META[draftSource].label }}）</template>
+            </div>
+            <div v-if="backupLine(draftSource)" class="text-[12px] text-ink-3 mt-0.5">{{ backupLine(draftSource) }}</div>
+            <button class="text-[13px] text-accent-ink mt-1.5" @click="openFeature(draftFollow)">去设置{{ AGENT_META[draftFollow].label }}</button>
           </div>
         </template>
         <template v-else>

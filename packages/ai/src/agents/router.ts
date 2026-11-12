@@ -1,4 +1,4 @@
-import { AGENT_META, apiKeyId, isTextRole, type AgentRole, type AgentRoute, type Capability, type ConnectionKind, type FeatureApi } from '@app/shared';
+import { AGENT_META, apiKeyId, followOf, type AgentRole, type AgentRoute, type Capability, type ConnectionKind, type FeatureApi } from '@app/shared';
 import { apiLabel, kindOf, needsKey } from '../channels.ts';
 import type { Endpoint } from '../core/endpoint.ts';
 import { AiError, annotateError, errorText, shouldFailover } from '../core/errors.ts';
@@ -10,7 +10,7 @@ import { canTranscribe } from '../stt/client.ts';
 
 /**
  * 功能路由：API 设置按功能分，每个功能自己选渠道、填地址、Key、模型，可以再设一个备用 API。
- * 主对话以外的文本功能默认跟随主对话（用主对话的 API 和备用 API）。
+ * 主对话以外的文本功能可以跟随主对话或「陪伴 · 快速」（用那个功能的 API 和备用 API）；「陪伴 · 快速」只能跟随主对话。
  * 路由把设置解析成要试的端点（自己的 API，再备用 API），按顺序调用：失败且值得换时改用备用（同 math-reader 的 callAI）。
  * 设置从哪里来由调用方决定：App 里是本机的设置，以后的 Worker 里是 D1。
  */
@@ -115,19 +115,34 @@ export class AgentRouter {
     return this.config.routes().find((r) => r.role === role);
   }
 
-  /** 真正提供 API 设置的功能：主对话以外的文本功能跟随主对话时是 main */
-  source(role: AgentRole): AgentRole {
-    return role !== 'main' && isTextRole(role) && this.route(role)?.sameAsMain ? 'main' : role;
+  /**
+   * 从这个功能一路跟随下去经过的功能（含它自己），最后一个就是真正提供 API 设置的。
+   * 例如生图提示词跟随「陪伴 · 快速」、「陪伴 · 快速」跟随主对话：[imagePrompt, companion, main]
+   */
+  chain(role: AgentRole): AgentRole[] {
+    const out: AgentRole[] = [role];
+    let cur = role;
+    for (;;) {
+      const next = followOf(this.route(cur));
+      if (!next || out.includes(next)) return out;
+      out.push(next);
+      cur = next;
+    }
   }
 
-  /** 实际用的设置（跟随主对话时是主对话的） */
+  /** 真正提供 API 设置的功能（跟随别的功能时是被跟随的那个） */
+  source(role: AgentRole): AgentRole {
+    return this.chain(role).at(-1) ?? role;
+  }
+
+  /** 实际用的设置（跟随别的功能时是那个功能的） */
   effective(role: AgentRole): AgentRoute | undefined {
     return this.route(this.source(role));
   }
 
   private problem(role: AgentRole): { reason: string; code: RouteCode } {
     const source = this.source(role);
-    const follow = source !== role ? '（跟随主对话）' : '';
+    const follow = source !== role ? `（${AGENT_META[role].label}跟随${AGENT_META[source].label}）` : '';
     return { reason: `${AGENT_META[source].label}还没设置 API${follow}`, code: 'no_route' };
   }
 
