@@ -62,8 +62,8 @@ const SILICONFLOW_VOICES = new Set(['alex', 'benjamin', 'charles', 'david', 'ann
 
 /**
  * OpenAI 兼容：POST …/audio/speech（OpenAI、硅基流动 CosyVoice、各家中转）。
- * - CosyVoice：情绪和风格用一句中文指令放在正文前（"请用害羞的语气说<|endofprompt|>…"，硅基流动文档里的写法）；
- *   连接的 extra.emotion = 'off' 时不加。
+ * - CosyVoice：情绪和风格用一句中文指令放在正文前（"你能用害羞的语气说吗？<|endofprompt|>…"，硅基流动文档里的写法）。
+ *   默认不加，连接的 extra.emotion = 'on' 时才加：有的服务（各家中转、上传的音色）不认这个写法，会把指令原样念出来。
  * - gpt-4o-mini-tts：情绪和风格放 instructions。
  */
 export async function openaiSpeech(ep: Endpoint, call: TtsCall): Promise<TtsOutput> {
@@ -77,9 +77,9 @@ export async function openaiSpeech(ep: Endpoint, call: TtsCall): Promise<TtsOutp
   if (req.voice.speed && req.voice.speed !== 1) body.speed = req.voice.speed;
   const emotionZh = emotionInChinese(call.emotion);
   const style = req.voice.style?.trim();
-  if (/cosyvoice/i.test(model) && ep.extra?.emotion !== 'off' && (emotionZh || style)) {
+  if (/cosyvoice/i.test(model) && ep.extra?.emotion === 'on' && (emotionZh || style)) {
     const how = [emotionZh ? `${emotionZh}的语气` : '', style ?? ''].filter(Boolean).join('，');
-    input = `请用${how}说<|endofprompt|>${input}`;
+    input = `你能用${how}说吗？<|endofprompt|>${input}`;
   } else if (/gpt-4o.*tts/i.test(model) && (call.emotion || style)) {
     body.instructions = [call.emotion ? `Emotion: ${call.emotion}.` : '', style ?? ''].filter(Boolean).join(' ');
   }

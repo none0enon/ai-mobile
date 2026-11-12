@@ -170,6 +170,17 @@ export interface YouTubeInfo {
   duration?: number;
   title?: string;
   author?: string;
+  /** 播放器报错：2 地址不对、5 播放器出错、100 视频不存在或是私密的、101 / 150 作者不允许在别的网站播放 */
+  error?: number;
+}
+
+/** YouTube 播放器的错误码 → 一句话 */
+export function youTubeErrorText(code: number): string {
+  if (code === 101 || code === 150 || code === 152) return '作者不允许在别的网站里播放这个视频';
+  if (code === 100) return '视频不存在，或者是私密的';
+  if (code === 2) return '视频地址不对';
+  if (code === 5) return '播放器出错了';
+  return `播放器报错 ${code}`;
 }
 
 /**
@@ -189,6 +200,11 @@ export function trackYouTube(iframe: HTMLIFrameElement, onInfo: (info: YouTubeIn
       }
     }
     const msg = d as { event?: string; info?: unknown };
+    if (msg?.event === 'onError') {
+      heard = true;
+      onInfo({ error: typeof msg.info === 'number' ? msg.info : Number(msg.info) || 0 });
+      return;
+    }
     if (msg?.event === 'onStateChange' && typeof msg.info === 'number') {
       heard = true;
       onInfo({ state: msg.info });

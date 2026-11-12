@@ -6,6 +6,33 @@ import type { ClaudeModelInfo } from './claude.ts';
  * 和 OPENAI_REASONING_EFFORT_MAP）。auto 或不写时交给模型，不发任何参数。
  */
 
+/**
+ * 思考的余量。会思考的模型把思考的 token 也算在回复上限里（Gemini 的 maxOutputTokens、Claude 的 max_tokens、多数中转的 max_tokens），
+ * 而预设里的"最长回复"是给正文的（通话 160、戳一戳 100、哄睡 300……）：思考在前面就把它用完了，
+ * 回复是空的（MAX_TOKENS）或者只剩一个标题。所以发请求时在上限之外再留出思考的余量；正文多长仍由预设和提示词决定。
+ */
+export const THINKING_HEADROOM = 8192;
+
+/** Gemini：设了思考预算按预算留；思考等级按等级留；没设（默认动态思考）留 THINKING_HEADROOM；关掉思考（预算 0）不留 */
+export function geminiHeadroom(thinks: boolean, effort: { thinkingBudget?: number; thinkingLevel?: string }): number {
+  if (!thinks) return 0;
+  const b = effort.thinkingBudget;
+  if (b !== undefined) return b === 0 ? 0 : b > 0 ? b : THINKING_HEADROOM;
+  if (effort.thinkingLevel) return ({ minimal: 1024, low: 4096, medium: 8192, high: 16384 } as Record<string, number>)[effort.thinkingLevel.toLowerCase()] ?? THINKING_HEADROOM;
+  return THINKING_HEADROOM;
+}
+
+/**
+ * 名字看得出默认会思考的模型（走 OpenAI 格式的中转、各家兼容接口）：Gemini 2.5 起、o 系列、GPT-5、DeepSeek R1、QwQ、
+ * Grok 3 mini / 4、GLM 4.5 起。名字里写明不思考的（-chat、-instruct、no-thinking、non-reasoning）不算。
+ * 名字带 thinking / reasoner / reasoning 的由 thinkingAlias 处理
+ */
+export function thinksByName(model: string): boolean {
+  const m = String(model || '').toLowerCase();
+  if (/no[-_]?thinking|non[-_]?reasoning|(?:thinking|reasoning)[-_]?none|-instruct\b|gpt-5[\w.]*-chat/.test(m)) return false;
+  return /gemini-(?:2\.5|[3-9])|(?:^|[/:])o[1-9](?:-mini|-pro)?(?:-|$)|gpt-5|deepseek-r1|qwq|grok-(?:3-mini|[4-9])|glm-(?:4\.[5-9]|[5-9])/.test(m);
+}
+
 /** OpenAI 兼容的 reasoning_effort：none 原样发（不认的接口自动去掉）；min → minimal；max 多数接口不认，按 high 发 */
 export function openaiReasoningEffort(effort: ReasoningEffort | undefined): string | undefined {
   if (!effort || effort === 'auto') return undefined;
@@ -43,6 +70,13 @@ export function claudeThinking(info: ClaudeModelInfo | null, maxTokens: number, 
   let budget = Math.max(1024, Math.floor(maxTokens * ratio[effort]));
   if (!stream) budget = Math.min(budget, 21333);
   return { thinking: { type: 'enabled', budget_tokens: budget }, budget };
+}
+
+/** Claude 的思考余量：自适应思考按强度留；默认就会思考的模型没设强度时留 THINKING_HEADROOM；传统思考（预算）另算 */
+export function claudeHeadroom(info: ClaudeModelInfo | null, think: ClaudeThinking): number {
+  if (!info?.adaptive || think.budget) return 0;
+  if (think.effort) return ({ low: 4096, medium: 8192, high: 16384, max: 32768 } as Record<string, number>)[think.effort] ?? THINKING_HEADROOM;
+  return info.thinksByDefault ? THINKING_HEADROOM : 0;
 }
 
 /** 能设思考参数的 Gemini 模型（同 SillyTavern 的 isThinkingConfigModel） */

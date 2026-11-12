@@ -81,6 +81,16 @@ const SEED_UPGRADES: SeedUpgrade[] = [
     file: 'feature-watch.json',
     added: ['watchLink'],
   },
+  {
+    // 看链接时像发弹幕一样吐槽；认得出片名里的作品、角色时可以就着说
+    id: 'feature-watch:link-roast',
+    file: 'feature-watch.json',
+    replaced: {
+      watchLink: [
+        '这一次你们看的是一个视频链接，没有逐句字幕：场景任务里有平台、标题、作者、{{user}}贴的简介或内容、现在播到哪、你们刚才说过的话。你看不到画面也听不到声音，只知道这些。像坐在旁边一起看那样随口说一句（20 字以内）：可以接{{user}}刚才的话、聊标题和气氛、对进度有感而发，或者问一句；不要编造这些信息里没有的剧情、台词和画面细节；不要重复你刚才说过的话。',
+      ],
+    },
+  },
 ];
 
 /** 按 SEED_UPGRADES 更新本机的自带预设，返回改了的那些 */

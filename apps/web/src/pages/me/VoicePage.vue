@@ -42,6 +42,19 @@ function setTtsText(patch: Partial<TtsTextOptions>) {
 }
 const regexBad = computed(() => !!ttsText.value.regex && !compileFilter(ttsText.value.regex));
 
+/** CosyVoice 情绪指令（存在"语音合成"的 API 上，同 API 设置里的开关）：默认关，有的服务会把指令念出来 */
+const cosyEmotion = computed({
+  get: () => ai.routeOf('tts').api?.extra?.emotion === 'on',
+  set: (on: boolean) => {
+    const a = ai.routeOf('tts').api;
+    if (!a) return;
+    const extra = { ...(a.extra ?? {}) };
+    if (on) extra.emotion = 'on';
+    else delete extra.emotion;
+    a.extra = Object.keys(extra).length ? extra : undefined;
+  },
+});
+
 /** 试听只读开场白的第一句（省钱也省时间），按上面的朗读设置处理 */
 function sample(c: Character): string {
   return splitSentences(prepareTtsText(c.card.firstMes, { ...ttsText.value, speakerName: c.name }))[0] ?? '你好呀，今天过得怎么样？';
@@ -166,6 +179,9 @@ function saveVoice() {
         </van-cell>
         <van-cell title="读（括号）里的字" label="默认当作神态、旁白跳过" center>
           <template #right-icon><van-switch :model-value="ttsText.parentheses === 'keep'" size="22px" @update:model-value="setTtsText({ parentheses: $event ? 'keep' : 'drop' })" /></template>
+        </van-cell>
+        <van-cell v-if="ttsKind === 'openai'" title="按表情带语气（CosyVoice 情绪指令）" label="在要读的话前面加“你能用害羞的语气说吗？”。默认关：有的服务和上传的音色会把这句原样念出来" center>
+          <template #right-icon><van-switch v-model="cosyEmotion" size="22px" /></template>
         </van-cell>
         <van-cell title="跳过代码块和状态栏" label="``` 代码块、<状态栏>…</状态栏> 这类标签" center>
           <template #right-icon>
