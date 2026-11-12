@@ -58,28 +58,16 @@ const groups = computed(() => [
       { icon: 'i-lucide-id-card', label: '我的人设', value: me.name, to: '/me/personas' },
       { icon: 'i-lucide-library-big', label: '世界书', value: `${lib.lorebooks.length} 本`, to: '/me/lorebooks' },
       { icon: 'i-lucide-sliders-horizontal', label: '预设', value: `${lib.presets.length} 套`, to: '/me/presets' },
-      { icon: 'i-lucide-messages-square', label: '消息设置', value: '', desc: '发送条数、显示条数、HTML 渲染', to: '/me/messages' },
-      { icon: 'i-lucide-file-down', label: '导入 ST 文件', value: '', desc: '角色卡、世界书、预设、聊天记录', to: '/import' },
+      { icon: 'i-lucide-messages-square', label: '消息设置', value: '', to: '/me/messages' },
+      { icon: 'i-lucide-file-down', label: '导入 ST 文件', value: '', to: '/import' },
     ],
   },
   {
     title: 'AI 与语音',
     rows: [
-      {
-        icon: 'i-lucide-cpu',
-        label: 'API 设置',
-        value: liveAgents.value ? `${liveAgents.value} 个功能已接通` : '',
-        desc: liveAgents.value ? '按功能设置：主对话、番外、生图、语音、向量化……' : '还没填 Key，现在用演示模型',
-        to: '/me/api',
-      },
-      { icon: 'i-lucide-audio-lines', label: '语音', value: '', desc: '她们的声音、语音识别、通话', to: '/me/voice' },
-      {
-        icon: 'i-lucide-plug-zap',
-        label: '地图、天气、音乐',
-        value: servicesValue.value,
-        desc: 'Google 地图、网易云音乐、和风天气（国内）；你那边的天气用 Open-Meteo，不用 Key',
-        to: '/me/services',
-      },
+      { icon: 'i-lucide-cpu', label: 'API 设置', value: liveAgents.value ? `${liveAgents.value} 个功能已接通` : '还没填 Key', to: '/me/api' },
+      { icon: 'i-lucide-audio-lines', label: '语音', value: '', to: '/me/voice' },
+      { icon: 'i-lucide-plug-zap', label: '地图、天气、音乐', value: servicesValue.value, to: '/me/services' },
     ],
   },
   {
@@ -89,10 +77,9 @@ const groups = computed(() => [
         icon: 'i-lucide-bell-ring',
         label: '主动消息',
         value: !hub.config.active ? '云端未开启' : !chars.list.some((c) => c.proactive.enabled) ? '都没打开' : upcoming.value ? `今天还会找你 ${upcoming.value} 次` : '查看云端计划',
-        desc: `${chars.list.filter((c) => c.proactive.enabled).map((c) => c.name).join('、') || '还没有角色'}会主动找你`,
         to: '/me/proactive',
       },
-      { icon: 'i-lucide-calendar-clock', label: '节律', value: rhythmValue.value, desc: '她们每天的作息、三餐和穿着；导入的角色在这里建小世界', to: '/me/rhythm' },
+      { icon: 'i-lucide-calendar-clock', label: '节律', value: rhythmValue.value, to: '/me/rhythm' },
       { icon: weather.mine?.icon ?? 'i-lucide-cloud-sun', label: '环境与作息', value: envValue.value, to: '/me/environment' },
     ],
   },
@@ -101,13 +88,7 @@ const groups = computed(() => [
     rows: [
       { icon: 'i-lucide-refresh-cw', label: '云端与同步', value: hub.connected ? '已连接 Worker' : '仅本机', to: '/me/sync' },
       { icon: 'i-lucide-palette', label: '外观', value: THEME_LABEL[app.themeSetting], to: '/me/appearance' },
-      {
-        icon: 'i-lucide-smartphone',
-        label: '装成 App',
-        value: pwa.standalone ? '已安装' : pwa.canPrompt ? '可以安装' : '',
-        desc: '添加到主屏幕；卸载后装不回去时在这里修复',
-        to: '/me/install',
-      },
+      { icon: 'i-lucide-smartphone', label: '装成 App', value: pwa.standalone ? '已安装' : pwa.canPrompt ? '可以安装' : '', to: '/me/install' },
     ],
   },
 ]);
@@ -207,7 +188,7 @@ function drawStory() {
       <section v-for="g in groups" :key="g.title" class="mt-4">
         <div class="group-title">{{ g.title }}</div>
         <van-cell-group inset>
-          <van-cell v-for="r in g.rows" :key="r.label" :title="r.label" :value="r.value" :label="'desc' in r ? r.desc : undefined" is-link :to="r.to" center>
+          <van-cell v-for="r in g.rows" :key="r.label" :title="r.label" :value="r.value" is-link :to="r.to" center>
             <template #icon><span :class="r.icon" class="row-icon" /></template>
           </van-cell>
         </van-cell-group>
@@ -217,25 +198,13 @@ function drawStory() {
         <div class="group-title">试一试</div>
         <PersonTabs v-model="targetId" :characters="chars.list" label="对谁试" class="px-4 pb-2.5" />
         <van-cell-group inset>
-          <van-cell
-            :title="`写一段${target.name}的番外`"
-            :label="ai.isLive('sidestory') ? `你不在的时候，${target.name}那边发生了什么` : '演示故事；在 API 设置里设置好主对话后真的写'"
-            is-link
-            center
-            @click="runSidestory"
-          >
+          <van-cell :title="`写一段${target.name}的番外`" is-link center @click="runSidestory">
             <template #icon><span class="i-lucide-book-heart row-icon" /></template>
           </van-cell>
-          <van-cell
-            :title="`${target.name}发来一条主动消息`"
-            :label="ai.isLive('proactive') ? `由「主动消息」的模型用${target.pronoun}的口吻写；顶部弹横幅、聊天列表出现未读` : '演示台词；顶部会弹横幅、聊天列表出现未读'"
-            is-link
-            center
-            @click="demoProactive"
-          >
+          <van-cell :title="`${target.name}发来一条主动消息`" is-link center @click="demoProactive">
             <template #icon><span class="i-lucide-message-circle-heart row-icon" /></template>
           </van-cell>
-          <van-cell :title="`让${target.name}打来电话`" label="来电界面：接听后是真的通话（主对话 + 语音识别 + 语音合成）" is-link center @click="demoCall">
+          <van-cell :title="`让${target.name}打来电话`" is-link center @click="demoCall">
             <template #icon><span class="i-lucide-phone-incoming row-icon" /></template>
           </van-cell>
         </van-cell-group>
