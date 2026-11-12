@@ -39,7 +39,7 @@ watchEffect(() => {
 }
 .html-body :deep(details[open]) {
   padding-left: 10px;
-  border-left: 2px solid var(--border);
+  border-left: 2px solid color-mix(in srgb, currentColor 18%, transparent);
 }
 .html-body :deep(summary) {
   cursor: pointer;
@@ -55,14 +55,14 @@ watchEffect(() => {
 .html-body :deep(blockquote) {
   margin: 0.4em 0;
   padding-left: 10px;
-  border-left: 3px solid var(--border);
+  border-left: 3px solid color-mix(in srgb, currentColor 25%, transparent);
   opacity: 0.85;
 }
 .html-body :deep(pre) {
   margin: 0.4em 0;
   padding: 8px 10px;
   border-radius: 10px;
-  background: var(--panel);
+  background: color-mix(in srgb, currentColor 8%, transparent);
   overflow-x: auto;
   font-size: 0.86em;
   white-space: pre;
@@ -81,7 +81,7 @@ watchEffect(() => {
 .html-body :deep(td),
 .html-body :deep(th) {
   padding: 3px 8px;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
 }
 .html-body :deep(img) {
   max-width: 100%;
@@ -90,7 +90,7 @@ watchEffect(() => {
 }
 .html-body :deep(hr) {
   border: 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent);
   margin: 0.6em 0;
 }
 .html-body :deep(ul),
