@@ -17,6 +17,8 @@ import {
 import {
   AGENT_META,
   apiKeyId,
+  followOf,
+  followOptions,
   isTextRole,
   type AgentRole,
   type AgentRoute,
@@ -45,13 +47,21 @@ function validApi(x: unknown): FeatureApi | null {
   return { ...a, channel: a.channel, baseUrl: typeof a.baseUrl === 'string' ? a.baseUrl : '', model: typeof a.model === 'string' ? a.model : '', models: Array.isArray(a.models) ? a.models.filter((m) => typeof m === 'string') : [] };
 }
 
-/** 补齐缺的功能（以前存的设置里没有后来新加的），按 AGENT_META 的顺序排；生图补上默认的生图风格、语音合成补上默认的朗读设置 */
+/**
+ * 补齐缺的功能（以前存的设置里没有后来新加的），按 AGENT_META 的顺序排；生图补上默认的生图风格、语音合成补上默认的朗读设置。
+ * 以前的"跟随主对话"开关（sameAsMain）换成跟随谁（follow）：生图提示词以前默认跟随主对话，现在跟随「陪伴 · 快速」
+ * （它没单独设置时也跟随主对话，所以换过来以后照样能用）
+ */
 function completeRoutes(saved: Partial<AgentRoute>[]): AgentRoute[] {
   const seeds = defaultRoutes();
   return ROLES.map((role) => {
     const seed = seeds.find((x) => x.role === role) as AgentRoute;
     const s = saved.find((x) => x?.role === role);
     const r: AgentRoute = s ? { ...seed, ...s, role, api: validApi(s.api), backup: validApi(s.backup) } : seed;
+    if (s && !('follow' in s)) r.follow = s.sameAsMain ? (role === 'imagePrompt' ? 'companion' : 'main') : null;
+    delete r.sameAsMain;
+    if (followOptions(role).length) r.follow = followOf(r);
+    else delete r.follow;
     if (role === 'image' && !r.imageStyle) r.imageStyle = clone(DEFAULT_IMAGE_STYLE);
     if (role === 'tts' && !r.ttsText) r.ttsText = clone(DEFAULT_TTS_TEXT);
     return r;
@@ -184,10 +194,10 @@ function legacyMigrate(
     if (isTextRole(role)) {
       const pair = role === 'main' ? mainPair : pairOf(r);
       const same = role !== 'main' && (!pair || JSON.stringify(pair) === JSON.stringify(mainPair));
-      if (same) return { ...base, sameAsMain: true, api: null, backup: null };
+      if (same) return { ...base, follow: role === 'imagePrompt' ? 'companion' : 'main', api: null, backup: null };
       const api = pair ? toApi(role, pair.own.connectionId, pair.own.model, false) : null;
       const backup = pair?.backup ? toApi(role, pair.backup.connectionId, pair.backup.model, true) : null;
-      return { ...base, sameAsMain: role === 'main' ? undefined : false, api, backup };
+      return { ...base, follow: null, api, backup };
     }
     if (!r?.connectionId) return base;
     const api = toApi(role, r.connectionId, r.model, false) ?? base.api;
