@@ -28,7 +28,7 @@ import { services } from '@/services';
 import { putAsset } from '@/services/assets';
 import { describePhoto } from '@/services/photos';
 import { sessionSummary as musicSummary, stop as stopMusic } from '@/services/musicPlayer';
-import { assembleForChat, personaOf, toLLMMessages, type ChatPrompt } from '@/services/prompt';
+import { assembleForChat, personaOf, storeRegex, toLLMMessages, type ChatPrompt } from '@/services/prompt';
 import { pendingForSummary, SUMMARY_EVERY, summarizeChat, type SummaryOutcome } from '@/services/summary';
 import { uid } from '@/utils/id';
 
@@ -329,7 +329,8 @@ export const useChatStore = defineStore('chat', () => {
 
       const msg = find(chatId, id);
       if (!msg) return;
-      raw = result.text || raw;
+      // 写完了：预设里改存下来的消息的正则（同 ST：流式时只改显示，写完才改存下来的）
+      raw = storeRegex(chat, character, result.text || raw, 'assistant', { preset: prompt.preset });
       const parsed = parseControlTags(raw, allowedTags);
       msg.text = parsed.visible.trim();
       msg.meta.error = undefined;
@@ -582,12 +583,21 @@ export const useChatStore = defineStore('chat', () => {
     if (msg) void drawPart(chatId, msg.id, part.caption);
   }
 
+  /** 你写的话先过预设里改存下来的消息的正则（作用在"你发的消息"上的） */
+  function regexUserText(chatId: string, text: string): string {
+    const chat = chatById(chatId);
+    const character = useCharacterStore().byId(chat?.characterId);
+    return chat && character ? storeRegex(chat, character, text, 'user').trim() : text;
+  }
+
   async function send(chatId: string, text: string) {
     const t = text.trim();
     if (!t) return;
     const last = list(chatId).at(-1);
     if (last?.meta.choices) last.meta.choices = undefined;
-    push(chatId, 'user', [{ type: 'text', text: t }]);
+    // 正则把整句都删了：不留空消息，她照常回
+    const said = regexUserText(chatId, t);
+    if (said) push(chatId, 'user', [{ type: 'text', text: said }]);
     await generate(chatId);
   }
 
@@ -647,7 +657,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!photos.length) return {};
     const keys = await Promise.all(photos.map((p) => putAsset(p.bytes, p.mime)));
     const parts: MessagePart[] = keys.map((assetKey) => ({ type: 'image', assetKey, caption: '', generated: true, photo: true }));
-    const said = text?.trim();
+    const said = text?.trim() ? regexUserText(chatId, text.trim()) : '';
     if (said) parts.push({ type: 'text', text: said });
     const last = list(chatId).at(-1);
     if (last?.meta.choices) last.meta.choices = undefined;
@@ -675,7 +685,11 @@ export const useChatStore = defineStore('chat', () => {
   function editMessage(chatId: string, id: string, text: string) {
     const msg = find(chatId, id);
     if (!msg) return;
-    const t = text.replace(/\r/g, '').trim();
+    let t = text.replace(/\r/g, '').trim();
+    // 预设里勾了"改消息时也执行"的正则（同 ST 的 runOnEdit）
+    const chat = chatById(chatId);
+    const character = useCharacterStore().byId(chat?.characterId);
+    if (chat && character && (msg.role === 'user' || msg.role === 'assistant')) t = storeRegex(chat, character, t, msg.role, { edit: true }).trim();
     const cards = msg.parts.filter((p) => p.type !== 'text');
     if (!t && !cards.length) return;
     const parts: MessagePart[] = t ? [{ type: 'text', text: t }, ...cards] : cards;

@@ -50,7 +50,6 @@ const servicesValue = computed(() => {
   return on.length ? `${on.length} 个已接通` : '';
 });
 const envValue = computed(() => (weather.mine ? `${weather.mine.place} · ${weather.mine.text} ${weather.temp(weather.mine.tempC)}` : '还没设置城市'));
-
 const groups = computed(() => [
   {
     title: '角色与设定',
@@ -59,6 +58,7 @@ const groups = computed(() => [
       { icon: 'i-lucide-id-card', label: '我的人设', value: me.name, to: '/me/personas' },
       { icon: 'i-lucide-library-big', label: '世界书', value: `${lib.lorebooks.length} 本`, to: '/me/lorebooks' },
       { icon: 'i-lucide-sliders-horizontal', label: '预设', value: `${lib.presets.length} 套`, to: '/me/presets' },
+      { icon: 'i-lucide-messages-square', label: '消息设置', value: '', desc: '发送条数、显示条数、HTML 渲染', to: '/me/messages' },
       { icon: 'i-lucide-file-down', label: '导入 ST 文件', value: '', desc: '角色卡、世界书、预设、聊天记录', to: '/import' },
     ],
   },

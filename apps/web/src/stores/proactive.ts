@@ -25,7 +25,7 @@ import { DEMO_PROACTIVE, GENERIC_PROACTIVE } from '@/mock/proactive';
 import { useEnvironmentStore } from './environment';
 import { useHubStore } from './hub';
 import { services } from '@/services';
-import { assembleForChat, personaOf, toLLMMessages } from '@/services/prompt';
+import { assembleForChat, personaOf, storeRegex, toLLMMessages } from '@/services/prompt';
 import { hhmm } from '@/utils/time';
 
 /** 自动排期、检测和生成由 Cloudflare 执行；本机仅展示计划和手动试一试。 */
@@ -105,7 +105,8 @@ export const useProactiveStore = defineStore('proactive', () => {
       characterId: c.id,
       names: { user: persona.name, char: c.name },
     });
-    const parsed = parseControlTags(r.text, TAGS.filter((k) => k !== 'cg' || c.proactive.allowSelfies));
+    // 预设里改存下来的消息的正则（作用在"她的回复"上的），同聊天里的回复
+    const parsed = parseControlTags(storeRegex(ch, c, r.text, 'assistant', { preset: prompt.preset }), TAGS.filter((k) => k !== 'cg' || c.proactive.allowSelfies));
     const text = parsed.visible.trim();
     const parts: MessagePart[] = text ? [{ type: 'text', text }] : [];
     let expression: string | null = null;

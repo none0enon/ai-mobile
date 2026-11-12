@@ -219,7 +219,7 @@
     {
       "id": "r1",
       "name": "去掉多余的星号",
-      "find": "\\*{3,}",
+      "find": "/\\*{3,}/g",
       "replace": "",
       "placement": [
         "ai_output"

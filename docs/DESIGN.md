@@ -1,6 +1,6 @@
 # AI 陪伴 App 设计文档
 
-> 状态：M1 进行中。已完成：SillyTavern 导入（角色卡 / 世界书 / 预设）、按 ST 规则拼提示词、本机存储导入的数据；AI 调用层与多智能体（`packages/ai`，§4.5）：填了 Key 的智能体真的调用（对话、番外、生图提示词、生图、语音合成、向量化），连接和分配存本机、Key 只在本机。还没有：导出按钮、聊天记录导入、导入时生成小世界、记忆和番外的持久化、语音识别。其余仍是 M0 的演示数据。
+> 状态：M1 进行中。已完成：SillyTavern 导入（角色卡 / 世界书 / 预设）、按 ST 规则拼提示词、预设正则（导入、编辑、排序，按 ST 规则执行）、消息设置（发送条数、显示条数、HTML 渲染与前端卡沙盒，§5.6）、本机存储导入的数据；AI 调用层与多智能体（`packages/ai`，§4.5）：填了 Key 的智能体真的调用（对话、番外、生图提示词、生图、语音合成、向量化），连接和分配存本机、Key 只在本机。还没有：导出按钮、聊天记录导入、导入时生成小世界、记忆和番外的持久化、语音识别。其余仍是 M0 的演示数据。
 > 云端主动消息实现更新：已补上 `apps/hub` 的 5 分钟 Cron、D1 排期/消息持久化、并发触发、闸门、独立重试、上下文上传、增量收件箱及 Web Push/webhook；不再由前端计时器生成计划消息。部署和当前范围见 [CLOUDFLARE.md](CLOUDFLARE.md)。完整 M2 同步、R2 和安卓壳仍未完成。
 > 第二阶段设计（已定稿，尚未实现）：不写死任何预设，内置的东西都是文件；角色按唯一 id（§5.5）。新增「陪伴 · 快速」「节律」两个功能（§4.1）、一起做事的共用底座（场景里的对话存进聊天）和节律（§9 开头）。陪伴学习重做（§9.3）；新增一起观影（§9.9）、一起看书（§9.10）、海龟汤（§9.11）。生图按场景分预设，并保证人物一致（§10.3–§10.6）。
 > 约定：文中"她"泛指角色，角色也可以是男性；"你"指使用者。
@@ -20,7 +20,7 @@
 | 向量检索在本机 | 向量（float16）随记忆同步，手机上暴力计算余弦；向量化 API 由你自选 | 不受 Cloudflare 免费额度限制，离线可用 |
 | 控制标签 | 回复里夹带 `[expr:smile]` `[cg:…]` `[music:…]` `[call]` `[choice:…]` 等，流式剥离 | 中转对 function calling 支持参差；标签不影响流式正文 |
 | 主动消息"先排期再触发" | 每天生成 Touchpoint，Cron 每 5 分钟触发，内容在触发时才写 | 可预测、可幂等、安卓可设精确闹钟 |
-| 兼容 SillyTavern | 角色卡 V1/V2/V3、世界书、Chat Completion 预设、聊天 .jsonl 能导入也能导出 | 已有的卡和预设直接用，随时能带走 |
+| 兼容 SillyTavern | 角色卡 V1/V2/V3、世界书、Chat Completion 预设（含正则脚本）、聊天 .jsonl 能导入也能导出；消息里的 HTML 和前端卡按白名单 / 沙盒渲染 | 已有的卡、预设和正则直接用，随时能带走 |
 | 不写死任何预设 | 提示词、规则、作息、衣柜、台词、题库、演示角色都是数据。内置的放成文件，第一次打开时像导入一样放进库里，之后能改、能删、能恢复（§5.5） | 什么都能改；加一个文件就多一条 |
 | 角色按唯一 id | 导入角色卡时生成唯一 id。她的世界、作息、衣柜、外观、图库都挂在这个 id 上，预设是大家共用的 | 同一个预设给不同角色用，画出来是各自的样子 |
 | 消息按人分 + 各自的世界 | 一个角色只有一条聊天。每个角色有自己的虚拟小世界，你在真实世界（Google 地图）；去她的世界找她，或带她出门，都只在这条聊天里记一段"来到… / 离开…" | 像和真人聊天：换个场景不会多出一条会话；她有自己的生活，你出门时也能带上她 |
@@ -239,7 +239,7 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 | 7 | 用户人设 | 程序填充 | 顺序 |
 | 8 | 示例对话 | 程序填充 | 顺序 |
 | 9 | 过往摘要 | 程序填充 | 顺序 |
-| 10 | 聊天记录 | 程序填充 | 顺序（按 token 预算截取） |
+| 10 | 聊天记录 | 程序填充 | 顺序（先按消息设置的发送条数截取、执行"仅格式提示词"正则，再按 token 预算截取，§5.6） |
 | 11 | 长期记忆 + 关系状态 | 程序填充 | 聊天记录倒数第 4 条前 |
 | 12 | 【当前环境】 | 程序填充 | 倒数第 2 条前 |
 | 13 | 场景规则、可用标签 | 预设文字（第二阶段起写在各场景的功能预设里，代码不再写这些文字） | 倒数第 1 条前 |
@@ -322,7 +322,7 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 - `marker: true` 的块：ST 的 `main / worldInfoBefore / charDescription / charPersonality / scenario / worldInfoAfter / personaDescription / dialogueExamples / chatHistory / jailbreak` 一一对应。导入时自动在"聊天记录"附近补上本 App 的 `memory / environment / sceneRules`。补进去的块，以及场景规则、可用标签的文字，来自一个预设文件（"导入补块"），不是代码里的文字（§5.5）。
 - `injection_position = 1`（in-chat）→ `injection.position = 'absolute'` + `depth`。
 - 采样参数：`temperature top_p top_k frequency_penalty presence_penalty openai_max_tokens openai_max_context stream_openai`。
-- 正则脚本：在用户输入 / AI 输出上执行。
+- 正则脚本（`extensions.regex_scripts`）：字段全部保留，按 ST 的规则执行，见 §5.6。
 
 **聊天记录**：ST 的 `.jsonl`（第一行是元数据，之后每行一条消息，含 `swipes` / `swipe_id`）可以导入，也可以导出。
 
@@ -362,6 +362,19 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 | `packages/shared/src/locations.ts` 的 `WORLDS`（地点、作息、三餐） | 每个角色 id 下的数据。演示角色的世界放在她的卡片文件里，导入的角色由"建世界"生成 |
 | 各场景和 `usePoke` 里写死的台词；`services/mock` 的演示回复 | 每个角色的台词池（模型生成后存下来，演示角色的放在卡片文件里） |
 | `apps/web/src/mock/` 的演示角色（固定 id `suwan`、`jiangyu`）、演示聊天和记忆 | 演示角色改成 `src/characters/` 里的卡片文件，导入时生成唯一 id。演示聊天和记忆不再带：和导入别的卡一样，第一条是开场白 |
+
+### 5.6 正则、消息条数和 HTML（我的 → 消息设置）
+
+- **正则随预设保存**（`packages/shared/src/st/regex.ts`，对应 ST 的 `extensions/regex/engine.js`）：预设编辑 → 正则中导入（ST 正则脚本单个或数组，或包含正则的 ST 预设、角色卡、App 预设文件）、新建、编辑、启用 / 停用、拖动排序（按列表顺序依次执行）。
+  - 查找写成 `/正则/标志`；未写斜杠时整串作为正则、无标志，仅替换第一处（ST 的 `regexFromString`）。替换支持 `$1`、`$<name>`、`{{match}}`；捕获内容先移除 trimStrings，最后替换宏。
+  - 作用范围：用户输入 / AI 输出（斜杠命令、世界信息、推理导入时保留、导出时写回，不执行）。
+  - 仅格式显示（markdownOnly）在聊天显示时执行；仅格式提示词（promptOnly）在拼装提示词时执行（世界书扫描修改后的文本，本机和云端主动消息一致）；均不勾选时在收到回复、发送消息、编辑消息（runOnEdit）时修改消息原文。
+  - 深度：0 为最后一条，显示和发送时按 minDepth ~ maxDepth 判断（修改原文时不判断，同 ST）。发送时按交给拼装器的聊天记录计数，显示时按整条聊天计数。
+- **发送条数**（0–100，0 表示不发送聊天记录）：交给拼装器之前截取，之后仍按上下文长度截取；查看提示词中显示"仅发送最近 N 条，共 M 条"和正则修改条数。云端主动消息上传的上下文同样截取。
+- **显示条数**（1–100）：聊天顶部按钮每次再展开同样条数，切换聊天后复原。
+- **HTML 渲染**（默认开启）：消息中的 HTML 按白名单重建节点（`utils/html.ts`，未知标签只移除标签、保留文本，同 ST 的 DOMPurify）；正文换行转为 `<br>`，HTML 结构中的缩进和换行按网页规则合并。
+  - 代码块中的完整 HTML 页面（含 `html>`、`<head>`、`<body>`，同酒馆助手的判断）在沙盒 iframe 中运行（`utils/frames.ts`，`allow-scripts` 不含 `allow-same-origin`，无法访问应用数据和 Key），仅渲染最近 N 条（0–50，默认 5），更早的和生成中的折叠为代码。
+  - 页面头部注入桥接脚本：上报高度（vh 换算为固定像素，避免高度循环增长）；提供酒馆助手的 `getCurrentMessageId` / `getLastMessageId`（从 0 计数）和 `eventOn` / `eventOnce` / `eventEmit` / `eventRemoveListener`（转发给所有页面）。新消息、切换主题通过 postMessage 通知，不重新加载。
 
 ---
 
@@ -1253,15 +1266,16 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
 | 路由 | 页面 | 文件 |
 |---|---|---|
 | `#/chats` | 消息列表：一条很小的"她们在哪"（缩略地图 + 每人一行）、会话列表（一个角色一条） | `pages/ChatsPage.vue` |
-| `#/chat/:id?mode=im\|stage` | 聊天：IM 气泡 / 剧场立绘（可戳） | `pages/ChatPage.vue` |
+| `#/chat/:id?mode=im\|stage` | 聊天：IM 气泡 / 剧场立绘（可戳）；按消息设置只显示最近 N 条、渲染 HTML 和前端卡 | `pages/ChatPage.vue`、`components/chat/MessageItem.vue` |
 | `#/chat/:id/inspect` | 查看提示词 | `pages/PromptInspectorPage.vue` |
 | `#/call/:charId(?incoming=1)` | 通话 / 来电 | `pages/CallPage.vue` |
 | `#/map?world=&focus=` | 地图：切换每个角色的小世界和"我的世界"（真实世界）；她的位置、此刻建议、能一起做的事；家、附近可以带她去的地方、今天的你 | `pages/MapPage.vue`、`components/map/WorldMap.vue`、`stores/realworld.ts` |
 | `#/scene/:sceneId?at=` | 七个场景；`at` 是地图上的地点 | `pages/ScenePage.vue` + `scenes/*` |
 | `#/memories?char=&tab=` | 回忆按人分：上面一排头像切换看谁的，下面是关系状态 + 时间线 / 日记 / 相册 / 记忆本 | `pages/MemoriesPage.vue` |
-| `#/me` 及 `#/me/*`、`#/import` | 我的、角色卡、人设、世界书、预设、API 与智能体、语音、主动消息、节律（`#/me/rhythm`）、环境与作息、同步、外观、导入 | `pages/MePage.vue`、`pages/me/*` |
+| `#/me` 及 `#/me/*`、`#/import` | 我的、角色卡、人设、世界书、预设（含正则）、消息设置（`#/me/messages`）、API 与智能体、语音、主动消息、节律（`#/me/rhythm`）、环境与作息、同步、外观、导入 | `pages/MePage.vue`、`pages/me/*` |
 
 - **底部 4 个 Tab**：消息（未读角标）/ 地图 / 回忆（新日记小红点）/ 我的。二级页面不显示 Tab。
+- **消息显示**（我的 → 消息设置，§5.6）：只显示最近 N 条时，聊天顶部可展开更早的消息；HTML 渲染开启时，标签按白名单渲染，代码块中的完整 HTML 页面在沙盒 iframe 中运行（`components/chat/HtmlFrame.vue`），未渲染的折叠为代码（`components/chat/CodeBlock.vue`）。
 - **不出戏**：
   - 消息页只放"像真人"的东西：她们在哪、聊天；
   - 主动消息的排期（今天还会找你几次、下一次几点）只在"我的 → 主动消息"里看；
@@ -1279,7 +1293,7 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
     - 每套都有白天、夜里两版，跟着模式切换；也可以白天、夜里分开选。
     - 每版只写几种基础色（底色、卡片、输入框、边框、三级文字、点缀色），毛玻璃、遮罩、地图等其余变量按规则算出来，注入到 `<html>`。
     - 默认的暮紫不注入任何变量，直接用样式表。
-  - 点缀色默认跟随当前角色：`AccentScope` 用 JS 算好派生色（`utils/color.ts`）再内联注入，并同步给 Vant 主色。不用 CSS `color-mix()`，因为有些国产 WebView 不支持。也可以改成"跟随配色"，用配色自带的点缀色。
+  - 点缀色默认跟随当前角色：`AccentScope` 用 JS 算好派生色（`utils/color.ts`）再内联注入，并同步给 Vant 主色。也可以改成"跟随配色"，用配色自带的点缀色。
   - Vant 变量统一映射到主题变量（`styles/vant.css`），所以换配色时 Vant 组件也跟着变。
 - **聊天背景与头像**：
   - 聊天背景：
@@ -1341,6 +1355,6 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
 2. TTS 想用哪家，有没有想要的音色？是否需要训练 / 克隆音色？
 3. ~~NovelAI 是什么档位？~~ 已定：Opus，小图不限量；每月按 1000 点算要花点的地方（§10.5）。
 4. Worker 用哪个域名？需要时是否接受 5 美元/月的付费版？
-5. 是否需要 SillyTavern 的正则脚本和 HTML 状态栏（"前端卡"）？
+5. ~~是否需要 SillyTavern 的正则脚本和 HTML 状态栏（"前端卡"）？~~ 已定：需要。预设中的正则按 ST 规则执行，HTML 和前端卡在"我的 → 消息设置"中设置（§5.6）。
 6. 内容尺度与锁屏通知的隐私偏好。
 7. 要不要"朋友圈"（她发动态）、群聊这类扩展？

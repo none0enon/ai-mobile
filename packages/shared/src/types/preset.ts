@@ -83,13 +83,40 @@ export const DEFAULT_PRESET_FORMATS: PresetFormats = {
   preferCharacterJailbreak: true,
 };
 
+/**
+ * 正则脚本作用在哪：你发的消息 / 她的回复（SillyTavern 的 placement 1 / 2）。
+ * 斜杠命令、世界书、思考过程（3 / 5 / 6）导入时保留、导出时写回，App 里不执行
+ */
+export type RegexPlacement = 'user_input' | 'ai_output' | 'slash_command' | 'world_info' | 'reasoning';
+
+/**
+ * 预设里的一条正则脚本，字段对应 SillyTavern 的正则脚本（st/regex.ts 按 ST 的规则执行）。
+ * 两个"只"都不勾：改存下来的消息（她回复、你发送时）；只改显示（markdownOnly）；只改发给 AI 的（promptOnly）
+ */
 export interface RegexScript {
   id: string;
   name: string;
+  /** 查找：/正则/标志；不带斜杠时整串当正则、没有标志，只换第一处（同 ST） */
   find: string;
+  /** 替换成：$1、$<名字> 是捕获组，{{match}} 是整段匹配，{{char}} {{user}} 这些宏会替换 */
   replace: string;
-  placement: ('user_input' | 'ai_output')[];
+  placement: RegexPlacement[];
   enabled: boolean;
+  /** 捕获到的内容里先删掉这些字（ST 的 trimStrings） */
+  trimStrings?: string[];
+  /** 只改显示：存下来的消息、发给 AI 的都不变（ST 的 markdownOnly） */
+  markdownOnly?: boolean;
+  /** 只改发给 AI 的：存下来的消息、显示都不变（ST 的 promptOnly） */
+  promptOnly?: boolean;
+  /** 改消息时也执行（ST 的 runOnEdit）：只对改存下来的消息的脚本有用 */
+  runOnEdit?: boolean;
+  /** 只改倒数第 minDepth ~ maxDepth 条（0 = 最后一条）；空着不限。显示、发给 AI 时才看 */
+  minDepth?: number | null;
+  maxDepth?: number | null;
+  /** 查找里的宏：0 不替换 / 1 直接替换 / 2 转义后替换（ST 的 substituteRegex） */
+  substituteRegex?: 0 | 1 | 2;
+  /** 导入时其余没有对应字段的设置，导出时原样写回 */
+  extra?: Record<string, unknown>;
 }
 
 /**

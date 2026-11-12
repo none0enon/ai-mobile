@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { hasMath, type Character, type Message, type MessagePart } from '@app/shared';
+import { applyRegexScripts, hasMath, type Character, type Message, type MessagePart, type RegexNames, type RegexScript } from '@app/shared';
 import { computed } from 'vue';
+import CodeBlock from './CodeBlock.vue';
+import HtmlFrame from './HtmlFrame.vue';
+import HtmlText from './HtmlText.vue';
 import MessageEditor from './MessageEditor.vue';
 import PartCard from './PartCard.vue';
 import Avatar from '@/components/common/Avatar.vue';
@@ -10,6 +13,8 @@ import RichText from '@/components/common/RichText.vue';
 import { personas } from '@/mock/characters';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useChatStore } from '@/stores/chat';
+import { useMessageSettingsStore } from '@/stores/messageSettings';
+import { hashText, isFrontendCode, splitFences } from '@/utils/html';
 
 const props = defineProps<{
   message: Message;
@@ -21,6 +26,13 @@ const props = defineProps<{
   toolsOpen?: boolean;
   /** 正在就地改这条 */
   editing?: boolean;
+  /** 这个角色的对话预设里的正则（这里只跑"只改显示"的） */
+  regex?: readonly RegexScript[];
+  /** 正则里 {{char}} {{user}} 换成谁 */
+  names?: RegexNames;
+  /** 这一条是第几条（从 0 数）、最后一条是第几条：正则的深度、HTML 界面只在最后几条里运行 */
+  index?: number;
+  lastIndex?: number;
 }>();
 const emit = defineEmits<{
   (e: 'toggle-tools'): void;
@@ -81,6 +93,55 @@ function segments(text: string) {
     action: /^（|^\(|^\*/.test(s),
   }));
 }
+
+// —— 显示：预设里"只改显示"的正则 → 分出 ``` 代码块 → 文字（HTML 打开时按网页显示）、HTML 界面（沙盒小窗）、折起来的代码 ——
+const msgSettings = useMessageSettingsStore();
+/** 倒数第几条（0 = 最后一条） */
+const depth = computed(() => (props.index !== undefined && props.lastIndex !== undefined ? props.lastIndex - props.index : undefined));
+const htmlOn = computed(() => msgSettings.settings.html);
+/** HTML 界面只在最后几条消息里运行 */
+const framesOn = computed(() => htmlOn.value && depth.value !== undefined && depth.value < msgSettings.settings.frameLast);
+
+type Block =
+  | { key: string; kind: 'text'; text: string }
+  | { key: string; kind: 'frame'; code: string }
+  | { key: string; kind: 'code'; code: string; lang: string; frontend: boolean; note: string };
+
+function shown(text: string): string {
+  if (!props.regex?.length || !props.names || narrator.value) return text;
+  return applyRegexScripts(props.regex, text, { target: 'display', placement: mine.value ? 'user_input' : 'ai_output', depth: depth.value, ...props.names });
+}
+
+/** 折叠的 HTML 页面未渲染的原因（我的 → 消息设置） */
+function codeNote(closed: boolean): string {
+  if (!htmlOn.value) return 'HTML 渲染已关闭';
+  if (!closed) return props.streaming ? '生成中' : '代码块不完整';
+  if (props.streaming) return '生成完成后渲染';
+  const n = msgSettings.settings.frameLast;
+  return n ? `仅渲染最近 ${n} 条` : '已设为不渲染';
+}
+
+const blocks = computed<Block[]>(() => {
+  const out: Block[] = [];
+  textParts.value.forEach((p, pi) => {
+    if (p.type !== 'text') return;
+    splitFences(shown(p.text)).forEach((s, si) => {
+      if (s.kind === 'text') {
+        const text = s.text.replace(/^\s*\n|\n\s*$/g, '');
+        if (text.trim()) out.push({ key: `${pi}-t${si}`, kind: 'text', text });
+        return;
+      }
+      const frontend = isFrontendCode(s.code);
+      // 同样的代码 key 不变：前面的字变了、新消息来了，小窗都不重新加载
+      if (frontend && framesOn.value && s.closed && !props.streaming) out.push({ key: `${pi}-f${hashText(s.code)}`, kind: 'frame', code: s.code });
+      else out.push({ key: `${pi}-c${si}`, kind: 'code', code: s.code, lang: s.lang, frontend, note: frontend ? codeNote(s.closed) : '' });
+    });
+  });
+  return out;
+});
+const lastTextKey = computed(() => [...blocks.value].reverse().find((b) => b.kind === 'text')?.key);
+/** 有 HTML 界面时这一条占满整行（界面一般按手机宽度做的） */
+const wide = computed(() => blocks.value.some((b) => b.kind === 'frame'));
 </script>
 
 <template>
@@ -104,7 +165,7 @@ function segments(text: string) {
       <button v-if="!mine" type="button" class="ava-btn mt-0.5" :aria-label="`${character.name}这条消息的操作`" :aria-expanded="open" @click.stop="emit('toggle-tools')">
         <Avatar :character="character" :size="34" />
       </button>
-      <div class="col" :class="{ editing }" @click="onColClick">
+      <div class="col" :class="{ editing, wide: wide && !editing }" @click="onColClick">
         <Transition name="tools">
           <div v-if="open" class="tools" role="toolbar" aria-label="消息操作" @click.stop>
             <template v-if="canRetry && !mine && message.swipes.length > 1">
@@ -129,13 +190,19 @@ function segments(text: string) {
         </div>
         <MessageEditor v-if="editing" :text="editText" :mine="mine" :allow-empty="cardParts.length > 0" @save="(t) => emit('save-edit', t)" @cancel="emit('cancel-edit')" />
         <template v-else>
-          <div v-for="(p, i) in textParts" :key="i" class="bubble" :class="[mine ? 'me' : 'ai', { 'stream-caret': streaming && i === textParts.length - 1 }]">
-            <!-- 有公式（一起读专业书时的批注、讲题）：公式用 KaTeX 显示，括号里的动作照样淡一点 -->
-            <RichText v-if="p.type === 'text' && hasMath(p.text)" :text="p.text" actions />
-            <template v-for="(s, j) in segments(p.type === 'text' ? p.text : '')" v-else :key="j">
-              <span :class="{ action: s.action }">{{ s.text }}</span>
-            </template>
-          </div>
+          <template v-for="b in blocks" :key="b.key">
+            <div v-if="b.kind === 'text'" class="bubble" :class="[mine ? 'me' : 'ai', { 'stream-caret': !htmlOn && streaming && b.key === lastTextKey }]">
+              <!-- HTML 渲染打开：标签按白名单显示（<details> 折叠……），标签外的字照常（动作淡一点、公式） -->
+              <HtmlText v-if="htmlOn" :text="b.text" :caret="streaming && b.key === lastTextKey" />
+              <!-- 有公式（一起读专业书时的批注、讲题）：公式用 KaTeX 显示，括号里的动作照样淡一点 -->
+              <RichText v-else-if="hasMath(b.text)" :text="b.text" actions />
+              <template v-for="(s, j) in segments(b.text)" v-else :key="j">
+                <span :class="{ action: s.action }">{{ s.text }}</span>
+              </template>
+            </div>
+            <HtmlFrame v-else-if="b.kind === 'frame'" class="frame" :class="{ 'frame-mine': mine }" :code="b.code" :message-index="index ?? 0" :last-index="lastIndex ?? 0" />
+            <CodeBlock v-else :code="b.code" :lang="b.lang" :frontend="b.frontend" :note="b.note" />
+          </template>
         </template>
         <PartCard
           v-for="(p, i) in cardParts"
@@ -205,6 +272,19 @@ function segments(text: string) {
 .col.editing {
   flex: 1;
   max-width: 100%;
+}
+/* 有 HTML 界面：这一条占满一行，界面从头像下面开始（播放器、状态栏一般按手机宽度做） */
+.col.wide {
+  flex: 1;
+  max-width: 100%;
+}
+.frame {
+  width: calc(100% + 42px);
+  margin-left: -42px;
+}
+.frame.frame-mine {
+  width: 100%;
+  margin-left: 0;
 }
 .bubble {
   padding: 9px 13px;
