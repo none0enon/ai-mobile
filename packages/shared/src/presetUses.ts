@@ -4,12 +4,13 @@ import type { PresetCategory } from './types/preset.ts';
 /**
  * 用预设的地方：每个调用 AI 的功能用哪一类预设。
  * - 对话：每个角色自己选（Character.presetId），不在这张表里；
+ * - 语音通话（call）：选一个对话预设（默认"通话 · 短句"），或者"跟随对话预设"；
  * - 一起做事的每件事（scene:meal 等）、主动消息：选一个对应分类的预设，或者"跟随对话预设"（用这个角色的对话预设）；
  * - 小剧场（番外）、总结、配图（image）、节律：选一个对应分类的预设；
  * - 一起做事时画的图（image:study 等）：选一个生图预设，或者"跟随配图"（用配图选的那个）。
  */
 export type FeatureSceneId = Exclude<SceneId, 'free'>;
-export type PresetUseId = 'proactive' | 'theater' | 'summary' | 'image' | 'rhythm' | `scene:${FeatureSceneId}` | `image:${FeatureSceneId}`;
+export type PresetUseId = 'call' | 'proactive' | 'theater' | 'summary' | 'image' | 'rhythm' | `scene:${FeatureSceneId}` | `image:${FeatureSceneId}`;
 
 export interface PresetUse {
   id: PresetUseId;
@@ -36,6 +37,7 @@ export function momentLabel(moment: string): string | undefined {
 }
 
 export const PRESET_USES: PresetUse[] = [
+  { id: 'call', category: 'chat', label: '语音通话', desc: '打电话时她说的话：短句、口语、不写动作，方便边生成边合成语音', icon: 'i-lucide-phone', follow: 'chat' },
   ...SCENES.map((s): PresetUse => ({ id: `scene:${s.id as FeatureSceneId}`, category: 'feature', label: s.name, desc: `${s.name}时的对话`, icon: s.icon, follow: 'chat' })),
   { id: 'proactive', category: 'proactive', label: '主动消息', desc: '到点时角色先发来的那条', icon: 'i-lucide-bell-ring', follow: 'chat' },
   { id: 'theater', category: 'theater', label: '番外', desc: '"我的 → 试一试 → 写一段番外"', icon: 'i-lucide-book-heart', follow: null },

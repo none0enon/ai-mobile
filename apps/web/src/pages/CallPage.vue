@@ -1,126 +1,127 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Waveform from '@/components/call/Waveform.vue';
 import Avatar from '@/components/common/Avatar.vue';
 import SceneBackdrop from '@/components/figure/SceneBackdrop.vue';
-import { callScriptOf } from '@/mock/call';
-import { services } from '@/services';
-import { useCharacterStore } from '@/stores/characters';
-import { useChatStore } from '@/stores/chat';
-import { sleep } from '@/utils/id';
+import { useVoiceCall } from '@/composables/useVoiceCall';
+import type { CallInput } from '@/stores/voice';
 import { clock, hhmm } from '@/utils/time';
 
 /**
- * 语音通话。正式版管线：VAD 检测你说完 → STT → 主对话（通话预设：短句、不写动作）→ 分句 TTS 播放；你一开口就打断她。
- * 这里用假 TTS / STT 模拟一来一回，演示字幕、声波、计时和控制按钮。
+ * 语音通话（设计文档 §11.2）。真的在打：说话检测 → 语音识别 → 主对话（"语音通话"的预设）流式回复 → 按句合成语音边合成边播；
+ * 你一开口她就停。怎么接的、哪一步没接通，界面上都写明（composables/useVoiceCall.ts）。
  */
 const route = useRoute();
 const router = useRouter();
-const chars = useCharacterStore();
-const chat = useChatStore();
-const character = computed(() => chars.byId(route.params.charId as string) ?? chars.list[0]!);
-const chatId = computed(() => chat.chatOfCharacter(character.value.id)?.id);
+const incoming = route.query.incoming === '1';
 
-const incoming = ref(route.query.incoming === '1');
-const seconds = ref(0);
-const level = ref(0);
-const speaker = ref<'her' | 'you' | 'idle'>('idle');
-const muted = ref(false);
-const loud = ref(false);
-const captionsOn = ref(true);
-const captions = ref<{ who: 'her' | 'you'; text: string }[]>([]);
-let alive = true;
-let clockTimer: ReturnType<typeof setInterval> | undefined;
-
-/** 演示台词按角色来（导入的角色用通用台词） */
-const script = computed(() => callScriptOf(character.value));
-const reason = computed(() => {
+/** 来电的缘由：主动消息推过来时带上的，或者按时间猜一个（只是标签，不是她说的话） */
+function reasonOf(): string {
+  const q = typeof route.query.reason === 'string' ? route.query.reason.trim() : '';
+  if (q) return q.slice(0, 60);
+  if (!incoming) return '';
   const h = new Date().getHours();
-  const r = script.value.reason;
-  if (h >= 5 && h < 9) return r.morning;
-  if (h >= 23 || h < 2) return r.late;
-  return r.other;
+  if (h >= 5 && h < 10) return '叫醒你';
+  if (h >= 23 || h < 3) return '催你睡觉';
+  return '';
+}
+const reason = reasonOf();
+const charId = computed(() => route.params.charId as string);
+const call = useVoiceCall(charId, { incoming, reason });
+const { state, character } = call;
+
+const captionsOn = ref(true);
+const typed = ref('');
+const typeBox = ref<HTMLInputElement | null>(null);
+
+const status = computed(() => {
+  if (state.phase === 'dialing') return '正在呼叫…';
+  if (state.muted) return '你已静音';
+  if (state.her === 'speaking') return `${character.value.name}在说话`;
+  if (state.her === 'thinking') return `${character.value.name}在想…`;
+  if (state.you === 'recognizing') return '在听清你说的话…';
+  if (state.you === 'speaking') return '在听你说…';
+  if (state.input === 'hold') return '按住下面的按钮说话';
+  if (state.input === 'type') return `打字和${character.value.pronoun}说`;
+  return '轮到你了，直接说话';
 });
+const level = computed(() => (state.her === 'speaking' ? state.herLevel : state.youLevel));
 
-async function talkLoop() {
-  for (const turn of script.value.lines) {
-    if (!alive) return;
-    if (turn.who === 'her') {
-      speaker.value = 'her';
-      captions.value.push(turn);
-      chars.setExpression(character.value.id, 'smile');
-      await services.tts.speak(turn.text, { characterId: character.value.id, expression: 'smile', onLevel: (l) => (level.value = l) });
-    } else {
-      speaker.value = 'you';
-      for (let i = 0; i < 14 && alive; i += 1) {
-        level.value = muted.value ? 0 : 0.2 + Math.random() * 0.5;
-        await sleep(120);
-      }
-      level.value = 0;
-      if (!muted.value) captions.value.push(turn);
-    }
-    speaker.value = 'idle';
-    await sleep(500);
-  }
+const INPUTS: { value: CallInput; label: string; icon: string }[] = [
+  { value: 'auto', label: '自动听', icon: 'i-lucide-audio-lines' },
+  { value: 'hold', label: '按住说', icon: 'i-lucide-hand' },
+  { value: 'type', label: '打字', icon: 'i-lucide-keyboard' },
+];
+const inputMeta = computed(() => INPUTS.find((i) => i.value === state.input) ?? INPUTS[0]!);
+function cycleInput() {
+  const i = INPUTS.findIndex((x) => x.value === state.input);
+  call.setInput(INPUTS[(i + 1) % INPUTS.length]!.value);
+}
+watch(
+  () => state.input,
+  (m) => {
+    if (m === 'type') void nextTick(() => typeBox.value?.focus());
+  },
+);
+
+function sendTyped() {
+  const t = typed.value.trim();
+  if (!t) return;
+  typed.value = '';
+  void call.youSaid(t, true);
 }
 
-function accept() {
-  incoming.value = false;
-  start();
+/** 按住说话：手指移出按钮也算松开 */
+const holding = ref(false);
+function holdDown(e: PointerEvent) {
+  (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  holding.value = true;
+  call.holdStart();
+}
+function holdUp() {
+  if (!holding.value) return;
+  holding.value = false;
+  call.holdEnd();
 }
 
-function start() {
-  clearInterval(clockTimer);
-  clockTimer = setInterval(() => (seconds.value += 1), 1000);
-  void services.native.keepAwake(true);
-  void talkLoop();
+async function hangUp() {
+  await call.hangUp();
+  void router.replace(call.chatId.value ? `/chat/${call.chatId.value}` : '/chats');
+}
+async function decline() {
+  await call.hangUp(true);
+  void router.replace(call.chatId.value ? `/chat/${call.chatId.value}` : '/chats');
+}
+async function busy() {
+  await call.replyBusy('在忙，等下打给你');
+  void router.replace(call.chatId.value ? `/chat/${call.chatId.value}` : '/chats');
 }
 
-function hangUp(missed = false) {
-  alive = false;
-  services.tts.stop();
-  clearInterval(clockTimer);
-  void services.native.keepAwake(false);
-  if (chatId.value) {
-    chat.postCard(chatId.value, missed ? 'assistant' : 'user', { type: 'call-log', durationSec: seconds.value, missed, scene: missed ? undefined : '语音通话' });
-    if (missed) {
-      const m = script.value.missed;
-      chat.push(chatId.value, 'assistant', [{ type: 'text', text: m.text }], { expression: m.expr, proactive: true });
-    }
-    void router.replace(`/chat/${chatId.value}`);
-  } else {
-    router.back();
-  }
-}
-
-function replyBusy() {
-  alive = false;
-  if (chatId.value) {
-    chat.push(chatId.value, 'user', [{ type: 'text', text: '在忙，等下打给你' }]);
-    void router.replace(`/chat/${chatId.value}`);
-  }
-}
+/** 哪一步没接通：写明原因，点了去设置 */
+const issues = computed(() => {
+  const out: { text: string; to: string; icon: string }[] = [];
+  if (state.llmIssue) out.push({ text: state.llmIssue, to: '/me/api?feature=main', icon: 'i-lucide-plug-zap' });
+  if (state.micIssue) out.push({ text: state.micIssue, to: '/me/voice', icon: 'i-lucide-mic-off' });
+  else if (state.sttIssue) out.push({ text: state.sttIssue, to: '/me/api?feature=stt', icon: 'i-lucide-ear-off' });
+  if (state.ttsIssue) out.push({ text: state.ttsIssue, to: '/me/api?feature=tts', icon: 'i-lucide-volume-x' });
+  else if (!call.voiceLive.value) out.push({ text: `没有声音：语音合成还没接通，或者还没给${character.value.name}选音色（只有字幕）`, to: '/me/voice', icon: 'i-lucide-volume-x' });
+  return out;
+});
 
 onMounted(() => {
-  if (!incoming.value) start();
+  if (!incoming) call.dial();
 });
-onBeforeUnmount(() => {
-  alive = false;
-  services.tts.stop();
-  clearInterval(clockTimer);
-});
-
-const status = computed(() => (speaker.value === 'her' ? `${character.value.name}在说话` : speaker.value === 'you' ? (muted.value ? '已静音' : '正在聆听你…') : '……'));
+onBeforeUnmount(() => call.dispose());
 </script>
 
 <template>
-  <div class="page call" :data-page="incoming ? 'call-incoming' : 'call'">
+  <div class="page call" :data-page="state.phase === 'ringing' ? 'call-incoming' : 'call'">
     <SceneBackdrop kind="bedroom" tod="late" :dim="0.45" />
     <div class="call-blur" />
 
     <!-- 来电 -->
-    <div v-if="incoming" class="content">
+    <div v-if="state.phase === 'ringing'" class="content">
       <div class="text-[13px] text-ink-2 mt-[14vh] num">{{ hhmm(Date.now()) }} · 语音来电</div>
       <div class="ring-wrap">
         <span class="pulse" /><span class="pulse delay" />
@@ -128,45 +129,80 @@ const status = computed(() => (speaker.value === 'her' ? `${character.value.name
       </div>
       <div class="text-[26px] font-700">{{ character.name }}</div>
       <div class="text-[15px] text-ink-2 mt-1">邀请你语音通话…</div>
-      <div class="reason">「{{ reason }}」</div>
+      <div v-if="reason" class="reason">{{ reason }}</div>
       <div class="flex-1" />
       <div class="actions">
-        <button class="round decline" aria-label="拒绝" @click="hangUp(true)"><span class="i-lucide-phone-off" /></button>
-        <button class="round accept" aria-label="接听" @click="accept"><span class="i-lucide-phone" /></button>
+        <button class="round decline" aria-label="拒绝" @click="decline"><span class="i-lucide-phone-off" /></button>
+        <button class="round accept" aria-label="接听" data-testid="accept" @click="call.accept()"><span class="i-lucide-phone" /></button>
       </div>
       <div class="labels"><span>拒绝</span><span>接听</span></div>
-      <button class="busy" @click="replyBusy"><span class="i-lucide-message-square-text" />回消息：在忙，等下打给你</button>
+      <button class="busy" @click="busy"><span class="i-lucide-message-square-text" />回消息：在忙，等下打给你</button>
     </div>
 
-    <!-- 通话中 -->
+    <!-- 呼叫中 / 通话中 -->
     <div v-else class="content">
-      <div class="mt-[8vh] text-[20px] font-700">{{ character.name }}</div>
-      <div class="text-[14px] text-ink-2 num">通话中 {{ clock(seconds) }}</div>
-      <div class="ring-wrap talk" :style="{ '--lv': speaker === 'her' ? level : 0 }">
-        <span class="glow" />
-        <Avatar :character="character" :size="128" live />
+      <div class="mt-[7vh] text-[20px] font-700">{{ character.name }}</div>
+      <div class="text-[14px] text-ink-2 num">{{ state.phase === 'dialing' ? '等待对方接听…' : `通话中 ${clock(state.seconds)}` }}</div>
+      <div class="ring-wrap talk" :style="{ '--lv': state.her === 'speaking' ? state.herLevel : 0 }">
+        <template v-if="state.phase === 'dialing'"><span class="pulse" /><span class="pulse delay" /></template>
+        <span v-else class="glow" />
+        <Avatar :character="character" :size="120" live />
       </div>
-      <div class="text-[13px]" style="color: var(--accent)">{{ status }}</div>
-      <Waveform :level="level" :tone="speaker === 'you' ? 'var(--ink-2)' : 'var(--accent)'" class="mt-1" />
-      <div v-if="captionsOn" class="captions">
-        <p v-for="(c, i) in captions.slice(-3)" :key="`${captions.length}-${i}`" :class="c.who">
+      <div class="text-[13px]" style="color: var(--accent)" data-testid="call-status">{{ status }}</div>
+      <Waveform :level="level" :tone="state.her === 'speaking' ? 'var(--accent)' : 'var(--ink-2)'" class="mt-1" />
+
+      <div v-if="issues.length" class="issues">
+        <button v-for="(x, i) in issues" :key="i" type="button" class="issue" @click="router.push(x.to)">
+          <span :class="x.icon" class="shrink-0 mt-[2px]" />
+          <span class="flex-1 min-w-0 text-left">{{ x.text }}</span>
+          <span class="shrink-0 underline">去设置</span>
+        </button>
+      </div>
+
+      <div v-if="captionsOn" class="captions" aria-live="polite">
+        <p v-for="c in state.captions.slice(-4)" :key="c.id" :class="[c.who, { pending: c.pending }]">
           <b>{{ c.who === 'her' ? character.name : '我' }}：</b>{{ c.text }}
         </p>
+        <p v-if="!state.captions.length" class="text-ink-3 text-[13px]">{{ state.phase === 'dialing' ? '接通后这里显示你们说的话' : '……' }}</p>
       </div>
+      <div v-if="state.hint" class="text-[12.5px] text-ink-2 mt-2">{{ state.hint }}</div>
+
       <div class="flex-1" />
+
+      <button v-if="state.needTap && state.input !== 'type'" class="tap" @click="call.tapToListen()">
+        <span class="i-lucide-mic" />浏览器要先点一下才能听你说话：点这里
+      </button>
+
+      <div v-if="state.phase === 'connected' && state.input === 'type'" class="type-row">
+        <input ref="typeBox" v-model="typed" class="type-box" :placeholder="`和${character.name}说…`" aria-label="打字说话" enterkeyhint="send" @keydown.enter="sendTyped" />
+        <button class="send" :disabled="!typed.trim()" aria-label="发送" @click="sendTyped"><span class="i-lucide-send-horizontal" /></button>
+      </div>
+      <button
+        v-else-if="state.phase === 'connected' && state.input === 'hold'"
+        class="hold"
+        :class="{ on: holding }"
+        :disabled="state.muted"
+        @pointerdown.prevent="holdDown"
+        @pointerup="holdUp"
+        @pointercancel="holdUp"
+        @lostpointercapture="holdUp"
+        @contextmenu.prevent
+      >
+        <span class="i-lucide-mic" />{{ holding ? '松开发送' : '按住说话' }}
+      </button>
+
       <div class="ctrls">
-        <button class="ctrl" :class="{ on: muted }" @click="muted = !muted">
-          <span class="circle"><span :class="muted ? 'i-lucide-mic-off' : 'i-lucide-mic'" /></span>静音
+        <button class="ctrl" :class="{ on: state.muted }" :disabled="state.input === 'type'" @click="call.setMuted(!state.muted)">
+          <span class="circle"><span :class="state.muted ? 'i-lucide-mic-off' : 'i-lucide-mic'" /></span>静音
         </button>
-        <button class="ctrl" :class="{ on: loud }" @click="loud = !loud">
-          <span class="circle"><span class="i-lucide-volume-2" /></span>免提
+        <button class="ctrl" data-testid="call-input" @click="cycleInput">
+          <span class="circle"><span :class="inputMeta.icon" /></span>{{ inputMeta.label }}
         </button>
         <button class="ctrl" :class="{ on: captionsOn }" @click="captionsOn = !captionsOn">
           <span class="circle"><span class="i-lucide-captions" /></span>字幕
         </button>
       </div>
-      <button class="round decline mx-auto mt-5" aria-label="挂断" @click="hangUp()"><span class="i-lucide-phone-off" /></button>
-      <div class="text-[12px] text-ink-3 mt-3 text-center">演示：语音是模拟的 · 正式版首句目标 2 秒内、可打断</div>
+      <button class="round decline mx-auto mt-5" aria-label="挂断" data-testid="hangup" @click="hangUp"><span class="i-lucide-phone-off" /></button>
     </div>
   </div>
 </template>
@@ -192,11 +228,12 @@ const status = computed(() => (speaker.value === 'her' ? `${character.value.name
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: var(--safe-top) 24px calc(var(--safe-bottom) + 28px);
+  padding: var(--safe-top) 20px calc(var(--safe-bottom) + 24px);
+  min-height: 0;
 }
 .ring-wrap {
   position: relative;
-  margin: 28px 0 18px;
+  margin: 24px 0 16px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -221,10 +258,10 @@ const status = computed(() => (speaker.value === 'her' ? `${character.value.name
 }
 .reason {
   margin-top: 14px;
-  padding: 8px 14px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.08);
-  font-size: 14.5px;
+  padding: 6px 14px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 14px;
 }
 .actions {
   display: flex;
@@ -250,6 +287,7 @@ const status = computed(() => (speaker.value === 'her' ? `${character.value.name
   border-radius: 50%;
   font-size: 28px;
   color: #fff;
+  flex-shrink: 0;
 }
 .decline {
   background: #e5484d;
@@ -266,13 +304,32 @@ const status = computed(() => (speaker.value === 'her' ? `${character.value.name
   font-size: 13.5px;
   color: var(--ink-2);
 }
+.issues {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin-top: 12px;
+}
+.issue {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(229, 72, 77, 0.18);
+  border: 1px solid rgba(229, 72, 77, 0.35);
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
 .captions {
   width: 100%;
-  margin-top: 14px;
+  margin-top: 12px;
   padding: 12px 14px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.07);
-  min-height: 96px;
+  min-height: 92px;
+  max-height: 30vh;
+  overflow-y: auto;
 }
 .captions p {
   margin: 0 0 6px;
@@ -283,8 +340,80 @@ const status = computed(() => (speaker.value === 'her' ? `${character.value.name
 .captions p.you {
   color: var(--ink-2);
 }
+.captions p.pending {
+  opacity: 0.6;
+}
 .captions b {
   font-weight: 600;
+}
+.tap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 10px 16px;
+  border-radius: 99px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 13.5px;
+}
+.type-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 420px;
+  margin-bottom: 14px;
+}
+.type-box {
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 21px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 15px;
+  outline: none;
+}
+.type-box::placeholder {
+  color: var(--ink-3);
+}
+.send {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+.send:disabled {
+  opacity: 0.5;
+}
+.hold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 320px;
+  height: 52px;
+  margin-bottom: 14px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 15px;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.hold.on {
+  background: var(--accent);
+  color: var(--on-accent);
 }
 .ctrls {
   display: grid;
@@ -300,6 +429,9 @@ const status = computed(() => (speaker.value === 'her' ? `${character.value.name
   gap: 6px;
   font-size: 12.5px;
   color: var(--ink-2);
+}
+.ctrl:disabled {
+  opacity: 0.45;
 }
 .circle {
   display: inline-flex;

@@ -69,6 +69,18 @@ const SEED_UPGRADES: SeedUpgrade[] = [
     replaced: { readOcr: ['把图片里这一页书的正文原样读出来：一段一行，保留标点；不要页眉、页脚、页码和图片说明，不要加任何别的话。'] },
     added: ['readTechnical'],
   },
+  {
+    // 哄睡接上真实的模型和语音：低语、睡前故事、定时到了各一块，加上程序填这一次输入的"场景任务"
+    id: 'feature-sleep:voice',
+    file: 'feature-sleep.json',
+    added: ['sleepWhisper', 'sleepStory', 'sleepEnd', 'sceneTask'],
+  },
+  {
+    // 一起观影可以贴链接看（B 站 / YouTube / 视频直链）：没有逐句字幕时她怎么说
+    id: 'feature-watch:link',
+    file: 'feature-watch.json',
+    added: ['watchLink'],
+  },
 ];
 
 /** 按 SEED_UPGRADES 更新本机的自带预设，返回改了的那些 */

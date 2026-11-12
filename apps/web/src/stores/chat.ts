@@ -12,6 +12,8 @@ import {
   type MessageRole,
   type TogetherMode,
   type AgentRole,
+  type ControlTagKind,
+  type PresetUseId,
 } from '@app/shared';
 import { errorReport, errorText, isAbortError, samplerRequest } from '@app/ai';
 import { defineStore } from 'pinia';
@@ -32,6 +34,12 @@ export interface GenerateOptions {
   agent?: AgentRole;
   task?: { name: string; input: string };
   cue?: string;
+  /** 按哪个用途选预设（语音通话用 call）；不给时按场景 / 对话预设 */
+  use?: PresetUseId;
+  /** 只执行这些标签（通话里只换表情，不发图、不弹选项、不再"打电话"）；不给按场景 */
+  allowedTags?: ControlTagKind[];
+  /** 流式时每次给"到目前为止的正文"（已去掉标签）：通话、讲故事时边生成边分句合成语音 */
+  onText?(visible: string): void;
 }
 
 export interface SceneReplyOptions {
@@ -43,6 +51,10 @@ export interface SceneReplyOptions {
   userText?: string;
   /** 在这件事里的位置，存在两条消息上（"第 2 个番茄"） */
   cue?: string;
+  /** 流式时每次给到目前为止的正文（讲故事时边生成边读） */
+  onText?(visible: string): void;
+  /** 只执行这些标签；不给按场景 */
+  allowedTags?: ControlTagKind[];
 }
 
 export type SceneReplyResult = { ok: true; message: Message } | { ok: false; reason: string; notConnected?: boolean };
@@ -225,17 +237,18 @@ export const useChatStore = defineStore('chat', () => {
     if (!chat || !character) return undefined;
     const agent = opts.agent ?? 'main';
 
-    const id = target ?? push(chatId, 'assistant', [{ type: 'text', text: '' }], opts.task ? { meta: { scene: chat.currentScene ?? undefined, cue: opts.cue } } : {}).id;
+    const id = target ?? push(chatId, 'assistant', [{ type: 'text', text: '' }], opts.task || opts.cue ? { meta: { scene: chat.currentScene ?? undefined, cue: opts.cue } } : {}).id;
     const history = list(chatId).filter((m) => m.id !== id && (!target || m.createdAt < (find(chatId, id)?.createdAt ?? Infinity)));
     const abort = new AbortController();
     streams[chatId] = { messageId: id, thinking: true, reasoning: '', abort };
     const scene = getScene(chat.currentScene ?? 'free');
+    const allowedTags = opts.allowedTags ?? scene.allowedTags;
     let raw = '';
 
     try {
       // 拼提示词（真实发送：推进世界书粘性 / 冷却，保存 {{setvar}} 改过的变量）。
-      // 预设按用途选：在一起做某件事时用那件事的功能预设，平时用这个角色的对话预设；一个都选不到时报错
-      const prompt = assembleForChat(chat, character, history, { type: target ? 'swipe' : 'normal', agent, task: opts.task });
+      // 预设按用途选：语音通话用"语音通话"的预设，在一起做某件事时用那件事的功能预设，平时用这个角色的对话预设；一个都选不到时报错
+      const prompt = assembleForChat(chat, character, history, { type: target ? 'swipe' : 'normal', agent, task: opts.task, use: opts.use });
       chat.loreState = prompt.loreState;
       chat.vars = prompt.vars;
       lastPrompt[chatId] = { prompt, at: Date.now() };
@@ -266,7 +279,7 @@ export const useChatStore = defineStore('chat', () => {
             if (st && full) st.thinking = false;
             const msg = find(chatId, id);
             if (!msg) return;
-            const parsed = parseControlTags(full, scene.allowedTags);
+            const parsed = parseControlTags(full, allowedTags);
             msg.text = parsed.visible.trimStart();
             msg.parts = [{ type: 'text', text: msg.text }];
             const expr = [...parsed.tags].reverse().find((t) => t.tag.kind === 'expr')?.tag;
@@ -274,6 +287,7 @@ export const useChatStore = defineStore('chat', () => {
               chars.setExpression(character.id, expr.value);
               msg.expression = expr.value;
             }
+            opts.onText?.(msg.text);
           },
         },
       );
@@ -281,7 +295,7 @@ export const useChatStore = defineStore('chat', () => {
       const msg = find(chatId, id);
       if (!msg) return;
       raw = result.text || raw;
-      const parsed = parseControlTags(raw, scene.allowedTags);
+      const parsed = parseControlTags(raw, allowedTags);
       msg.text = parsed.visible.trim();
       msg.meta.error = undefined;
       msg.meta.errorDetail = undefined;
@@ -349,7 +363,7 @@ export const useChatStore = defineStore('chat', () => {
     const status = useAiStore().status('companion');
     if (!status.live) return { ok: false, reason: `「陪伴 · 快速」还没接通：${status.reason}`, notConnected: true };
     if (streams[chatId]) return { ok: false, reason: '她还在回上一句' };
-    const id = await generate(chatId, undefined, { agent: 'companion', task: { name: opts.task, input: opts.input }, cue: opts.cue });
+    const id = await generate(chatId, undefined, { agent: 'companion', task: { name: opts.task, input: opts.input }, cue: opts.cue, onText: opts.onText, allowedTags: opts.allowedTags });
     const msg = id ? find(chatId, id) : undefined;
     if (!msg) return { ok: false, reason: '没有生成回复' };
     if (msg.meta.error) return { ok: false, reason: msg.meta.error };
@@ -562,6 +576,28 @@ export const useChatStore = defineStore('chat', () => {
     Object.assign(msg.meta, { interrupted: undefined, error: undefined, errorDetail: undefined });
   }
 
+  /**
+   * 通话里你开口打断了她：她这条只留下已经说出口的部分（设计文档 §11.2"保留已说的部分"）。
+   * 这是正常的对话，不算"回复被打断"；一句都没说出口就把这条删掉
+   */
+  function keepSpoken(chatId: string, id: string, spoken: string) {
+    const msg = find(chatId, id);
+    if (!msg) return;
+    const t = spoken.trim();
+    if (!t) {
+      const msgs = messages.value[chatId];
+      if (msgs) messages.value[chatId] = msgs.filter((m) => m.id !== id);
+      return;
+    }
+    // 其实已经说完了（打断在最后一句上）：原样留着
+    const plain = (s: string) => s.replace(/[\s\p{P}]/gu, '');
+    if (plain(t) === plain(msg.text) && !msg.meta.interrupted) return;
+    const text = /[。！？!?…~～]$/.test(t) ? `${t}——` : `${t}……`;
+    const parts: MessagePart[] = [{ type: 'text', text }];
+    Object.assign(msg, { text, parts, updatedAt: Date.now(), swipes: [{ text, parts, expression: msg.expression, createdAt: Date.now() }], swipeIndex: 0 });
+    Object.assign(msg.meta, { interrupted: undefined, error: undefined, errorDetail: undefined });
+  }
+
   /** 删一条消息；正在生成的那条不删 */
   function deleteMessage(chatId: string, id: string) {
     if (streams[chatId]?.messageId === id) return;
@@ -754,6 +790,7 @@ export const useChatStore = defineStore('chat', () => {
     swipe,
     regenerate,
     editMessage,
+    keepSpoken,
     deleteMessage,
     redraw,
     drawImage,

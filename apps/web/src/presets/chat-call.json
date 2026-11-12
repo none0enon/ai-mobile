@@ -4,6 +4,9 @@
   "id": "preset-call",
   "category": "chat",
   "name": "通话 · 短句",
+  "defaultFor": [
+    "call"
+  ],
   "description": "短句、口语、不写动作描写，方便分句合成语音。",
   "blocks": [
     {

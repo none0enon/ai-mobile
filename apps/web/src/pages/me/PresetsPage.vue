@@ -42,8 +42,8 @@ function useLine(u: PresetUse): string {
 }
 /** 一个预设现在用在哪 */
 function usedBy(id: string): string {
-  if (cat.value === 'chat') return chars.list.filter((c) => lib.chatPresetFor(c)?.id === id).map((c) => c.name).join('、');
-  return lib.usesOf(id).map((u) => u.label).join('、');
+  const people = cat.value === 'chat' ? chars.list.filter((c) => lib.chatPresetFor(c)?.id === id).map((c) => c.name) : [];
+  return [...people, ...lib.usesOf(id).map((u) => u.label)].join('、');
 }
 
 // —— 选预设的弹层：给一个用途选，或者给一个角色选对话预设 ——
@@ -108,7 +108,7 @@ function pick(id: string | null) {
             <span class="i-lucide-chevron-right text-ink-3" />
           </button>
         </template>
-        <template v-else>
+        <template v-if="cat === 'chat' || uses.length">
           <button v-for="u in uses" :key="u.id" type="button" class="use press" :data-use="u.id" @click="picking = { kind: 'use', use: u }">
             <span class="use-icon"><span :class="u.icon" /></span>
             <span class="flex-1 min-w-0 text-left">

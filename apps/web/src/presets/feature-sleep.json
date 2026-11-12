@@ -7,7 +7,7 @@
   "defaultFor": [
     "scene:sleep"
   ],
-  "description": "哄睡时用：低语、慢、短。场景规则在\"场景规则\"那一块里，可以改；能用的标签和表情由程序按场景填。",
+  "description": "哄睡时用：低语、慢、短。场景规则在\"场景规则\"那一块里；低语、睡前故事、定时到了这几步怎么说也在这里，可以改（每一步的块只在做那件事时发送）；能用的标签和表情由程序按场景填。",
   "blocks": [
     {
       "identifier": "main",
@@ -180,6 +180,68 @@
         "position": "absolute",
         "depth": 1
       }
+    },
+    {
+      "identifier": "sleepWhisper",
+      "name": "低语（点一下听一句）",
+      "role": "system",
+      "content": "{{user}}躺着，没有说话。轻轻说一句很短的话（15 字以内），像贴在耳边小声说：陪着、安抚，或者一句晚安前的悄悄话。不提问，不重复你刚才说过的话，不写动作和括号。只说这一句。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 0,
+        "order": 90
+      },
+      "triggers": [
+        "sleep-whisper"
+      ]
+    },
+    {
+      "identifier": "sleepStory",
+      "name": "睡前故事",
+      "role": "system",
+      "content": "这一次给{{user}}讲一个睡前故事（这次的要求在场景任务里）。第一行只写《故事名》，换行后开始讲。300–500 字，用你自己的口吻讲给{{user}}听：句子短、节奏慢、画面安静温柔，没有冲突、惊险和反转；可以带一点你们之间的小事；越讲越轻，结尾慢慢收住，让人想睡。不写动作描写和括号，不提问。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 0,
+        "order": 90
+      },
+      "triggers": [
+        "sleep-story"
+      ]
+    },
+    {
+      "identifier": "sleepEnd",
+      "name": "定时到了",
+      "role": "system",
+      "content": "定时到了，{{user}}大概已经睡着了。用最轻的声音说最后一句晚安（10 字以内），不提问。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 0,
+        "order": 90
+      },
+      "triggers": [
+        "sleep-end"
+      ]
+    },
+    {
+      "identifier": "sceneTask",
+      "name": "场景任务（程序填这一次的输入）",
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 0,
+        "order": 100
+      },
+      "origin": "app"
     },
     {
       "identifier": "tagDirective",

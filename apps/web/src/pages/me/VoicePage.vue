@@ -11,13 +11,16 @@ import { services } from '@/services';
 import { ttsLiveFor } from '@/services/ai';
 import { useAiStore } from '@/stores/ai';
 import { useCharacterStore } from '@/stores/characters';
+import { useLibraryStore } from '@/stores/library';
+import { useVoiceStore } from '@/stores/voice';
 
 const chars = useCharacterStore();
 const ai = useAiStore();
+const lib = useLibraryStore();
+const voice = useVoiceStore();
 const autoRead = ref<'off' | 'stage' | 'always'>('stage');
-const vad = ref(55);
-const bargeIn = ref(true);
-const nativeFallback = ref(true);
+/** 停顿多久算说完：滑块用秒 */
+const endSilenceSec = computed({ get: () => voice.call.endSilenceMs / 1000, set: (v: number) => (voice.call.endSilenceMs = Math.round(v * 1000)) });
 const playing = ref<string | null>(null);
 const level = ref(0);
 
@@ -198,19 +201,32 @@ function saveVoice() {
 
       <div class="group-title">语音识别 · 通话</div>
       <van-cell-group inset>
-        <van-cell title="识别服务" :value="sttLine" label="在 API 设置 → 语音识别里改（还没接入，先存着）" is-link to="/me/api" />
-        <van-cell title="安卓系统识别兜底" label="网络不好时用手机自带的识别" center>
-          <template #right-icon><van-switch v-model="nativeFallback" size="22px" /></template>
+        <van-cell title="识别服务" :value="sttLine" label="语音消息和通话都用它；在 API 设置 → 语音识别里改" is-link to="/me/api?feature=stt" />
+        <van-cell title="通话时怎么说话" center>
+          <template #label>
+            <Segmented
+              v-model="voice.call.input"
+              class="!mt-2"
+              :options="[
+                { value: 'auto', label: '自动听' },
+                { value: 'hold', label: '按住说' },
+                { value: 'type', label: '打字' },
+              ]"
+            />
+          </template>
         </van-cell>
-        <van-cell :title="`说话检测灵敏度 ${vad}`" label="判断你什么时候说完了">
-          <template #label><van-slider v-model="vad" class="!mt-3" bar-height="4px" button-size="16px" /></template>
+        <van-cell :title="`说话检测灵敏度 ${voice.call.sensitivity}`" label="越高越容易判定你在说话；环境吵就调低">
+          <template #label><van-slider v-model="voice.call.sensitivity" class="!mt-3" bar-height="4px" button-size="16px" /></template>
         </van-cell>
-        <van-cell title="允许打断她" label="你一开口，她就停下来听" center>
-          <template #right-icon><van-switch v-model="bargeIn" size="22px" /></template>
+        <van-cell :title="`停顿 ${endSilenceSec.toFixed(1)} 秒算说完`" label="说话慢、爱停顿就调长一点">
+          <template #label><van-slider v-model="endSilenceSec" :min="0.4" :max="2" :step="0.1" class="!mt-3" bar-height="4px" button-size="16px" /></template>
         </van-cell>
-        <van-cell title="通话用的预设" value="通话 · 短句" is-link to="/me/presets/preset-call" />
+        <van-cell title="允许打断她" label="你一开口，她就停下来听（聊天里只留下她说出口的部分）" center>
+          <template #right-icon><van-switch v-model="voice.call.bargeIn" size="22px" /></template>
+        </van-cell>
+        <van-cell title="通话用的预设" :value="lib.presetForUse('call')?.name ?? '没有对话预设'" is-link to="/me/presets?cat=chat" />
       </van-cell-group>
-      <p class="note">通话流程：检测到你说完 → 识别成文字 → 主对话模型流式回复 → 按句合成语音、边合成边播放。目标是首句 2 秒内出声。</p>
+      <p class="note">通话流程：检测到你说完 → 语音识别 → 主对话模型（"语音通话"选的预设）流式回复 → 按句合成语音、边合成边播放。说的话都存进你们的聊天。语音识别没接通或麦克风用不了时可以打字；语音合成没接通时只有字幕。</p>
     </div>
 
     <!-- 音色编辑 -->

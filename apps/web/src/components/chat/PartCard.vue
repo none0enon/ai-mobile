@@ -128,8 +128,10 @@ async function playVoice() {
   <div v-else-if="part.type === 'call-log'" class="pcard row-card">
     <span class="icon-wrap"><span class="i-lucide-phone" /></span>
     <div class="flex-1">
-      <div class="text-[14.5px]">{{ part.missed ? '未接来电' : '语音通话' }} <span class="num">{{ clock(part.durationSec) }}</span></div>
-      <div v-if="part.scene" class="text-[12px] text-ink-3">{{ part.scene }} · 点开看字幕</div>
+      <div class="text-[14.5px]">
+        {{ part.missed ? (mine ? '已取消' : '未接来电') : '语音通话' }} <span v-if="!part.missed" class="num">{{ clock(part.durationSec) }}</span>
+      </div>
+      <div v-if="part.scene" class="text-[12px] text-ink-3">{{ part.scene }}</div>
     </div>
   </div>
 
@@ -181,6 +183,7 @@ async function playVoice() {
         一起看了 {{ part.minutes }} 分钟<template v-if="part.yourScore"> · 你 {{ part.yourScore }}/5</template><template v-if="part.herScore"> · {{ character.pronoun }} {{ part.herScore }}/5</template>
       </div>
       <div v-for="(h, i) in part.highlights ?? []" :key="i" class="text-[12.5px] text-ink-2 mt-0.5 truncate">「{{ h }}」</div>
+      <a v-if="part.link" :href="part.link" target="_blank" rel="noopener noreferrer" class="block text-[12px] text-accent-ink mt-1 truncate">{{ part.link }}</a>
     </div>
   </div>
   <div v-else-if="part.type === 'study'" class="pcard row-card" style="--tone: #8fb3f0">
