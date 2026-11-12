@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { worldOf } from '@app/shared';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import HScroll from '@/components/common/HScroll.vue';
 import HerSide from '@/components/scene/HerSide.vue';
 import SceneShell from '@/components/scene/SceneShell.vue';
 import TimerRing from '@/components/scene/TimerRing.vue';
@@ -140,12 +141,12 @@ const NOISES = [
       <van-button round block @click="addFive">+5 分钟</van-button>
     </div>
 
-    <div class="flex items-center gap-2 mt-3.5 overflow-x-auto hide-scrollbar">
+    <HScroll :active="noise" class="items-center gap-2 mt-3.5" aria-label="白噪音">
       <span class="text-[12.5px] text-ink-3 whitespace-nowrap shrink-0">白噪音</span>
-      <button v-for="n in NOISES" :key="n.id" class="noise" :class="{ on: noise === n.id }" @click="noise = noise === n.id ? null : n.id">
+      <button v-for="n in NOISES" :key="n.id" type="button" class="noise" :class="{ on: noise === n.id }" :aria-pressed="noise === n.id" @click="noise = noise === n.id ? null : n.id">
         <span :class="n.icon" />{{ n.label }}
       </button>
-    </div>
+    </HScroll>
 
     <div class="mt-3.5">
       <div class="text-[12.5px] text-ink-3 mb-1.5">你这边{{ yourPlace ? ` · ${yourPlace}` : '' }} · 这次要完成</div>

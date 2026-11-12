@@ -1,6 +1,7 @@
 import type { MealSlot } from './activity.ts';
 import type { SyncMeta } from './common.ts';
 import type { LoreTimedState } from './lorebook.ts';
+import type { ImageMode } from './preset.ts';
 import type { ChatBackground } from './settings.ts';
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'narrator';
@@ -15,7 +16,12 @@ export type MessagePart =
   | {
       type: 'image';
       assetKey: string | null;
+      /** 要画的画面（[cg:] 里的描述、"生成配图"里写的）；重画时照它再画 */
       caption: string;
+      /** 画什么（生图预设里"画什么"那几块按它只发一块）；不写 = 场景 */
+      mode?: ImageMode;
+      /** 生图提示词智能体起的中文短标题，显示用 */
+      title?: string;
       /** AI 生成的图带上提示词和种子，方便在相册里复现 */
       prompt?: string;
       negative?: string;

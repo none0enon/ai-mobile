@@ -192,6 +192,9 @@ export const TASK_MARKERS: Record<'theater' | 'summary' | 'image', Record<string
 /** 生图预设里按"画什么"发送的块：块的触发条件写这几个值 */
 export const IMAGE_MODES = { scene: '画一个场景', portrait: '全身像', face: '脸部特写', background: '只画背景' } as const;
 
+/** 画什么：scene 一个具体画面（默认）/ portrait 全身像 / face 脸部特写 / background 只画背景 */
+export type ImageMode = keyof typeof IMAGE_MODES;
+
 /** 程序填充块的名字（所有分类一起查） */
 export function markerName(identifier: string): string | undefined {
   const own = (PROMPT_MARKERS as Record<string, string>)[identifier];

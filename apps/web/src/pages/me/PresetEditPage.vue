@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { IMAGE_MODES, isRoleplayCategory, markerName, PRESET_CATEGORIES, ROLEPLAY_CATEGORIES, type PresetCategory, type PromptBlock } from '@app/shared';
 import { showConfirmDialog, showToast } from 'vant';
-import { computed, ref } from 'vue';
+import { computed, ref, toRaw, type ComponentPublicInstance } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Segmented from '@/components/common/Segmented.vue';
+import { useDragSort } from '@/composables/useDragSort';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { useCharacterStore } from '@/stores/characters';
 import { useLibraryStore } from '@/stores/library';
 
 /**
  * 编辑一个预设（自带的和导入的一样）：
- * - 提示词：每一块的名字、内容、角色、位置都能改，能加块、删块、上下挪、开关；程序填充的块内容由程序填，其余都能改；
+ * - 提示词：每一块的名字、内容、角色、位置都能改，能加块、删块、开关；长按一块拖动调顺序（电脑上按住直接拖）；程序填充的块内容由程序填，其余都能改；
  * - 采样参数、正则；名字、说明、分类（对话 / 功能 / 主动消息之间可以互换）；
  * - 右上角 ⋯：复制一份、导出成预设文件、恢复成预设文件里的样子（自带的）、删除。
  * 改了马上存在本机，下一次调用起生效。
@@ -47,14 +48,35 @@ function line(b: PromptBlock): string {
 // —— 一块一块地改 ——
 const editing = ref<PromptBlock | null>(null);
 const editOpen = computed({ get: () => !!editing.value, set: (v) => !v && (editing.value = null) });
-function move(i: number, d: -1 | 1) {
+
+// —— 调顺序：长按一块拖到想要的位置（电脑上按住直接拖，手柄上也能用 ↑ ↓）——
+function moveBlock(from: number, to: number) {
   const bs = preset.value?.blocks;
-  if (!bs) return;
-  const j = i + d;
-  if (j < 0 || j >= bs.length) return;
-  const [b] = bs.splice(i, 1);
-  if (b) bs.splice(j, 0, b);
+  if (!bs || from === to || !bs[from] || to < 0 || to >= bs.length) return;
+  const [b] = bs.splice(from, 1);
+  if (b) bs.splice(to, 0, b);
   touch();
+}
+const listEl = ref<HTMLElement | null>(null);
+const tabsEl = ref<ComponentPublicInstance | null>(null);
+const sort = useDragSort({
+  list: listEl,
+  onMove: moveBlock,
+  // 吸顶的标签栏下面才是看得见的列表：拖到标签栏下沿就开始往上滚
+  visibleTop: () => (tabsEl.value?.$el as HTMLElement | undefined)?.getBoundingClientRect().bottom ?? 0,
+});
+/** 每一块一个固定的 key（同一个预设里 identifier 可能重复），挪位置时 DOM 跟着这一块走 */
+const blockKeys = new WeakMap<PromptBlock, string>();
+let keySeq = 0;
+function keyOf(b: PromptBlock): string {
+  const raw = toRaw(b);
+  let k = blockKeys.get(raw);
+  if (!k) {
+    keySeq += 1;
+    k = `block-${keySeq}`;
+    blockKeys.set(raw, k);
+  }
+  return k;
 }
 function addBlock() {
   const bs = preset.value?.blocks;
@@ -189,6 +211,7 @@ const HINT: Record<PresetCategory, string> = {
     </PageHeader>
     <div class="page-scroll pb-10">
       <Segmented
+        ref="tabsEl"
         v-model="tab"
         sticky
         :options="[
@@ -199,25 +222,39 @@ const HINT: Record<PresetCategory, string> = {
         ]"
       />
 
-      <div v-if="tab === 'blocks'" class="px-4 grid gap-1.5" data-testid="preset-blocks">
-        <div v-for="(b, i) in preset.blocks" :key="`${b.identifier}-${i}`" class="block" :class="{ off: !b.enabled }" :data-block="b.identifier">
-          <div class="arrows">
-            <button type="button" :disabled="i === 0" :aria-label="`把「${b.name}」往上挪`" @click="move(i, -1)"><span class="i-lucide-chevron-up" /></button>
-            <button type="button" :disabled="i === preset.blocks.length - 1" :aria-label="`把「${b.name}」往下挪`" @click="move(i, 1)"><span class="i-lucide-chevron-down" /></button>
-          </div>
+      <div v-if="tab === 'blocks'" ref="listEl" class="px-4 grid gap-1.5" data-testid="preset-blocks">
+        <div
+          v-for="(b, i) in preset.blocks"
+          :key="keyOf(b)"
+          class="block sortable"
+          :class="{ off: !b.enabled, lifted: sort.state.phase === 'drag' && sort.state.from === i }"
+          :style="sort.styleFor(i)"
+          :data-block="b.identifier"
+          data-sort-item
+          @pointerdown="sort.onPointerDown($event, i)"
+          @touchstart.passive="sort.onTouchStart($event, i)"
+        >
+          <button type="button" class="grip" data-sort-handle :aria-label="`拖动调整「${b.name}」的位置，也可以按上下方向键`" @keydown="sort.onHandleKey($event, i)">
+            <span class="i-lucide-grip-vertical" />
+          </button>
           <button type="button" class="flex-1 min-w-0 text-left" :aria-label="`编辑「${b.name}」`" @click="editing = b">
-            <div class="flex items-center gap-1.5">
-              <span class="text-[14px] truncate" :class="{ 'font-600': !b.marker }">{{ b.name }}</span>
-              <span class="tag">{{ ROLE[b.role] }}</span>
-              <span v-if="b.marker" class="tag accent">程序填充</span>
-              <span v-if="b.triggers?.length" class="tag">只在 {{ b.triggers.map((t) => IMAGE_MODES[t as keyof typeof IMAGE_MODES] ?? t).join(' / ') }}</span>
+            <div class="flex items-center gap-1.5 min-w-0">
+              <span class="block-name text-[14px] truncate" :class="{ 'font-600': !b.marker }">{{ b.name }}</span>
+              <!-- 窄屏、大字体时标签先让位，名字尽量完整 -->
+              <span class="block-tags">
+                <span class="tag">{{ ROLE[b.role] }}</span>
+                <span v-if="b.marker" class="tag accent">程序填充</span>
+                <span v-if="b.triggers?.length" class="tag">只在 {{ b.triggers.map((t) => IMAGE_MODES[t as keyof typeof IMAGE_MODES] ?? t).join(' / ') }}</span>
+              </span>
             </div>
             <div class="text-[11.5px] text-ink-3 truncate">{{ where(b) }} · {{ line(b) }}</div>
           </button>
-          <van-switch v-model="b.enabled" size="20px" :aria-label="`发送「${b.name}」`" @change="touch" />
+          <van-switch v-model="b.enabled" data-sort-ignore size="20px" :aria-label="`发送「${b.name}」`" @change="touch" />
         </div>
         <button type="button" class="add press" @click="addBlock"><span class="i-lucide-plus" />加一块</button>
-        <p class="text-[12px] text-ink-3 mt-1 mb-0 leading-relaxed">{{ HINT[preset.category] }} 文字里可以用 {{ MACROS }} 这些宏。</p>
+        <p class="text-[12px] text-ink-3 mt-1 mb-0 leading-relaxed">
+          长按一块拖到想要的位置（电脑上用鼠标按住直接拖），从上到下就是发给模型的顺序。{{ HINT[preset.category] }} 文字里可以用 {{ MACROS }} 这些宏。
+        </p>
       </div>
 
       <van-cell-group v-else-if="tab === 'sampler'" inset>
@@ -334,6 +371,7 @@ const HINT: Record<PresetCategory, string> = {
 
 <style scoped>
 .block {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -345,21 +383,48 @@ const HINT: Record<PresetCategory, string> = {
 .block.off {
   opacity: 0.55;
 }
-.arrows {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
+/* 长按拖动：不选中文字、不弹系统菜单 */
+.sortable {
+  padding-left: 2px;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
-.arrows button {
+.sortable.lifted {
+  opacity: 1;
+  border-color: var(--accent-line);
+  box-shadow: var(--shadow);
+}
+.block-name {
+  flex: 0 1 auto;
+  min-width: 2.5em;
+}
+.block-tags {
+  display: flex;
+  gap: 6px;
+  flex: 0 10 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.grip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 20px;
+  flex-shrink: 0;
+  width: 28px;
+  height: 40px;
+  margin-right: -4px;
+  border-radius: 10px;
   color: var(--ink-3);
+  font-size: 18px;
+  /* 按住手柄直接拖，不滚动页面 */
+  touch-action: none;
+  cursor: grab;
 }
-.arrows button:disabled {
-  opacity: 0.3;
+@media (hover: hover) {
+  .sortable:hover .grip {
+    color: var(--ink-2);
+  }
 }
 .add {
   display: flex;

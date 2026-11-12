@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { getLocation, isRealPlace, worldOf, type MapLocation, type MessagePart } from '@app/shared';
+import { getLocation, isRealPlace, worldOf, type ImageMode, type MapLocation, type MessagePart } from '@app/shared';
 import { isAbortError } from '@app/ai';
 import { closeToast, showConfirmDialog, showLoadingToast, showToast } from 'vant';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Composer from '@/components/chat/Composer.vue';
+import DrawSheet from '@/components/chat/DrawSheet.vue';
 import MessageItem from '@/components/chat/MessageItem.vue';
 import Avatar from '@/components/common/Avatar.vue';
 import ErrorDetails from '@/components/common/ErrorDetails.vue';
@@ -20,7 +21,7 @@ import PageHeader from '@/layouts/PageHeader.vue';
 import { mockToday, weather } from '@/mock/activity';
 import { goBack } from '@/router';
 import { services } from '@/services';
-import { putAsset } from '@/services/assets';
+import { assetUrl, putAsset } from '@/services/assets';
 import type { VoiceRecording } from '@/services/recorder';
 import { presetFor, presetForTurn, useLabel } from '@/services/prompt';
 import { pendingForSummary, SUMMARY_EVERY, type SummaryOutcome } from '@/services/summary';
@@ -162,7 +163,8 @@ function onAction(id: string) {
       break;
     }
     case 'cg':
-      void chatStore.send(chatId.value, '画一张你现在的样子给我看看');
+      // 直接调生图：选画什么、写一句画面（可以不写），不经过聊天模型
+      drawOpen.value = true;
       break;
     default:
       showToast('M1 接入：选图后交给视觉模型看');
@@ -176,6 +178,14 @@ function answerDate(messageId: string, ok: boolean) {
   void chatStore.send(chatId.value, ok ? '好呀，一言为定！' : '这周可能不太行……下周好不好？');
 }
 
+// —— 生成配图（＋ → 生成配图）——
+const drawOpen = ref(false);
+function onDraw(req: { mode: ImageMode; caption: string }) {
+  drawOpen.value = false;
+  chatStore.drawImage(chatId.value, req);
+  void scrollToBottom(true);
+}
+
 const imageOpen = ref(false);
 const imagePart = ref<MessagePart | null>(null);
 function openImage(p: MessagePart) {
@@ -184,6 +194,29 @@ function openImage(p: MessagePart) {
 }
 function redrawImage() {
   if (imagePart.value) chatStore.redraw(chatId.value, imagePart.value);
+}
+/** 保存图片：本机素材库里的存成文件；服务商只给了链接的，新开一页打开 */
+async function saveImage() {
+  const p = imagePart.value;
+  if (p?.type !== 'image' || !p.assetKey) return;
+  const name = (p.title || p.caption).replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40) || 'image';
+  if (/^https?:/.test(p.assetKey)) {
+    window.open(p.assetKey, '_blank', 'noopener');
+    return;
+  }
+  const url = /^(?:data:|blob:)/.test(p.assetKey) ? p.assetKey : await assetUrl(p.assetKey);
+  if (!url) {
+    showToast('本机找不到这张图了');
+    return;
+  }
+  const blob = await fetch(url).then((r) => r.blob());
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${name}.${(blob.type.split('/')[1] ?? 'png').replace('jpeg', 'jpg')}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }
 
 // —— 消息操作：平时藏着，点头像展开（重试 / 编辑 / 复制 / 删除）；点别处收起 ——
@@ -204,6 +237,13 @@ function toggleTools(id: string) {
 function retry(id: string) {
   const m = byId.value.get(id);
   if (!m || stream.value) return;
+  // 只有一张图的消息（生成配图画的）：重试 = 重新画这张，不是让聊天模型再回一条
+  const img = m.role === 'assistant' && !m.text.trim() ? m.parts.find((p) => p.type === 'image') : undefined;
+  if (img) {
+    toolsFor.value = null;
+    chatStore.redraw(chatId.value, img);
+    return;
+  }
   if (m.role === 'user') {
     toolsFor.value = null;
     void chatStore.generate(chatId.value);
@@ -480,16 +520,21 @@ const stageRain = computed(() => weather.text.includes('雨') && (!stageLoc.valu
       </div>
     </van-popup>
 
+    <van-popup v-model:show="drawOpen" position="bottom" round :style="{ maxHeight: '90%' }">
+      <DrawSheet v-if="drawOpen" :character="character" @draw="onDraw" @close="drawOpen = false" />
+    </van-popup>
+
     <van-popup v-model:show="imageOpen" round class="w-[88%] max-w-[400px]">
-      <div v-if="imagePart && imagePart.type === 'image'" class="p-3">
+      <div v-if="imagePart && imagePart.type === 'image'" class="p-3 max-h-[86vh] overflow-y-auto" data-testid="image-viewer">
         <GenImage :part="imagePart" :character="character" class="rounded-[16px] overflow-hidden" />
-        <div class="mt-3 text-[15px] font-600">{{ imagePart.caption }}</div>
-        <ErrorDetails v-if="imagePart.error" :detail="imagePart.errorDetail ?? imagePart.error" title="没画出来" max-height="30vh" />
+        <div class="mt-3 text-[15px] font-600">{{ imagePart.title || imagePart.caption }}</div>
+        <div v-if="imagePart.title" class="text-[12px] text-ink-3 mt-0.5">画的是：{{ imagePart.caption }}</div>
+        <ErrorDetails v-if="imagePart.error" :detail="imagePart.errorDetail ?? imagePart.error" :title="imagePart.error" max-height="30vh" />
         <div class="mt-1 text-[12px] text-ink-3 break-all max-h-[96px] overflow-y-auto">提示词：{{ imagePart.prompt ?? (imagePart.error ? '—' : '生成中…') }}</div>
-        <div v-if="imagePart.seed" class="text-[12px] text-ink-3 num">种子：{{ imagePart.seed }}{{ imagePart.model ? ` · ${imagePart.model}` : '' }}</div>
+        <div v-if="imagePart.seed || imagePart.model" class="text-[12px] text-ink-3 num">{{ [imagePart.seed ? `种子：${imagePart.seed}` : '', imagePart.model ?? ''].filter(Boolean).join(' · ') }}</div>
         <div class="flex gap-2 mt-3">
           <van-button size="small" round block :disabled="!imagePart.generated && !imagePart.error" @click="redrawImage">重新生成</van-button>
-          <van-button size="small" round block type="primary">存进相册</van-button>
+          <van-button size="small" round block type="primary" :disabled="!imagePart.assetKey" @click="saveImage">保存图片</van-button>
         </div>
       </div>
     </van-popup>

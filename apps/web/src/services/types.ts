@@ -1,4 +1,4 @@
-import type { AgentRole, MapLocation, WeatherSnapshot } from '@app/shared';
+import type { AgentRole, ImageMode, MapLocation, WeatherSnapshot } from '@app/shared';
 
 /**
  * 服务接口。界面只依赖这些接口。
@@ -82,8 +82,10 @@ export interface EmbeddingClient {
 
 export interface IllustrateRequest {
   characterId: string;
-  /** 要画的画面（[cg:] 标签里的描述） */
+  /** 要画的画面（[cg:] 标签里的描述、"生成配图"里写的） */
   caption: string;
+  /** 画什么：场景（默认）/ 全身像 / 脸部特写 / 只画背景 */
+  mode?: ImageMode;
   place?: string;
   outfit?: string;
   expression?: string | null;

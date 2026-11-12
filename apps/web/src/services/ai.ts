@@ -29,7 +29,6 @@ import type {
   STTClient,
   TTSClient,
 } from './types';
-import { weather } from '@/mock/activity';
 import { memories as demoMemories } from '@/mock/memories';
 import { DEMO_SIDESTORIES, genericSidestory } from '@/mock/sidestories';
 import { useAiStore } from '@/stores/ai';
@@ -193,13 +192,14 @@ export class RoutedImage implements ImageClient {
     if (!c) throw new AiError('no_route', '找不到这个角色');
     const now = new Date();
     const input: ImagePromptInput = {
+      mode: req.mode,
       character: { name: c.name, appearanceTags: c.appearanceTags, negativeTags: c.negativeTags, pronoun: c.pronoun },
       caption: req.caption,
       scene: {
         place: req.place ?? getLocation(c.locationId)?.name,
         outfit: req.outfit,
         timeOfDay: TIME_OF_DAY_LABEL[timeOfDay(now.getHours())],
-        weather: weather.text,
+        // 天气还没接真实数据（mock 里写死的"小雨"），不给生图：不然每张图都在下雨
         expression: req.expression ?? undefined,
       },
       recent: req.recent,
@@ -209,6 +209,7 @@ export class RoutedImage implements ImageClient {
     const r = await illustrate(useAiStore().system, input, { signal: opts.signal, onStage: opts.onStage, seed: req.seed, preset });
     const img = r.image.images[0];
     const assetKey = img?.bytes ? await putAsset(img.bytes, img.mime) : null;
+    if (!assetKey && !img?.url) throw new AiError('empty', '生图接口返回了，但里面没有图片', { detail: JSON.stringify(r.image).slice(0, 4000) });
     return {
       assetKey,
       url: img?.url,

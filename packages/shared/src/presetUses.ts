@@ -25,7 +25,7 @@ export const PRESET_USES: PresetUse[] = [
   { id: 'proactive', category: 'proactive', label: '主动消息', desc: '到点时角色先发来的那条', icon: 'i-lucide-bell-ring', followChat: true },
   { id: 'theater', category: 'theater', label: '番外', desc: '"我的 → 试一试 → 写一段番外"', icon: 'i-lucide-book-heart', followChat: false },
   { id: 'summary', category: 'summary', label: '总结聊天', desc: '攒够 30 条自动整理，聊天 ⋯ 里也能手动整理', icon: 'i-lucide-notebook-pen', followChat: false },
-  { id: 'image', category: 'image', label: '配图', desc: '聊天里的 [cg:]、番外的那一幕：先写成 NovelAI tags 再出图', icon: 'i-lucide-image', followChat: false },
+  { id: 'image', category: 'image', label: '配图', desc: '聊天 ＋ → 生成配图、聊天里的 [cg:]、番外的那一幕：先写成 NovelAI tags 再调生图 API', icon: 'i-lucide-image', followChat: false },
 ];
 
 export function presetUse(id: PresetUseId): PresetUse | undefined {

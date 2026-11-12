@@ -4,6 +4,7 @@ import { showToast } from 'vant';
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import Avatar from '@/components/common/Avatar.vue';
+import HScroll from '@/components/common/HScroll.vue';
 import ImagePick from '@/components/common/ImagePick.vue';
 import Segmented from '@/components/common/Segmented.vue';
 import CharacterFigure from '@/components/figure/CharacterFigure.vue';
@@ -138,9 +139,9 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
         </van-tab>
         <van-tab title="立绘" name="sprite">
           <div class="px-4">
-            <div class="flex gap-1.5 mt-3 overflow-x-auto hide-scrollbar">
-              <button v-for="(label, key) in OUTFITS" :key="key" class="opt" :class="{ on: outfit === key }" @click="outfit = key">{{ label }}</button>
-            </div>
+            <HScroll :active="outfit" class="gap-1.5 mt-3" aria-label="服装">
+              <button v-for="(label, key) in OUTFITS" :key="key" type="button" class="opt" :class="{ on: outfit === key }" :aria-pressed="outfit === key" @click="outfit = key">{{ label }}</button>
+            </HScroll>
             <div class="grid grid-cols-4 gap-2 mt-3">
               <div v-for="e in EXPRESSIONS" :key="e" class="expr">
                 <div class="expr-img">

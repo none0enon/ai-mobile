@@ -101,6 +101,14 @@ svg {
   padding-right: 16px;
 }
 
+/* 拖动排序中（composables/useDragSort.ts）：整页不选中文字，鼠标显示成"抓着" */
+html.is-sorting,
+html.is-sorting * {
+  cursor: grabbing !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
 .hide-scrollbar {
   scrollbar-width: none;
 }
