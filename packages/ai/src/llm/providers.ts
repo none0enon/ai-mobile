@@ -4,7 +4,7 @@ import { httpError } from '../core/errors.ts';
 import { request } from '../core/http.ts';
 import { claudeModelInfo } from './claude.ts';
 import { inlineNames, postProcessMessages, toClaude, toGemini, toOpenAIMessage } from './messages.ts';
-import { claudeThinking, deepseekThinking, geminiHasThinkingConfig, geminiThinking, openaiReasoningEffort, thinkingAlias } from './reasoning.ts';
+import { claudeHeadroom, claudeThinking, deepseekThinking, geminiHasThinkingConfig, geminiHeadroom, geminiThinking, openaiReasoningEffort, THINKING_HEADROOM, thinkingAlias, thinksByName } from './reasoning.ts';
 import { dropField, sendFixing, type RequestFix } from './retry.ts';
 import { readAIStream, readWhole } from './stream.ts';
 import type { ChatCallbacks, ChatRequest, ChatResult } from './types.ts';
@@ -76,6 +76,9 @@ export async function openaiCompatible(ep: Endpoint, req: ChatRequest, call: Pro
     delete body.presence_penalty;
     delete body.frequency_penalty;
     if (maxTokens !== undefined) maxTokens = Math.max(maxTokens, alias.budget + 4096);
+  } else if (!d.noAlias && maxTokens !== undefined && thinksByName(ep.model)) {
+    // 名字看得出默认会思考（中转上的 Gemini 2.5、o 系列……）：上限之外留出思考的余量，不然短回复的预设会被思考吃光
+    maxTokens += req.reasoningEffort === 'none' || req.reasoningEffort === 'min' ? 2048 : THINKING_HEADROOM;
   }
   const tweaked = d.tweak?.(body, messages as Record<string, unknown>[]);
   if (tweaked?.maxTokens !== undefined) maxTokens = tweaked.maxTokens;
@@ -141,6 +144,8 @@ export const deepseekChat: ChatProvider = (ep, req, call) => {
       if (think.effort) body.reasoning_effort = think.effort;
       if (prefill) messages.push({ role: 'assistant', content: prefill, prefix: true });
       if (think.thinking?.type === 'enabled') return { maxTokens: Math.max(req.maxTokens ?? 0, think.effort === 'max' ? 65536 : 16384) };
+      // 没设推理强度：现在的模型默认开着思考（旧名 deepseek-chat 除外），同样留出余量
+      if (!think.thinking && req.maxTokens !== undefined && !/deepseek-chat/i.test(ep.model)) return { maxTokens: req.maxTokens + THINKING_HEADROOM };
     },
   });
 };
@@ -205,7 +210,8 @@ export const anthropicChat: ChatProvider = async (ep, req, call) => {
       signal: call.signal,
     });
   };
-  const { response, errText } = await sendFixing(`${url}|${ep.model}`, requested, call.onState, send, fixes);
+  // 会思考时上限之外留出思考的余量（自适应思考、默认就思考的模型）
+  const { response, errText } = await sendFixing(`${url}|${ep.model}`, requested + claudeHeadroom(info, think), call.onState, send, fixes);
   if (!response.ok) throw httpError(ep.name, response.status, errText ?? '', response);
   const textOf = (d: Json) => (Array.isArray(d.content) ? d.content.filter((x: Json) => x.type === 'text').map((x: Json) => x.text).join('') : null);
   const opts = { onDelta: call.onDelta, onState: call.onState, signal: call.signal, textOf };
@@ -236,6 +242,7 @@ export async function geminiGenerate(ep: Endpoint, req: ChatRequest, call: Provi
   const minimal = !!req.minimal;
   const { systemInstruction, contents } = toGemini(req.messages, req.names);
   const generationConfig: Record<string, unknown> = {};
+  let effort: { thinkingBudget?: number; thinkingLevel?: string } = {};
   if (req.temperature !== undefined) generationConfig.temperature = req.temperature;
   if (!minimal) {
     if (req.topP !== undefined) generationConfig.topP = req.topP;
@@ -247,7 +254,7 @@ export async function geminiGenerate(ep: Endpoint, req: ChatRequest, call: Provi
     if (req.json) generationConfig.responseMimeType = 'application/json';
     // 思考：要不要返回思考内容（默认流式时要）；推理强度换成 thinkingBudget / thinkingLevel
     const include = (req.includeReasoning ?? call.stream) && GEMINI_THINKS.test(model);
-    const effort = geminiHasThinkingConfig(model) ? geminiThinking(model, req.maxTokens, req.reasoningEffort) : {};
+    effort = geminiHasThinkingConfig(model) ? geminiThinking(model, req.maxTokens, req.reasoningEffort) : {};
     if (effort.thinkingLevel && t.upperLevel) effort.thinkingLevel = effort.thinkingLevel.toUpperCase();
     if (include || effort.thinkingBudget !== undefined || effort.thinkingLevel) {
       generationConfig.thinkingConfig = { ...(include && effort.thinkingBudget !== 0 ? { includeThoughts: true } : {}), ...effort };
@@ -276,7 +283,9 @@ export async function geminiGenerate(ep: Endpoint, req: ChatRequest, call: Provi
       signal: call.signal,
     });
   };
-  const { response, errText } = await sendFixing(t.cacheKey, req.maxTokens, call.onState, send, fixes);
+  // maxOutputTokens 把思考也算在内：在预设的上限之外留出思考的余量（关掉思考时不留）
+  const headroom = geminiHeadroom(GEMINI_THINKS.test(model), effort);
+  const { response, errText } = await sendFixing(t.cacheKey, req.maxTokens === undefined ? undefined : req.maxTokens + headroom, call.onState, send, fixes);
   if (!response.ok) throw httpError(ep.name, response.status, errText ?? '', response);
   // 流式时每个事件也是这种结构，只含新增的一段正文。标着 thought 的片段是思考内容，不算正文
   const textOf = (j: Json) => {

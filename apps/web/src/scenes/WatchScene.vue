@@ -11,7 +11,7 @@ import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 import { uid } from '@/utils/id';
 import { readTextFile } from '@/utils/text';
-import { fetchYouTubeMeta, parseVideoLink, PLATFORM_LABEL, trackYouTube, type YouTubeInfo } from '@/utils/videoLink';
+import { fetchYouTubeMeta, parseVideoLink, PLATFORM_LABEL, trackYouTube, youTubeErrorText, type YouTubeInfo } from '@/utils/videoLink';
 
 /**
  * 一起观影（设计文档 §9.9）。AI 不直接看视频，看法有三种：
@@ -33,8 +33,10 @@ const TALK: Record<Talk, { label: string; hint: string }> = {
   normal: { label: '适中', hint: '这一段 0–2 句' },
   chatty: { label: '话痨', hint: '这一段 2–4 句' },
 };
-/** 没有字幕时（贴的链接）她隔多久说一句（按一起看了的秒数） */
+/** 没有字幕时（贴的链接）她最多隔多久说一句（按一起看了的秒数）；知道片长时按片长分，短视频说得勤一点 */
 const CHATTER_EVERY: Record<Talk, number> = { quiet: 180, normal: 90, chatty: 45 };
+/** 知道片长时，一部片大概说几句（1 分钟的视频：适中 4 句，每 12 秒左右一句） */
+const CHATTER_COUNT: Record<Talk, number> = { quiet: 2, normal: 4, chatty: 7 };
 /** 一批写多长（秒）、提前多久写下一批、晚到多久就不出 */
 const WINDOW = 240;
 const AHEAD = 60;
@@ -139,6 +141,10 @@ const canStart = computed(() => {
  * manual 自己计时（在别处看、B 站，或者读不到 YouTube 的进度时）
  */
 const ytHeard = ref(false);
+/** 片长（秒）：YouTube 播放器报的，或者视频文件的；B 站读不到 */
+const videoDuration = ref(0);
+/** YouTube 播放器说放不了（作者不允许嵌入、视频不存在……） */
+const ytError = ref('');
 const ytGaveUp = ref(false);
 const clockKind = computed<'video' | 'youtube' | 'manual'>(() => {
   if (source.value === 'local') return 'video';
@@ -191,8 +197,16 @@ function startLoop() {
 }
 function onYouTube(info: YouTubeInfo) {
   ytHeard.value = true;
+  if (info.error !== undefined) {
+    // 放不了：说清楚，改成自己计时（可以去 YouTube 看，回来点"开始计时"，她照样陪你看）
+    ytError.value = youTubeErrorText(info.error);
+    ytGaveUp.value = true;
+    playing.value = false;
+    return;
+  }
   if (info.title && !title.value.trim()) title.value = info.title;
   if (info.author && !author.value) author.value = info.author;
+  if (info.duration && info.duration > 0) videoDuration.value = info.duration;
   if (typeof info.state === 'number') {
     const now = clockNow();
     ytTime = now;
@@ -201,7 +215,10 @@ function onYouTube(info: YouTubeInfo) {
     playing.value = info.state === 1;
   }
   if (typeof info.time === 'number') {
+    const before = ytTime;
     const jumped = ytAt > 0 && Math.abs(info.time - clockNow()) > 2.5;
+    // 有的播放器不报状态、只报时间：时间在往前走就是在播
+    if (info.state === undefined && !playing.value && ytAt > 0 && info.time > before + 0.2 && !jumped) playing.value = true;
     ytTime = info.time;
     ytAt = Date.now();
     if (jumped) onSeek();
@@ -304,6 +321,8 @@ async function requestWindow(k: number) {
       ].join('\n'),
     },
     parseBatch(new Set(idx.map((x) => x.i))),
+    undefined,
+    { quick: true, minTokens: 1500 },
   );
   if (g !== generation) return;
   if (!r.ok) {
@@ -344,9 +363,17 @@ function onSeek() {
   planAhead();
 }
 
-// —— 她随口说一句（贴链接、没有字幕时）：按话量隔一会儿说一句 ——
+// —— 她随口说一句（贴链接、没有字幕时）：按话量和片长隔一会儿说一句 ——
 let lastChatterAt = -1;
-let chattering = false;
+const chattering = ref(false);
+/** 上一句没说出来的原因（接口报错）；说出来了就清掉 */
+const chatterError = ref('');
+function chatterGap(): number {
+  const base = CHATTER_EVERY[talk.value];
+  const d = videoDuration.value;
+  if (!d || !Number.isFinite(d)) return base;
+  return Math.max(10, Math.min(base, d / (CHATTER_COUNT[talk.value] + 1)));
+}
 /** 这一刻的位置：读得到进度时是"播到 xx"，自己计时时是"大概播到 xx" */
 function whereLine(): string {
   const now = clockNow();
@@ -356,25 +383,30 @@ function whereLine(): string {
   return `现在播到 ${mediaClock(now)}${playing.value ? '' : '（暂停中）'}`;
 }
 function maybeChatter() {
-  if (phase.value !== 'watching' || source.value !== 'link' || cues.value.length || notConnected.value || chattering || !playing.value || replying.value) return;
-  const due = lastChatterAt < 0 ? 20 : lastChatterAt + CHATTER_EVERY[talk.value];
+  if (phase.value !== 'watching' || source.value !== 'link' || cues.value.length || notConnected.value || chattering.value || !playing.value || replying.value) return;
+  const gap = chatterGap();
+  const due = lastChatterAt < 0 ? Math.min(20, gap * 0.6) : lastChatterAt + gap;
   if (watchedSec >= due) void chatter();
 }
 async function chatter() {
   if (!chatId.value) return;
-  chattering = true;
+  chattering.value = true;
   lastChatterAt = watchedSec;
   const r = await chat.sceneReply(chatId.value, {
     task: 'watch-link',
     input: [`片名：${title.value}`, ...linkLines(), whereLine(), herSaid.length ? `你刚才说过：${herSaid.slice(-5).join(' / ')}` : ''].filter(Boolean).join('\n'),
     cue: mediaClock(clockNow()),
     allowedTags: ['expr'],
+    quick: true,
   });
-  chattering = false;
+  chattering.value = false;
   if (!r.ok) {
     if (r.notConnected) notConnected.value = r.reason;
+    // 以前这里一声不吭：现在写出来，下一句到点再试
+    else chatterError.value = r.reason;
     return;
   }
+  chatterError.value = '';
   herSaid.push(r.message.text);
   if (!cinema.value) pushDanmaku('her', r.message.text);
 }
@@ -405,6 +437,7 @@ async function send() {
   const recent = cues.value.filter((c) => c.start <= now && c.start >= now - 60).map((c) => `${mediaClock(c.start)} ${c.text}`);
   const r = await chat.sceneReply(chatId.value, {
     task: playing.value ? 'watch-chat' : 'watch-pause',
+    quick: true,
     input: [
       `片名：${title.value}`,
       ...linkLines(),
@@ -465,6 +498,7 @@ async function leaveTheater() {
   const minutes = Math.max(1, Math.round(watchedSec / 60));
   const r = await chat.sceneReply(chatId.value, {
     task: 'watch-end',
+    quick: true,
     input: [`片名：${title.value}`, ...linkLines(), `前情提要：${summary || '（没有）'}`, `一起看了 ${minutes} 分钟`].join('\n'),
     userText: yourScore.value ? `我打 ${yourScore.value}/5${yourWords.value.trim() ? `：${yourWords.value.trim()}` : ''}` : yourWords.value.trim() || '看完了',
     cue: '散场',
@@ -513,6 +547,7 @@ onBeforeUnmount(() => {
           @play="playing = true"
           @pause="playing = false"
           @seeked="onSeek"
+          @loadedmetadata="videoDuration = videoEl?.duration ?? 0"
           @error="videoError = source === 'link' ? '这个链接放不了：可能失效了、不是视频文件，或者网站不让别的网页播放' : '这个视频浏览器放不了'"
         />
         <iframe
@@ -613,7 +648,12 @@ onBeforeUnmount(() => {
     <!-- 看的时候 -->
     <template v-else-if="phase === 'watching'">
       <div v-if="clockKind === 'manual'">
-        <div v-if="source === 'link'" class="text-[12px] text-ink-3 mb-2 leading-relaxed">
+        <div v-if="ytError && link" class="notice" data-testid="yt-error">
+          <span class="i-lucide-circle-alert shrink-0" />
+          <span class="flex-1 min-w-0">YouTube 放不了：{{ ytError }}。可以去 YouTube 看，回来点"开始计时"，{{ her.pronoun }}照样陪你看。</span>
+          <a :href="link.watchUrl" target="_blank" rel="noopener noreferrer" class="text-accent-ink shrink-0">去 YouTube</a>
+        </div>
+        <div v-else-if="source === 'link'" class="text-[12px] text-ink-3 mb-2 leading-relaxed">
           {{ link?.platform === 'youtube' ? '读不到 YouTube 播放器的进度（可能被浏览器拦了）' : 'B 站播放器不告诉网页播到哪了' }}：在播放器里播放 / 暂停时，也点一下这里。
         </div>
         <div class="flex gap-2 btns">
@@ -633,6 +673,11 @@ onBeforeUnmount(() => {
         {{ ytHeard ? `播到 ${mediaClock(t)}${playing ? '' : ' · 暂停中'}` : '连接 YouTube 播放器…' }}
       </div>
       <div v-if="videoError" class="text-[12.5px] text-[var(--bad)] mt-1">{{ videoError }}</div>
+      <div v-if="chatterError" class="notice mt-2" data-testid="chatter-error">
+        <span class="i-lucide-message-circle-warning shrink-0" />
+        <span class="flex-1 min-w-0">{{ her.pronoun }}这句没说出来：{{ chatterError }}（到下一句时再试）</span>
+      </div>
+      <div v-else-if="chattering && !cinema" class="text-[12px] text-ink-3 mt-1.5" data-testid="chatter-typing">{{ her.pronoun }}在想说什么……</div>
       <div class="flex gap-2 mt-2.5">
         <input v-model="input" class="field" :placeholder="playing ? '发一句弹幕' : `暂停了，和${her.pronoun}聊两句`" aria-label="弹幕" @keydown.enter="send" />
         <van-button size="small" round :disabled="replying" @click="send">发送</van-button>

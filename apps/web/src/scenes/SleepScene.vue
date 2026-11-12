@@ -100,14 +100,14 @@ function stopSpeech() {
 const speaking = computed(() => level.value > 0.02);
 
 /** 让她按"哄睡"功能预设说一段（流式）：onText 每次拿到目前为止的正文。没接通、失败时写明原因 */
-async function askHer(task: string, input: string, opts: { userText?: string; cue?: string; onText(full: string): void }): Promise<string | null> {
+async function askHer(task: string, input: string, opts: { userText?: string; cue?: string; minTokens?: number; onText(full: string): void }): Promise<string | null> {
   if (!chatId.value) return null;
   notConnected.value = '';
   voiceError.value = '';
   asleep.value = false;
   armTimer();
   writing.value = true;
-  const r = await chat.sceneReply(chatId.value, { task, input, userText: opts.userText, cue: opts.cue, allowedTags: ['expr'], onText: opts.onText });
+  const r = await chat.sceneReply(chatId.value, { task, input, userText: opts.userText, cue: opts.cue, allowedTags: ['expr'], onText: opts.onText, minTokens: opts.minTokens, quick: true });
   writing.value = false;
   if (r.ok) return r.message.text;
   if (r.notConnected) notConnected.value = r.reason;
@@ -197,6 +197,8 @@ async function newStory() {
   readFrom(0);
   const text = await askHer('sleep-story', input, {
     cue: '睡前故事',
+    // 300–500 字的故事：预设里给低语的上限（300）不够
+    minTokens: 1600,
     onText: (full) => {
       const parts = run === storyRun ? splitTitle(full) : null;
       if (!parts) return;
@@ -218,6 +220,13 @@ async function newStory() {
   const rest = stream.flush(parts.body);
   story.sentences.push(...rest);
   story.done = true;
+  if (!story.sentences.length) {
+    // 只写出了标题：回复被截断了（以前会安安静静只显示一个标题）
+    story.playing = false;
+    storyQueue?.stop();
+    line.value = '（故事只写出了标题就停了：回复被截断了。可以在"我的 → 预设 → 功能 → 哄睡"里调大"最长回复"再试）';
+    return;
+  }
   if (story.title) toldTitles.push(story.title);
   if (storyLive()) {
     storyQueue!.pushAll(rest);

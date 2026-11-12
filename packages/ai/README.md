@@ -31,6 +31,7 @@ src/connection.ts  拉取模型列表、测试连接（失败时给完整报错�
 
 - **消息整理**（`llm/messages.ts` 的 `postProcessMessages`，ST 的 Prompt Post-Processing）：连接上选 原样 / 合并 / 半严格 / 严格 / 单条；严格模式下系统消息后第一条不是 user 时补 "Let's get started."。导入的 ST 预设里的 `custom_prompt_post_processing` 也认。
 - **推理强度**（`llm/reasoning.ts`）：自动 / 关闭 / 最低 / 低 / 中 / 高 / 最高，按各家换算：OpenAI `reasoning_effort`；Claude 新模型用 adaptive thinking + `output_config.effort`，老模型按回复上限算 `budget_tokens`；Gemini 2.5 用 `thinkingBudget`（2.5 Flash 能关到 0）、Gemini 3 用 `thinkingLevel`、Gemini 4 只认 `thinkingLevel` 且没有 MINIMAL（Vertex 官方文档）；DeepSeek 用思考开关。中转常用的 `-thinking` / `-high` 这类模型名后缀也能识别（同 SleepTogether），自动把温度设成 1、留够输出上限。
+- **思考的余量**：会思考的模型把思考也算在回复上限里，预设给短句的上限（100–300）会被思考吃光，回复是空的（MAX_TOKENS）或只剩半句。所以在请求的 `maxTokens` 之外再留出余量：Gemini 原生按思考预算 / 等级留（默认动态思考 8192，预算 0 不留），Claude 自适应思考和默认就思考的型号、DeepSeek 默认思考的模型、OpenAI 格式里名字看得出会思考的（Gemini 2.5 起、o 系列、GPT-5、DeepSeek R1、QwQ……）各留 8192（`THINKING_HEADROOM`）。
 - **Claude 型号表**（`llm/claude.ts`）：哪些型号会思考、哪些不接受 temperature / top_p、哪些不能预填 assistant（预填改成 user 消息合并），同 ST 的规则；预设里的 `assistant_prefill` 会接上。
 - **Gemini**：同 math-reader 的 doGeminiRequest，不带安全设置；地址只填域名时只有官方域名补 `/v1beta`，自定义地址原样用；要思考过程时带 `includeThoughts`。
 - **额外请求参数**：连接上可以并入、去掉请求体的字段（ST 的 Include / Exclude Body Parameters），给只认某些字段的中转用。
@@ -58,7 +59,7 @@ Google 的 Gemini Enterprise Agent Platform（原 Vertex AI），math-reader 里
 
 ## 语音合成、生图（参考 SleepTogether、SillyTavern）
 
-- **TTS**（`tts/`）：朗读前去掉控制标签、代码块、`<标签>…</标签>`（状态栏）、动作描写、表情符号、消息开头的"名字："；可以只读引号里的话、星号和括号里的字读不读、另加正则（ST 的 TTS 设置）。表情映射成情绪（角色的 `emotionMap` 优先）：CosyVoice 用"请用害羞的语气说<|endofprompt|>正文"，gpt-4o-mini-tts 用 `instructions`，MiniMax 用 `emotion`，Fish Audio S1 在正文前加 `(embarrassed)`。硅基流动的系统音色只写名字也行（自动补成"模型:音色"）。同一句话按缓存的键复用音频。
+- **TTS**（`tts/`）：朗读前去掉控制标签、代码块、`<标签>…</标签>`（状态栏）、动作描写、表情符号、消息开头的"名字："；可以只读引号里的话、星号和括号里的字读不读、另加正则（ST 的 TTS 设置）。表情映射成情绪（角色的 `emotionMap` 优先）：CosyVoice 用"你能用害羞的语气说吗？<|endofprompt|>正文"（默认关，连接的 `extra.emotion = 'on'` 时才加：有的服务会把指令原样念出来），gpt-4o-mini-tts 用 `instructions`，MiniMax 用 `emotion`，Fish Audio S1 在正文前加 `(embarrassed)`。硅基流动的系统音色只写名字也行（自动补成"模型:音色"）。同一句话按缓存的键复用音频。
 - **火山引擎**（`tts/volcengine.ts`，移植自 SleepTogether）：v3 单向流式接口，逐行 JSON 拼音频；`X-Api-App-Key` 被拒（401 / 403）时换 `X-Api-App-Id` 再试一次；复刻的音色（`S_` 开头）自动用 `seed-icl-2.0`。声音复刻：上传录音 → 查训练进度。
 - **NovelAI**（`image/novelai.ts`）：V4 起用 `v4_prompt`，两个人同框时用 `char_captions` + `characterPrompts` 指定左右位置；质量词和负面预设默认不加（同 SleepTogether，前缀里自己写），打开"追加官网的质量词"才加；采样器、噪声调度（V4 默认 karras）、Variety Boost（同 ST，按画面大小算 `skip_cfg_above_sigma`）；返回的 zip / JSON / 直接的图片都认，zip 用 `DecompressionStream('deflate-raw')` 解；公益站、反代填它的地址即可，查订阅时 404 不算失败。不给种子就随机一个，再从返回 PNG 的元数据核对；429（同一时间只能生成一张）等两三秒重试。
 - **生图风格**（`image/style.ts`）：固定前缀 / 后缀 / 负面词（默认值取自 SleepTogether 和 ST），前缀里写 `{prompt}` 可以指定提示词的位置（同 ST）。

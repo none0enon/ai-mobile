@@ -48,9 +48,10 @@ function setExtra(field: string, value: string) {
   else delete extra[field];
   a.extra = Object.keys(extra).length ? extra : undefined;
 }
+/** CosyVoice 情绪指令默认关：有的服务不认，会把"你能用……的语气说吗？"原样念出来 */
 const cosyEmotion = computed({
-  get: () => api.value?.extra?.emotion !== 'off',
-  set: (on: boolean) => setExtra('emotion', on ? '' : 'off'),
+  get: () => api.value?.extra?.emotion === 'on',
+  set: (on: boolean) => setExtra('emotion', on ? 'on' : ''),
 });
 
 // —— Key ——
@@ -241,8 +242,8 @@ watch(
       </template>
       <div v-if="cap === 'tts' && kind === 'openai'" class="flex items-center justify-between gap-3 mt-3">
         <div>
-          <div class="text-[14px]">CosyVoice 情绪指令</div>
-          <div class="text-[12px] text-ink-3">按她的表情加"请用害羞的语气说"；指令被读出来时关掉</div>
+          <div class="text-[14px]">CosyVoice 情绪指令（默认关）</div>
+          <div class="text-[12px] text-ink-3">按她的表情在要读的话前面加"你能用害羞的语气说吗？"。硅基流动的系统音色认这个写法；有的服务和上传的音色会把这句原样念出来，听到就关掉</div>
         </div>
         <van-switch v-model="cosyEmotion" class="shrink-0" size="22px" />
       </div>
