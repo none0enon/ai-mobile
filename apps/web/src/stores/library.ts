@@ -49,6 +49,61 @@ function readSeeds(): Seed[] {
 const SEEDS = readSeeds();
 const DEMO_BOOK_IDS = new Set(demoLorebooks.map((b) => b.id));
 
+/**
+ * 自带的预设文件改过以后，本机已经放进库里的那份怎么跟上。只动你没改过的地方，每一条只做一次：
+ * - replaced：块的旧默认内容。本机那块还是旧的（你没改过）就换成文件里现在的；
+ * - added：文件里新加的块。本机那份没有就照文件里的位置插进去（之后你删了不会再放回来）。
+ * 复制出来的、导入的预设不动；想整份回到文件的样子用"恢复成预设文件"。
+ */
+interface SeedUpgrade {
+  id: string;
+  file: string;
+  replaced?: Record<string, string[]>;
+  added?: string[];
+}
+const SEED_UPGRADES: SeedUpgrade[] = [
+  {
+    // 一起看书能读带公式的专业书：识图读成 Markdown + LaTeX；新增"专业书"一块
+    id: 'feature-read:math',
+    file: 'feature-read.json',
+    replaced: { readOcr: ['把图片里这一页书的正文原样读出来：一段一行，保留标点；不要页眉、页脚、页码和图片说明，不要加任何别的话。'] },
+    added: ['readTechnical'],
+  },
+];
+
+/** 按 SEED_UPGRADES 更新本机的自带预设，返回改了的那些 */
+function upgradeSeeded(list: Preset[], done: Set<string>): Preset[] {
+  const changed = new Set<Preset>();
+  for (const u of SEED_UPGRADES) {
+    if (done.has(u.id)) continue;
+    done.add(u.id);
+    const seed = SEEDS.find((s) => s.file === u.file)?.preset;
+    if (!seed) continue;
+    for (const p of list) {
+      if (p.seedFile !== u.file) continue;
+      for (const [id, olds] of Object.entries(u.replaced ?? {})) {
+        const mine = p.blocks.find((b) => b.identifier === id);
+        const now = seed.blocks.find((b) => b.identifier === id);
+        if (mine && now && mine.content !== now.content && olds.includes(mine.content.trim())) {
+          mine.content = now.content;
+          changed.add(p);
+        }
+      }
+      for (const id of u.added ?? []) {
+        const at = seed.blocks.findIndex((b) => b.identifier === id);
+        if (at < 0 || p.blocks.some((b) => b.identifier === id)) continue;
+        // 插在文件里它前面那一块的后面；那一块你删了就放最后
+        const prev = seed.blocks[at - 1]?.identifier;
+        const i = prev ? p.blocks.findIndex((b) => b.identifier === prev) : -1;
+        p.blocks.splice(i >= 0 ? i + 1 : p.blocks.length, 0, clone(seed.blocks[at]!));
+        changed.add(p);
+      }
+    }
+  }
+  for (const p of changed) p.updatedAt = Date.now();
+  return [...changed];
+}
+
 /** 演示用的世界书（每次打开重新生成）；预设没有"自带的不能动"这回事 */
 export function isDemoRecord(id: string) {
   return DEMO_BOOK_IDS.has(id);
@@ -87,13 +142,15 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   async function hydrate() {
-    const [ps, bs, savedUses, seeded] = await Promise.all([
+    const [ps, bs, savedUses, seeded, upgraded] = await Promise.all([
       getAll<Preset>('presets'),
       getAll<Lorebook>('lorebooks'),
       getOne<Record<string, unknown>>('settings', 'presetUses'),
       getOne<string[]>('settings', 'seededPresetFiles'),
+      getOne<string[]>('settings', 'presetUpgrades'),
     ]);
     const done = new Set(Array.isArray(seeded) ? seeded : []);
+    const upgradesDone = new Set(Array.isArray(upgraded) ? upgraded : []);
     const saved = new Map(ps.map((p) => [p.id, { ...p, category: p.category ?? 'chat' } as Preset]));
     const list: Preset[] = [];
     const fresh: Seed[] = [];
@@ -111,6 +168,8 @@ export const useLibraryStore = defineStore('library', () => {
     }
     // 导入的、复制的：按导入时间排（以前存的没有分类，都是对话预设）
     list.push(...[...saved.values()].sort((a, b) => a.createdAt - b.createdAt));
+    // 自带预设文件后来改过的地方：本机那份你没改过就跟上
+    const touched = upgradeSeeded(list, upgradesDone).filter((p) => !fresh.some((s) => s.preset.id === p.id));
     presets.value = list;
 
     for (const k of Object.keys(uses) as PresetUseId[]) delete uses[k];
@@ -130,6 +189,7 @@ export const useLibraryStore = defineStore('library', () => {
     for (const s of SEEDS) done.add(s.file);
     await write('settings', [
       { key: 'seededPresetFiles', value: [...done] },
+      { key: 'presetUpgrades', value: [...upgradesDone] },
       { key: 'presetUses', value: { ...uses } },
     ]);
     for (const b of bs.sort((a, b) => a.createdAt - b.createdAt)) if (!lorebooks.value.some((x) => x.id === b.id)) lorebooks.value.push(b);
@@ -138,6 +198,7 @@ export const useLibraryStore = defineStore('library', () => {
     useSaver.start();
     // 新放进来的预设要写进本机（start 只记下现在的样子，不会自己写）
     if (fresh.length) await write('presets', fresh.map((s) => ({ key: s.preset.id, value: clone(presets.value.find((p) => p.id === s.preset.id)) })));
+    if (touched.length) await write('presets', touched.map((p) => ({ key: p.id, value: clone(p) })));
   }
 
   function presetById(id: string | null | undefined): Preset | undefined {

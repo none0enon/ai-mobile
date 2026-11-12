@@ -113,7 +113,8 @@ const TYPE_LABEL: Record<string, string> = {
 function stringFormat(format: string, value: string): string {
   if (!value) return '';
   if (!format.trim()) return value;
-  return format.replace(/\{0\}/g, value);
+  // 用函数替换：内容里的 $$、$&（LaTeX 公式）不会被当成替换记号
+  return format.replace(/\{0\}/g, () => value);
 }
 
 /**

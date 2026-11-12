@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import type { Character, Message, MessagePart } from '@app/shared';
+import { hasMath, type Character, type Message, type MessagePart } from '@app/shared';
 import { computed } from 'vue';
 import MessageEditor from './MessageEditor.vue';
 import PartCard from './PartCard.vue';
 import Avatar from '@/components/common/Avatar.vue';
 import ErrorDetails from '@/components/common/ErrorDetails.vue';
 import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
+import RichText from '@/components/common/RichText.vue';
 import { personas } from '@/mock/characters';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useChatStore } from '@/stores/chat';
@@ -129,7 +130,9 @@ function segments(text: string) {
         <MessageEditor v-if="editing" :text="editText" :mine="mine" :allow-empty="cardParts.length > 0" @save="(t) => emit('save-edit', t)" @cancel="emit('cancel-edit')" />
         <template v-else>
           <div v-for="(p, i) in textParts" :key="i" class="bubble" :class="[mine ? 'me' : 'ai', { 'stream-caret': streaming && i === textParts.length - 1 }]">
-            <template v-for="(s, j) in segments(p.type === 'text' ? p.text : '')" :key="j">
+            <!-- 有公式（一起读专业书时的批注、讲题）：公式用 KaTeX 显示，括号里的动作照样淡一点 -->
+            <RichText v-if="p.type === 'text' && hasMath(p.text)" :text="p.text" actions />
+            <template v-for="(s, j) in segments(p.type === 'text' ? p.text : '')" v-else :key="j">
               <span :class="{ action: s.action }">{{ s.text }}</span>
             </template>
           </div>
@@ -222,7 +225,8 @@ function segments(text: string) {
   color: var(--on-bubble-me);
   border-top-right-radius: 6px;
 }
-.action {
+.action,
+.bubble :deep(.action) {
   opacity: 0.62;
   font-style: italic;
 }

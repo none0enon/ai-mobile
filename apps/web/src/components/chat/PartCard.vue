@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, ref } from 'vue';
 import { showToast } from 'vant';
 import { assetUrl } from '@/services/assets';
 import GenImage from '@/components/figure/GenImage.vue';
+import RichText from '@/components/common/RichText.vue';
 import { clock } from '@/utils/time';
 
 /** 消息里各种"卡片"的渲染（文字以外的 part） */
@@ -148,7 +149,7 @@ async function playVoice() {
     <div class="flex-1 min-w-0">
       <div class="text-[14.5px] truncate">一起读《{{ part.title }}》</div>
       <div class="text-[12px] text-ink-3 truncate">{{ part.chapter }} · 全书 {{ part.progress }}%<template v-if="part.notes"> · {{ part.notes }} 条批注</template></div>
-      <div v-if="part.quote" class="text-[12.5px] text-ink-2 mt-0.5">「{{ part.quote }}」</div>
+      <div v-if="part.quote" class="text-[12.5px] text-ink-2 mt-0.5">「<RichText :text="part.quote" />」</div>
     </div>
   </div>
   <div v-else-if="part.type === 'game'" class="pcard row-card" style="--tone: #b9a3e6">

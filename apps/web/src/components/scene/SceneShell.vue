@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { getLocation, getScene, type PokeHotspot, type TimeOfDay } from '@app/shared';
+import { getLocation, getScene, hasMath, type PokeHotspot, type TimeOfDay } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, inject, ref } from 'vue';
 import Avatar from '@/components/common/Avatar.vue';
+import RichText from '@/components/common/RichText.vue';
 import StageView from '@/components/stage/StageView.vue';
 import { backdropAt, SCENE_LOCATION, titleAt } from './location';
 import { goBack } from '@/router';
@@ -29,12 +30,14 @@ const props = withDefaults(
     line?: string;
     typing?: boolean;
     hideFigure?: boolean;
+    /** 面板占满顶栏以下（一起看书翻开书时）：她的那句话放进面板顶上，不压在书页上 */
+    fill?: boolean;
     pokeable?: boolean;
     showHotspots?: boolean;
     layout?: { left: number; bottom: number; height: number };
     title?: string;
   }>(),
-  { rain: false, dim: 0, typing: false, hideFigure: false, pokeable: false, showHotspots: false },
+  { rain: false, dim: 0, typing: false, hideFigure: false, fill: false, pokeable: false, showHotspots: false },
 );
 const emit = defineEmits<{ (e: 'poke', h: PokeHotspot, kind: 'tap' | 'long'): void }>();
 
@@ -96,15 +99,24 @@ const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50
         </button>
         <slot name="actions" />
       </header>
-      <RouterLink v-if="line || typing" :to="chatLink" class="companion" :aria-label="`去和${character.name}聊天`">
+      <RouterLink v-if="!fill && (line || typing)" :to="chatLink" class="companion" :aria-label="`去和${character.name}聊天`">
         <Avatar :character="character" :size="30" live />
         <div class="say">
           <span v-if="typing && !line" class="inline-flex gap-1 text-accent-ink"><span class="typing-dot" /><span class="typing-dot" /><span class="typing-dot" /></span>
+          <RichText v-else-if="line && hasMath(line)" :text="line" />
           <template v-else>{{ line }}</template>
         </div>
       </RouterLink>
       <slot name="overlay" />
-      <section class="panel">
+      <section class="panel" :class="{ fill }">
+        <RouterLink v-if="fill && (line || typing)" :to="chatLink" class="companion in-panel" :aria-label="`去和${character.name}聊天`">
+          <Avatar :character="character" :size="26" live />
+          <div class="say">
+            <span v-if="typing && !line" class="inline-flex gap-1 text-accent-ink"><span class="typing-dot" /><span class="typing-dot" /><span class="typing-dot" /></span>
+            <RichText v-else-if="line && hasMath(line)" :text="line" />
+            <template v-else>{{ line }}</template>
+          </div>
+        </RouterLink>
         <slot />
       </section>
     </StageView>
@@ -189,6 +201,24 @@ const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50
   font-size: 14.5px;
   line-height: 1.55;
   box-shadow: var(--shadow-sm);
+}
+.panel.fill {
+  top: calc(var(--safe-top) + 58px);
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+}
+.companion.in-panel {
+  position: static;
+  flex: none;
+  margin-bottom: 10px;
+  animation: none;
+}
+.companion.in-panel .say {
+  max-height: 4.8em;
+  overflow-y: auto;
+  padding: 6px 10px;
+  font-size: 13.5px;
 }
 .panel {
   position: absolute;

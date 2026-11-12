@@ -1,10 +1,11 @@
-import { stripControlTags, type TtsTextOptions } from '@app/shared';
+import { speakMath, stripControlTags, type TtsTextOptions } from '@app/shared';
 import { compileFilter } from '../llm/filter.ts';
 
 /**
  * 朗读前的文字处理（设计文档 §11.1；可选项对照 SillyTavern 的 TTS 设置）：
  * 去掉控制标签、代码块、<标签>（状态栏之类）、动作描写、表情符号、Markdown 记号和链接。
  * 括号和星号里的通常是动作或神态（"（小声）""*托着下巴看你*"），默认整段不读；也可以只读引号里的话。
+ * 数学公式（$…$、$$…$$ 里的 LaTeX）先换成中文读法（"从 a 到 b 的积分"），免得公式里的括号、星号被当成动作删掉。
  */
 export const DEFAULT_TTS_TEXT: TtsTextOptions = {
   quotedOnly: false,
@@ -25,6 +26,8 @@ export function prepareTtsText(text: string, options: Partial<TtsTextOptions> & 
   const o = { ...DEFAULT_TTS_TEXT, ...options };
   let t = stripControlTags(text).text;
   if (o.skipCodeBlocks) t = t.replace(/```[\s\S]*?```/g, ' ').replace(/~~~[\s\S]*?~~~/g, ' ');
+  // 公式先换成读法：公式里的括号、星号（f(z)、z^*）不能当成动作删掉
+  t = speakMath(t);
   if (o.skipTags) t = t.replace(/<([a-z][\w-]*)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ').replace(/<\/?[a-z][^>]*>/gi, ' ');
   if (o.regex) {
     const re = compileFilter(o.regex);

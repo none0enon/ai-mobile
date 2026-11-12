@@ -32,7 +32,9 @@ export function hexToBytes(hex: string): Uint8Array {
 
 /**
  * 从模型输出里取出 JSON：容忍 ```json 代码块、前后的解释文字、思考标签。
- * 先整体解析；不行再取第一个配平的 { … } 或 [ … ]。都不行返回 undefined。
+ * 先整体解析；不行再取第一个配平的 { … } 或 [ … ]；
+ * 还不行，多半是字符串里直接写了 LaTeX（"$\int_a^b$"，\i 不是合法的转义）：把不合法的反斜杠当成字面的再试一次。
+ * 都不行返回 undefined。
  */
 export function parseJsonLoose(text: string): unknown {
   const raw = text
@@ -41,27 +43,60 @@ export function parseJsonLoose(text: string): unknown {
     .trim();
   const fenced = raw.match(/```(?:json|JSON)?\s*([\s\S]*?)```/);
   const candidates = fenced?.[1] ? [fenced[1].trim(), raw] : [raw];
-  for (const c of candidates) {
-    try {
-      return JSON.parse(c);
-    } catch {
-      // 继续找配平的括号
-    }
-    const block = firstBalanced(c);
-    if (block) {
-      try {
-        return JSON.parse(block);
-      } catch {
-        // 末尾多了逗号之类的：去掉对象 / 数组结尾前的逗号再试一次
-        try {
-          return JSON.parse(block.replace(/,\s*([}\]])/g, '$1'));
-        } catch {
-          // 放弃这一段
-        }
-      }
+  for (const fix of [(s: string) => s, literalBackslashes]) {
+    for (const c of candidates) {
+      const v = parseCandidate(fix(c));
+      if (v !== undefined) return v;
     }
   }
   return undefined;
+}
+
+function parseCandidate(c: string): unknown {
+  try {
+    return JSON.parse(c);
+  } catch {
+    // 继续找配平的括号
+  }
+  const block = firstBalanced(c);
+  if (!block) return undefined;
+  try {
+    return JSON.parse(block);
+  } catch {
+    // 末尾多了逗号之类的：去掉对象 / 数组结尾前的逗号再试一次
+    try {
+      return JSON.parse(block.replace(/,\s*([}\]])/g, '$1'));
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+/**
+ * JSON 字符串里不合法的反斜杠改成字面的反斜杠（\int → \\int）。
+ * \b \f \n \r \t 后面紧跟字母时（\beta \frac \nabla \rho \theta）也当成 LaTeX，只在整段本来就解析不了时用
+ */
+function literalBackslashes(json: string): string {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < json.length; i += 1) {
+    const c = json[i]!;
+    if (!inString || c !== '\\') {
+      if (c === '"') inString = !inString;
+      out += c;
+      continue;
+    }
+    const n = json[i + 1] ?? '';
+    const valid =
+      n === '\\' || n === '"' || n === '/' ||
+      (n === 'u' && /^[0-9a-fA-F]{4}$/.test(json.slice(i + 2, i + 6))) ||
+      ('bfnrt'.includes(n) && n !== '' && !/[a-zA-Z]/.test(json[i + 2] ?? ''));
+    if (valid) {
+      out += c + n;
+      i += 1;
+    } else out += '\\\\';
+  }
+  return out;
 }
 
 /** 第一个括号配平的 JSON 对象或数组（跳过字符串里的括号） */
