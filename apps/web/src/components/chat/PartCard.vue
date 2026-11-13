@@ -45,6 +45,15 @@ const bars = computed(() => {
   return Array.from({ length: n }, (_, i) => 30 + ((i * 37) % 60));
 });
 
+/** 装修小屋的照片：点开看大图 */
+async function previewPhoto() {
+  const p = props.part;
+  if (p.type !== 'game' || p.game !== 'decor' || !p.photo) return;
+  const url = await assetUrl(p.photo);
+  if (url) showImagePreview({ images: [url], closeable: true, showIndex: false });
+  else showToast('本机找不到这张照片了');
+}
+
 /** 学习卡片里这次画的图：点一张从它开始翻 */
 async function previewShots(start: number) {
   const p = props.part;
@@ -210,6 +219,20 @@ async function playVoice() {
       </div>
       <div class="text-[12.5px] text-ink-2">
         {{ character.pronoun }}：真心话 {{ part.her.truth }} · 大冒险 {{ part.her.dare }}<template v-if="part.her.skipped"> · 认罚 {{ part.her.skipped }}</template>
+      </div>
+    </div>
+  </div>
+  <div v-else-if="part.type === 'game' && part.game === 'decor'" class="pcard row-card" style="--tone: #e7b46a">
+    <span class="icon-wrap" style="color: var(--tone)"><span class="i-lucide-sofa" /></span>
+    <div class="flex-1 min-w-0">
+      <div class="text-[14.5px] truncate">装修小屋 · {{ part.room }}</div>
+      <div class="text-[12px] text-ink-3">
+        现在摆了 {{ part.items }} 件<template v-if="part.added"> · 这次添了 {{ part.added }} 件</template><template v-if="part.herAdded"> · {{ character.pronoun }}放了 {{ part.herAdded }} 件</template>
+      </div>
+      <div v-if="part.photo" class="shots">
+        <button type="button" class="shot wide" :aria-label="`看大图：${part.room}`" @click="previewPhoto">
+          <AssetImg :asset-key="part.photo" :alt="part.room" />
+        </button>
       </div>
     </div>
   </div>
@@ -468,5 +491,9 @@ async function playVoice() {
   border-radius: 10px;
   overflow: hidden;
   background: var(--panel);
+}
+.shot.wide {
+  width: 160px;
+  height: 120px;
 }
 </style>
