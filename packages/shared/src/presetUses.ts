@@ -11,6 +11,8 @@ import type { Preset, PresetCategory, PromptBlock } from './types/preset.ts';
  * - 心跳：打字聊用"心跳"（scene:heart），连麦用"心跳 · 语音"（heart-voice），玩具的控制指令用"控制指令"（device），背景图用 image:heart。
  * - 一起游戏：海龟汤用 scene:game，真心话大冒险用"一起游戏 · 真心话大冒险"（game-truthdare），飞行棋用"一起游戏 · 飞行棋"（game-flight，选的预设就是棋盘），
  *   装修小屋用"一起游戏 · 装修小屋"（game-decor）。
+ * - 创意工坊：写小说用"小说"预设（novel，调"创作 · 小说"的 API），画画用"一起游戏 · 创意工坊"的生图预设（game-workshop-image，可以跟随配图），
+ *   把作品给她看、她捧场或吐槽用"一起游戏 · 创意工坊"（game-workshop）。
  */
 export type FeatureSceneId = Exclude<SceneId, 'free'>;
 export type PresetUseId =
@@ -26,6 +28,9 @@ export type PresetUseId =
   | 'game-truthdare'
   | 'game-flight'
   | 'game-decor'
+  | 'game-workshop'
+  | 'game-workshop-image'
+  | 'novel'
   | 'device'
   | `scene:${FeatureSceneId}`
   | `image:${FeatureSceneId}`;
@@ -94,6 +99,8 @@ export const isSoupPreset = (p: Pick<Preset, 'blocks'> | undefined) => hasTasks(
 export const isFlightPreset = (p: Pick<Preset, 'blocks'> | undefined) => hasTasks(p, 'fly-');
 /** 装修小屋的预设（decor- 开头：看看屋子 decor-look、动手布置 decor-plan……）：换成别的功能预设时她的布置方案读不出来 */
 export const isDecorPreset = (p: Pick<Preset, 'blocks'> | undefined) => hasTasks(p, 'decor-');
+/** 创意工坊的预设（ws- 开头：看你的小说 ws-novel、看你的画 ws-image……） */
+export const isWorkshopPreset = (p: Pick<Preset, 'blocks'> | undefined) => hasTasks(p, 'ws-');
 
 /** 一起做事的用途里名字、说明和场景名不一样的（一个场景分了好几个用途的） */
 const SCENE_USE_TEXT: Partial<Record<FeatureSceneId, { label?: string; desc: string }>> = {
@@ -132,10 +139,19 @@ export const PRESET_USES: PresetUse[] = [
     icon: 'i-lucide-sofa',
     follow: null,
   },
+  {
+    id: 'game-workshop',
+    category: 'feature',
+    label: '一起游戏 · 创意工坊',
+    desc: '一起游戏里把你写的小说、画的画给她看：她读完捧场、吐槽、追问后续，或者陪你聊聊创作',
+    icon: 'i-lucide-palette',
+    follow: null,
+  },
   { id: 'proactive', category: 'proactive', label: '主动消息', desc: '到点时角色先发来的那条', icon: 'i-lucide-bell-ring', follow: 'chat' },
   { id: 'theater', category: 'theater', label: '番外', desc: '"我的 → 试一试 → 写一段番外"', icon: 'i-lucide-book-heart', follow: null },
   { id: 'summary', category: 'summary', label: '总结聊天', desc: '每攒够几条（"我的 → 消息设置"里改）自动写梗概、故事片段和记忆，聊天 ⋯ 里也能手动整理', icon: 'i-lucide-notebook-pen', follow: null },
   { id: 'consolidate', category: 'summary', label: '记忆整理', desc: '每天凌晨 4 点在云端合并重复的记忆、合并时间线、过期的事改时态、修改画像卡；记忆本里也能"立即整理"', icon: 'i-lucide-sparkles', follow: null },
+  { id: 'novel', category: 'novel', label: '创意工坊 · 小说', desc: '创意工坊里写小说：和你商量设定、大纲、人物，写下一章、写番外（调"创作 · 小说"的 API）', icon: 'i-lucide-feather', follow: null },
   { id: 'image', category: 'image', label: '配图', desc: '聊天 ＋ → 生成配图、聊天里的 [cg:]、番外的那一幕：先写成 NovelAI tags 再调生图 API', icon: 'i-lucide-image', follow: null },
   ...SCENES.map((s): PresetUse => {
     const moments = IMAGE_MOMENTS[s.id as FeatureSceneId];
@@ -148,6 +164,14 @@ export const PRESET_USES: PresetUse[] = [
       follow: 'image',
     };
   }),
+  {
+    id: 'game-workshop-image',
+    category: 'image',
+    label: '创意工坊 · 画画',
+    desc: '创意工坊里你想画的东西（可以画她、画你小说里的一幕、画什么都行）：先写成 NovelAI tags 再调生图 API',
+    icon: 'i-lucide-paintbrush',
+    follow: 'image',
+  },
   { id: 'rhythm', category: 'rhythm', label: '节律', desc: '导入角色后建她的世界；每天排她的作息、三餐和穿着（"我的 → 节律"）', icon: 'i-lucide-calendar-clock', follow: null },
   { id: 'health', category: 'health', label: '健康计划', desc: '按你人设里的健康设置排这周和今天的健身计划、饮食计划（"我的 → 健康计划"）', icon: 'i-lucide-heart-pulse', follow: null },
   { id: 'device', category: 'device', label: '控制指令', desc: '心跳里按她说的话给连着的玩具写指令（震动、摆动、伸缩……），读到、念到那里时执行', icon: 'i-lucide-activity', follow: null },

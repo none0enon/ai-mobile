@@ -128,6 +128,7 @@ export type AgentRole =
   | 'main'
   | 'companion'
   | 'sidestory'
+  | 'novel'
   | 'summary'
   | 'consolidate'
   | 'embedding'
@@ -211,6 +212,13 @@ export const AGENT_META: Record<
     capability: 'chat',
     runsOn: 'both',
     icon: 'i-lucide-book-heart',
+  },
+  novel: {
+    label: '创作 · 小说',
+    desc: '一起游戏 · 创意工坊里写小说：和你商量设定、大纲和人物，按你的意思写章节和番外。要写长文，选文笔好、上下文长的模型',
+    capability: 'chat',
+    runsOn: 'client',
+    icon: 'i-lucide-feather',
   },
   summary: {
     label: '总结 / 记忆',

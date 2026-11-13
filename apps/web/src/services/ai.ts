@@ -247,7 +247,7 @@ export class RoutedImage implements ImageClient {
     if (!c) throw new AiError('no_route', '找不到这个角色');
     const now = new Date();
     // 节律里今天这个场景该穿的那套：一起做事时锁定（同一天的图衣服一致），配图时只告诉模型；画"你"时不用她的衣服
-    const outfit = req.subject ? undefined : useRhythmStore().outfitFor(c.id, req.sceneId ?? null);
+    const outfit = req.subject || req.free ? undefined : useRhythmStore().outfitFor(c.id, req.sceneId ?? null);
     // 真实天气：画"你"、或者她在你这边真实的地方时用你那边的，否则用她那边的（她住在别的城市时是那里的）
     const weatherStore = useWeatherStore();
     const atReal = getLocation(c.locationId)?.area === 'real';
@@ -256,19 +256,24 @@ export class RoutedImage implements ImageClient {
       mode: req.mode,
       moment: req.moment,
       // 长相：同人是角色 tag + 作品 tag（+ 补充的外观），原创是外观 tags；画"你"时按你给的
-      character: req.subject
-        ? { name: req.subject.name, appearanceTags: req.subject.appearanceTags, outfit: null }
-        : { name: c.name, appearanceTags: imageAppearance(c), negativeTags: c.negativeTags, pronoun: c.pronoun, outfit: outfit ?? null },
+      // 自由画：不画她（名字留给预设里的 {{char}}，长相、衣服都不给）
+      character: req.free
+        ? { name: c.name, appearanceTags: '', outfit: null }
+        : req.subject
+          ? { name: req.subject.name, appearanceTags: req.subject.appearanceTags, outfit: null }
+          : { name: c.name, appearanceTags: imageAppearance(c), negativeTags: c.negativeTags, pronoun: c.pronoun, outfit: outfit ?? null },
       lockOutfit: !!req.lockOutfit && !!outfit?.tags,
       ...(req.subject ? { companionName: c.name } : {}),
       ...(req.size ? { size: req.size } : {}),
       caption: req.caption,
-      scene: {
-        place: req.place ?? getLocation(c.locationId)?.name,
-        timeOfDay: TIME_OF_DAY_LABEL[timeOfDay(now.getHours())],
-        ...(sky ? { weather: sky.text } : {}),
-        expression: req.expression ?? undefined,
-      },
+      scene: req.free
+        ? { ...(req.place ? { place: req.place } : {}) }
+        : {
+            place: req.place ?? getLocation(c.locationId)?.name,
+            timeOfDay: TIME_OF_DAY_LABEL[timeOfDay(now.getHours())],
+            ...(sky ? { weather: sky.text } : {}),
+            expression: req.expression ?? undefined,
+          },
       recent: req.recent,
     };
     // 写 tags 用这个用途的生图预设：配图（默认），一起做事时用这个场景的（没单独选时跟随配图）；一个生图预设都没有时直接用外观 tags + 画面描述

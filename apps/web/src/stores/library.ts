@@ -42,7 +42,7 @@ function readSeeds(): Seed[] {
     }
   }
   // 先对话、再功能……同一类按文件名
-  const order: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image', 'rhythm', 'health', 'device'];
+  const order: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image', 'rhythm', 'health', 'device', 'novel'];
   return out.sort((a, b) => order.indexOf(a.preset.category) - order.indexOf(b.preset.category) || a.file.localeCompare(b.file));
 }
 
@@ -289,7 +289,7 @@ function clone<T>(x: T): T {
 
 /**
  * 预设和世界书。
- * - 预设分九类（对话、功能、主动消息、小剧场、总结、生图、节律、健康、控制指令）；
+ * - 预设分十类（对话、功能、主动消息、小剧场、总结、生图、节律、健康、控制指令、小说）；
  * - 每个用途（一起做事的每件事、主动消息、番外、总结、配图、一起做事时画的图、节律）选一个对应分类的预设；对话预设每个角色自己选；
  * - 所有预设都存在本机（自带的放进来以后也一样）。
  */

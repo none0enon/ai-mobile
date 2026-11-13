@@ -106,6 +106,11 @@ export interface IllustrateRequest {
    * 生图预设仍按 characterId 那个角色选，预设里的 {{user}} 换成她的名字（陪着你、不在画面里）
    */
   subject?: { name: string; appearanceTags: string };
+  /**
+   * 自由画（创意工坊里画小说的一幕、画什么都行）：不加她的长相和衣服，也不填她在哪、天气；
+   * 画面里有谁、长什么样全按 caption 和生图预设来。生图预设仍按 characterId 那个角色选
+   */
+  free?: boolean;
 }
 
 /** 出图排到哪了：排队（前面还有图在画）→ 写 tags → 出图 */

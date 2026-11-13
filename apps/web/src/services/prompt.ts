@@ -100,6 +100,12 @@ function partToText(p: MessagePart, character: Character, user: string, mapText?
         const her = p.herAdded ? `，其中${character.name}放了 ${p.herAdded} 件` : '';
         return `[一起装修小屋「${p.room}」：现在摆了 ${p.items} 件，这一次添了 ${p.added} 件${her}]`;
       }
+      if (p.game === 'workshop') {
+        const mood = p.verdict === 'cheer' ? '，想听她捧场' : p.verdict === 'roast' ? '，想听她吐槽' : '';
+        if (p.kind === 'image') return `[${user}在创意工坊画了一张画「${p.title}」拿给${character.name}看${mood}]`;
+        const head = p.excerpt ? `，开头是：${p.excerpt}` : '';
+        return `[${user}在创意工坊写的小说《${p.title}》${p.chapter ? `的「${p.chapter}」` : ''}拿给${character.name}看${mood}${head}]`;
+      }
       if (p.game === 'flight') {
         const won = p.winner ? `；${p.winner === 'you' ? user : character.name}先到了终点` : '';
         return `[飞行棋「${p.board}」：掷了 ${p.turns} 次骰子；${user}走到第 ${p.you} 格，${character.name}走到第 ${p.her} 格（一共 ${p.size} 格）${won}]`;

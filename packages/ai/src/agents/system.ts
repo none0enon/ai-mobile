@@ -89,6 +89,7 @@ export interface AgentCallOptions {
 /** 分配里没写输出上限时的默认值（主对话由预设决定） */
 const DEFAULT_MAX_TOKENS: Partial<Record<AgentRole, number>> = {
   sidestory: 2000,
+  novel: 6000,
   imagePrompt: 800,
   summary: 4000,
   consolidate: 3000,

@@ -129,11 +129,12 @@ export interface RegexScript {
  * - image 生图：把画面写成 NovelAI tags；
  * - rhythm 节律：建她的世界、排她每天的作息、三餐和穿着；
  * - health 健康：按你人设里的健康设置排这周和今天的健身计划、饮食计划；
- * - device 控制指令：心跳里按她说的话给连着的玩具写指令（Intiface Central）。
+ * - device 控制指令：心跳里按她说的话给连着的玩具写指令（Intiface Central）；
+ * - novel 小说：创意工坊里和你商量设定、写章节和番外。
  * 前三类是角色扮演，程序填充块和 SillyTavern 的对话预设一样（角色卡、世界书、聊天记录……），可以互相复制；
  * 后几类是一次性的任务，程序填充块是这件任务的输入（要整理的聊天、要画的画面、她的世界……）。
  */
-export type PresetCategory = 'chat' | 'feature' | 'proactive' | 'theater' | 'summary' | 'image' | 'rhythm' | 'health' | 'device';
+export type PresetCategory = 'chat' | 'feature' | 'proactive' | 'theater' | 'summary' | 'image' | 'rhythm' | 'health' | 'device' | 'novel';
 
 export const PRESET_CATEGORIES: Record<PresetCategory, { label: string; desc: string; icon: string }> = {
   chat: { label: '对话', desc: '主对话：聊天气泡和剧场模式。每个角色选一个（角色设定 → 预设）', icon: 'i-lucide-message-circle-heart' },
@@ -149,9 +150,14 @@ export const PRESET_CATEGORIES: Record<PresetCategory, { label: string; desc: st
     desc: '心跳里玩具的控制指令：按她刚说的话、连着的玩具能做什么、你设的强度上限，写什么时候震动多强、怎么变速、伸缩多快（通过 Intiface Central 执行）',
     icon: 'i-lucide-activity',
   },
+  novel: {
+    label: '小说',
+    desc: '一起游戏 · 创意工坊里写小说：和你商量设定、大纲和人物，写下一章、写番外（用"创作 · 小说"的 API）',
+    icon: 'i-lucide-feather',
+  },
 };
 
-export const PRESET_CATEGORY_ORDER: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image', 'rhythm', 'health', 'device'];
+export const PRESET_CATEGORY_ORDER: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image', 'rhythm', 'health', 'device', 'novel'];
 
 /** 角色扮演类的预设（程序填充块相同，可以互相复制） */
 export const ROLEPLAY_CATEGORIES: PresetCategory[] = ['chat', 'feature', 'proactive'];
@@ -211,7 +217,7 @@ export type LifeFlag = keyof typeof LIFE_FLAGS;
  * 任务类预设（小剧场、总结、生图）的程序填充块：只放这件任务每次的输入（要整理的聊天、要画的画面……）。
  * 说明、规则、输出格式都是预设里的普通块，可以改。
  */
-export const TASK_MARKERS: Record<'theater' | 'summary' | 'image' | 'rhythm' | 'health' | 'device', Record<string, string>> = {
+export const TASK_MARKERS: Record<'theater' | 'summary' | 'image' | 'rhythm' | 'health' | 'device' | 'novel', Record<string, string>> = {
   theater: {
     storyCharacter: '角色',
     storyWorld: '她的世界（作息、手头的事、身边的人）',
@@ -260,6 +266,12 @@ export const TASK_MARKERS: Record<'theater' | 'summary' | 'image' | 'rhythm' | '
     deviceNow: '玩具现在在做什么',
     deviceRecent: '最近的对话',
     deviceLine: '她这一句（要配指令的话）',
+  },
+  novel: {
+    novelInfo: '作品（书名、类型、设定、大纲、文风）',
+    novelChapters: '已经写好的章节',
+    novelChat: '你们最近的讨论',
+    novelAsk: '这一次要做的',
   },
 };
 
