@@ -6,7 +6,7 @@ import { AVATAR_FIELDS, randomAvatar, type Avatar } from './avatar';
 import { ChibiStudio } from './studio';
 
 /**
- * 捏人：你和她两个小人，挑发型、刘海、眼睛、嘴、衣服、配饰和颜色，拖着展示台转着看。
+ * 捏人：你和她两个小人，挑发型、发顶、刘海（能左右翻转、发梢渐变）、眼睛、嘴、衣服或套装（颜色 + 花纹）、能多选的配饰，拖着展示台转着看。
  * "让她捏"：她照自己的设定给自己捏（或者照你的人设给你捏），捏出来先放进草稿，你还能接着改；点"好了"才存。
  */
 const props = defineProps<{ you: Avatar; her: Avatar; herName: string; herPronoun: string; start: 'you' | 'her'; design: (who: 'you' | 'her') => Promise<Avatar | null> }>();
@@ -25,7 +25,7 @@ const who = ref<'you' | 'her'>(props.start);
 const group = ref<Group>('face');
 const draft = ref<{ you: Avatar; her: Avatar }>({ you: { ...props.you }, her: { ...props.her } });
 const current = computed(() => draft.value[who.value]);
-const fields = computed(() => AVATAR_FIELDS.filter((f) => f.group === group.value));
+const fields = computed(() => AVATAR_FIELDS.filter((f) => f.group === group.value && (!f.when || f.when(current.value))));
 const whoOptions = computed(() => [
   { value: 'you' as const, label: '你' },
   { value: 'her' as const, label: props.herName },
@@ -50,6 +50,15 @@ watch(current, (a) => studio?.setAvatar(a), { deep: true });
 
 function set<K extends keyof Avatar>(key: K, value: Avatar[K]) {
   draft.value = { ...draft.value, [who.value]: { ...current.value, [key]: value } };
+}
+/** 多选的一项（配饰）：点一下戴上，再点一下摘掉 */
+function toggleIn(key: keyof Avatar, id: string) {
+  const list = current.value[key] as string[];
+  set(key, (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]) as never);
+}
+function picked(key: keyof Avatar, id: string, multi?: boolean): boolean {
+  const v = current.value[key];
+  return multi ? (v as string[]).includes(id) : v === id;
 }
 function shuffle() {
   draft.value = { ...draft.value, [who.value]: randomAvatar(current.value) };
@@ -100,9 +109,25 @@ function save() {
         <div v-for="f in fields" :key="f.key" class="field">
           <div class="label">{{ f.label }}</div>
           <div v-if="f.options" class="chips">
-            <button v-for="o in f.options" :key="o.id" type="button" class="chip-btn" :class="{ on: current[f.key] === o.id }" :aria-pressed="current[f.key] === o.id" @click="set(f.key, o.id as never)">{{ o.name }}</button>
+            <button v-if="f.multi" type="button" class="chip-btn" :class="{ on: !(current[f.key] as string[]).length }" :aria-pressed="!(current[f.key] as string[]).length" @click="set(f.key, [] as never)">不戴</button>
+            <button
+              v-for="o in f.options"
+              :key="o.id"
+              type="button"
+              class="chip-btn"
+              :class="{ on: picked(f.key, o.id, f.multi) }"
+              :aria-pressed="picked(f.key, o.id, f.multi)"
+              @click="f.multi ? toggleIn(f.key, o.id) : set(f.key, o.id as never)"
+            >
+              {{ o.name }}
+            </button>
+          </div>
+          <div v-else-if="f.toggle" class="chips">
+            <button type="button" class="chip-btn" :class="{ on: !!current[f.key] }" :aria-pressed="!!current[f.key]" @click="set(f.key, true as never)">{{ f.toggle[0] }}</button>
+            <button type="button" class="chip-btn" :class="{ on: !current[f.key] }" :aria-pressed="!current[f.key]" @click="set(f.key, false as never)">{{ f.toggle[1] }}</button>
           </div>
           <div v-else class="chips">
+            <button v-if="f.none" type="button" class="chip-btn" :class="{ on: !current[f.key] }" :aria-pressed="!current[f.key]" @click="set(f.key, '' as never)">{{ f.none }}</button>
             <button
               v-for="c in f.colors"
               :key="c.hex"
@@ -114,18 +139,11 @@ function save() {
               :title="c.name"
               @click="set(f.key, c.hex as never)"
             />
-            <label class="swatch custom" :aria-label="`${f.label}：自己调`"><input type="color" :value="current[f.key]" @input="set(f.key, ($event.target as HTMLInputElement).value as never)" /><span class="i-lucide-plus" /></label>
+            <label class="swatch custom" :aria-label="`${f.label}：自己调`">
+              <input type="color" :value="current[f.key] || f.colors?.[0]?.hex" @input="set(f.key, ($event.target as HTMLInputElement).value as never)" /><span class="i-lucide-plus" />
+            </label>
           </div>
         </div>
-        <template v-if="group === 'face'">
-          <div class="field">
-            <div class="label">腮红</div>
-            <div class="chips">
-              <button type="button" class="chip-btn" :class="{ on: current.blush }" @click="set('blush', true)">有</button>
-              <button type="button" class="chip-btn" :class="{ on: !current.blush }" @click="set('blush', false)">没有</button>
-            </div>
-          </div>
-        </template>
         <template v-if="group === 'more'">
           <div class="field">
             <div class="label">头的大小 {{ Math.round(current.head * 100) }}%</div>

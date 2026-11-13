@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { isDecorPreset, isExpression, parseControlTags, type MessagePart, type PresetUseId } from '@app/shared';
-import { showImagePreview, showToast } from 'vant';
+import { showConfirmDialog, showImagePreview, showToast } from 'vant';
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, shallowRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { putAsset } from '@/services/assets';
@@ -26,12 +26,15 @@ import {
   duplicateItem,
   FLOOR_FINISHES,
   itemColor,
+  MAX_ROOMS,
   moveItem,
   PALETTE,
   parsePlanActions,
   removeItem,
   resizeRoom,
   ROOM_SIZES,
+  ROOM_TYPES,
+  roomType,
   turnItem,
   WALL_FINISHES,
   type DecorCategory,
@@ -41,8 +44,10 @@ import {
 
 /**
  * 一起游戏 · 装修小屋（设计文档 §9.11）：
- * - 3D 小屋（engine.ts）：布置时点家具选中、拖着挪、转向、换色、复制、收起；墙纸地面、屋子大小；撤销重做。逛逛时你的小人走动、坐下、躺下。
- * - 捏人（AvatarEditor.vue）：你和她的 Q 版小人；她能给自己捏、帮你捏。
+ * - 一套小屋好几个房间（一开始主卧、次卧、客厅、厨房、洗手间、书房，能自己再添，最多 10 个），上面一排标签换房间，一次看一间。
+ * - 3D 小屋（engine.ts）：布置时点家具选中、拖着挪、转向、换色、复制、收起；每间的墙纸地面、大小、名字；撤销重做。逛逛时你的小人走动、坐下、躺下。
+ *   转视角用两根手指（一起拖或者拧着转），捏合缩放。
+ * - 捏人（AvatarEditor.vue）：你和她的 Q 版小人（发型、发顶、刘海、渐变、套装、花纹、能多选的配饰）；她能给自己捏、帮你捏。
  * - 她：看看屋子说想法（decor-look）、动手布置（decor-plan，按格式写要添要挪的，程序照着摆、放不下的找附近空地）、
  *   捏小人（decor-avatar）、边装边聊（decor-chat）、收工时的话（decor-end）。每一步的规则都在"一起游戏 · 装修小屋"预设里。
  * 屋子和小人存在本机（stores/decor.ts），下次来还在。收工时拍一张照片，和对局卡片一起发进聊天。
@@ -73,7 +78,8 @@ const userName = computed(() => personaOf(chat.chatById(chatId.value)).name);
 
 decor.homeOf(her.value.id);
 const home = computed(() => decor.homes[her.value.id] ?? decor.homeOf(her.value.id));
-const room = computed(() => home.value.room);
+const rooms = computed(() => home.value.rooms);
+const room = computed(() => rooms.value[home.value.current] ?? rooms.value[0]!);
 const presetReady = computed(() => isDecorPreset(lib.presetForUse(USE, her.value)));
 
 // —— 3D ——
@@ -171,17 +177,57 @@ function commit(next: DecorRoom, what?: string) {
 }
 function undo() {
   const prev = undoStack.value.at(-1);
-  if (!prev) return;
+  if (!prev || prev.id !== room.value.id) return;
   undoStack.value = undoStack.value.slice(0, -1);
   redoStack.value = [...redoStack.value, clone(room.value)];
   decor.setRoom(her.value.id, prev);
 }
 function redo() {
   const next = redoStack.value.at(-1);
-  if (!next) return;
+  if (!next || next.id !== room.value.id) return;
   redoStack.value = redoStack.value.slice(0, -1);
   undoStack.value = [...undoStack.value, clone(room.value)];
   decor.setRoom(her.value.id, next);
+}
+
+// —— 房间：换一间、添一间、拆掉一间 ——
+const addRoomOpen = ref(false);
+function goRoom(index: number) {
+  if (index === home.value.current || busy.value) return;
+  select(null);
+  // 撤销只管一间屋子里的事
+  undoStack.value = [];
+  redoStack.value = [];
+  decor.setCurrent(her.value.id, index);
+  log.value.push(`${userName.value}去了${room.value.name}`);
+}
+function addRoom(type: string) {
+  if (busy.value) return;
+  select(null);
+  const made = decor.addRoom(her.value.id, type);
+  addRoomOpen.value = false;
+  if (!made) return showToast(`最多 ${MAX_ROOMS} 个房间`);
+  undoStack.value = [];
+  redoStack.value = [];
+  log.value.push(`${userName.value}添了一间新房间「${made.name}」`);
+  if (phase.value !== 'playing') phase.value = 'playing';
+  emit('progress', `装修小屋「${made.name}」`);
+}
+async function removeRoom() {
+  if (busy.value || rooms.value.length <= 1) return;
+  const target = room.value;
+  try {
+    await showConfirmDialog({ title: `拆掉「${target.name}」？`, message: `里面的 ${target.items.length} 件家具会一起收走，拆了就找不回来了。` });
+  } catch {
+    return;
+  }
+  // 名字的草稿清掉：关面板时别把这个名字安到下一间头上
+  nameDraft.value = '';
+  finishOpen.value = false;
+  select(null);
+  undoStack.value = [];
+  redoStack.value = [];
+  if (decor.removeRoom(her.value.id, target.id)) log.value.push(`${userName.value}把「${target.name}」拆掉了`);
 }
 
 // —— 选中的那件 ——
@@ -259,7 +305,7 @@ function setFinish(key: 'wall' | 'floor', patch: { finish?: string; color?: stri
 function setSize(w: number, d: number) {
   if (w === room.value.w && d === room.value.d) return;
   const res = resizeRoom(room.value, w, d);
-  commit(res.room, `把屋子改成了 ${w} × ${d} 格`);
+  commit(res.room, `把房间改成了 ${w} × ${d} 格`);
   if (res.dropped) showToast(`放不下的 ${res.dropped} 件先收起来了，可以撤销`);
 }
 const nameDraft = ref('');
@@ -267,7 +313,7 @@ watch(finishOpen, (open) => {
   if (open) nameDraft.value = room.value.name;
   else {
     const n = nameDraft.value.trim().slice(0, 16);
-    if (n && n !== room.value.name) commit({ ...room.value, name: n }, `给屋子起名叫「${n}」`);
+    if (n && n !== room.value.name) commit({ ...room.value, name: n }, `把房间的名字改成了「${n}」`);
   }
 });
 
@@ -308,7 +354,7 @@ const togetherLine = computed(() => {
 function decorInput(extra: (string | false)[]): string {
   return [
     `你们怎么在一起：${togetherLine.value}`,
-    describeRoom(room.value, { you: userName.value, her: her.value.name }),
+    describeRoom(room.value, { you: userName.value, her: her.value.name }, rooms.value),
     `小人：${userName.value}是${describeAvatar(home.value.you)}；你是${describeAvatar(home.value.her)}`,
     log.value.length ? `这一次改了什么（按先后）：\n${log.value.slice(-14).join('\n')}` : '这一次还没动过',
     ...extra,
@@ -519,7 +565,7 @@ async function finish() {
 
 const hint = computed(() =>
   mode.value === 'edit'
-    ? '点家具选中；拖空白处转视角，双指缩放'
+    ? '点家具选中；双指拖动或拧转换视角，捏合缩放'
     : '点地面走过去，点沙发、椅子坐下，点床躺下',
 );
 </script>
@@ -532,8 +578,15 @@ const hint = computed(() =>
       <button type="button" class="text-accent-ink shrink-0" @click="router.push('/me/presets')">去看看</button>
     </div>
 
+    <div class="rooms" role="tablist" aria-label="房间">
+      <button v-for="(r, i) in rooms" :key="r.id" type="button" role="tab" class="room-tab" :class="{ on: i === home.current }" :aria-selected="i === home.current" :data-room="r.type" @click="goRoom(i)">
+        <span :class="roomType(r.type).icon" />{{ r.name }}
+      </button>
+      <button v-if="rooms.length < MAX_ROOMS" type="button" class="room-tab add" aria-label="添一个房间" @click="addRoomOpen = true"><span class="i-lucide-plus" />添房间</button>
+    </div>
+
     <div class="view">
-      <canvas ref="canvas" class="block w-full h-full" aria-label="3D 小屋：点家具选中，拖着挪；拖空白处转视角" />
+      <canvas ref="canvas" class="block w-full h-full" aria-label="3D 小屋：点家具选中，拖着挪；两根手指拖动或拧转换视角" />
       <div v-if="webglFailed" class="fallback">这台设备打不开 3D 画面（WebGL），装修小屋玩不了</div>
       <div class="view-top">
         <div class="modes" role="tablist">
@@ -578,7 +631,7 @@ const hint = computed(() =>
 
     <div class="tools">
       <button type="button" class="tool" @click="catalogOpen = true"><span class="i-lucide-armchair" />家具</button>
-      <button type="button" class="tool" @click="finishOpen = true"><span class="i-lucide-paint-roller" />墙和地面</button>
+      <button type="button" class="tool" @click="finishOpen = true"><span class="i-lucide-paint-roller" />房间</button>
       <button type="button" class="tool" @click="openAvatar('you')"><span class="i-lucide-user-round-pen" />捏人</button>
       <button type="button" class="tool icon" :disabled="!undoStack.length" aria-label="撤销" @click="undo"><span class="i-lucide-undo-2" /></button>
       <button type="button" class="tool icon" :disabled="!redoStack.length" aria-label="重做" @click="redo"><span class="i-lucide-redo-2" /></button>
@@ -615,10 +668,10 @@ const hint = computed(() =>
     <!-- 墙和地面 -->
     <van-popup v-model:show="finishOpen" position="bottom" round teleport="body" :style="{ maxHeight: '78%' }">
       <div class="sheet" data-sheet="finishes">
-        <div class="sheet-title">墙和地面</div>
-        <div class="label">屋子的名字</div>
-        <input v-model="nameDraft" class="field w-full" maxlength="16" placeholder="我们的小屋" aria-label="屋子的名字" />
-        <div class="label">屋子大小</div>
+        <div class="sheet-title">这个房间</div>
+        <div class="label">房间的名字</div>
+        <input v-model="nameDraft" class="field w-full" maxlength="16" :placeholder="roomType(room.type).name" aria-label="房间的名字" />
+        <div class="label">房间大小</div>
         <div class="chips">
           <button v-for="s in ROOM_SIZES" :key="s.label" type="button" class="chip-btn" :class="{ on: room.w === s.w && room.d === s.d }" @click="setSize(s.w, s.d)">{{ s.label }}（{{ s.w }} × {{ s.d }}）</button>
         </div>
@@ -641,6 +694,21 @@ const hint = computed(() =>
             />
           </div>
         </template>
+        <button v-if="rooms.length > 1" type="button" class="danger" @click="removeRoom"><span class="i-lucide-trash-2" />拆掉这个房间</button>
+      </div>
+    </van-popup>
+
+    <!-- 添一个房间 -->
+    <van-popup v-model:show="addRoomOpen" position="bottom" round teleport="body">
+      <div class="sheet" data-sheet="add-room">
+        <div class="sheet-title">添一个什么房间？</div>
+        <div class="text-[12.5px] text-ink-3">现在 {{ rooms.length }} 间，最多 {{ MAX_ROOMS }} 间；添好会先摆上几件家具，名字、大小、墙纸之后都能改</div>
+        <div class="grid mt-2.5">
+          <button v-for="t in ROOM_TYPES" :key="t.id" type="button" class="cell press" :data-type="t.id" @click="addRoom(t.id)">
+            <span class="type-icon"><span :class="t.icon" /></span>
+            <span class="cell-name">{{ t.name }}</span>
+          </button>
+        </div>
       </div>
     </van-popup>
 
@@ -678,6 +746,64 @@ const hint = computed(() =>
   background: var(--panel);
   color: var(--ink-2);
   font-size: 12.5px;
+}
+.rooms {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.rooms::-webkit-scrollbar {
+  display: none;
+}
+.room-tab {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 11px;
+  border-radius: 99px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.room-tab.on {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  outline: 1px solid var(--accent-line);
+  outline-offset: -1px;
+}
+.room-tab.add {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--ink-3);
+}
+.type-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--accent-ink);
+  font-size: 20px;
+}
+.danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: none;
+  height: 38px;
+  margin-top: 18px;
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--bad);
+  font-size: 13.5px;
 }
 .view {
   position: relative;

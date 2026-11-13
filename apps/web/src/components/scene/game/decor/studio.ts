@@ -50,8 +50,9 @@ export class ChibiStudio {
     this.controls.enableDamping = true;
     this.controls.minPolarAngle = 1.05;
     this.controls.maxPolarAngle = 1.45;
-    this.controls.target.set(0, 0.72, 0);
-    this.camera.position.set(0, 1.0, 3.4);
+    // 看的中心抬高一点、站远一点：炸起来的头发、呆毛也在画面里
+    this.controls.target.set(0, 0.8, 0);
+    this.camera.position.set(0, 1.1, 4);
     this.controls.update();
     this.resizeObs = new ResizeObserver(() => this.resize());
     this.resizeObs.observe(canvas.parentElement ?? canvas);
@@ -84,7 +85,7 @@ export class ChibiStudio {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     // 竖着窄的时候退远一点，整个人都在画面里
-    this.camera.position.setLength(Math.max(3.4, 2.6 / Math.min(1, this.camera.aspect)));
+    this.camera.position.sub(this.controls.target).setLength(Math.max(4, 3 / Math.min(1, this.camera.aspect))).add(this.controls.target);
     this.camera.updateProjectionMatrix();
   }
 

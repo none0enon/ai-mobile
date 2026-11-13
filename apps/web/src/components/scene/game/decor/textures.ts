@@ -45,6 +45,113 @@ export function toon(color: string, opts: { emissive?: string; opacity?: number;
   return m;
 }
 
+/** 用顶点颜色的卡通材质：头发渐变用（颜色写在几何体上） */
+export function toonVertex(): THREE.MeshToonMaterial {
+  const key = 'vertex-colors';
+  let m = materials.get(key) as THREE.MeshToonMaterial | undefined;
+  if (!m) {
+    m = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: toonGradient(), side: THREE.DoubleSide });
+    materials.set(key, m);
+  }
+  return m;
+}
+
+// —— 衣服的花纹 ——
+
+const clothCanvases = new Map<string, HTMLCanvasElement>();
+const clothTextures: THREE.Texture[] = [];
+
+function luminance(hex: string): number {
+  const c = new THREE.Color(hex);
+  const hsl = { h: 0, s: 0, l: 0 };
+  c.getHSL(hsl);
+  return hsl.l;
+}
+
+/** 一格花纹（会平铺）：浅色的布上画深一点的花，深色的布上画白的 */
+function clothTile(pattern: string, color: string): HTMLCanvasElement {
+  const key = `${pattern}|${color}`;
+  const hit = clothCanvases.get(key);
+  if (hit) return hit;
+  const S = 64;
+  const [c, g] = canvas(S, S);
+  const light = luminance(color) > 0.55;
+  const ink = light ? shade(color, -0.24) : '#fbf7f0';
+  g.fillStyle = color;
+  g.fillRect(0, 0, S, S);
+  g.fillStyle = ink;
+  // 一格里画两个（中间一个、四角各四分之一个），平铺出来是错开的
+  const spots: [number, number][] = [
+    [S / 2, S / 2],
+    [0, 0],
+    [S, 0],
+    [0, S],
+    [S, S],
+  ];
+  if (pattern === 'stripe') {
+    g.fillRect(0, 0, S, S / 4);
+    g.fillRect(0, S / 2, S, S / 4);
+  } else if (pattern === 'dots') {
+    for (const [x, y] of spots) {
+      g.beginPath();
+      g.arc(x, y, 9, 0, Math.PI * 2);
+      g.fill();
+    }
+  } else if (pattern === 'check') {
+    g.globalAlpha = 0.42;
+    g.fillRect(0, 0, S / 2, S);
+    g.fillRect(0, 0, S, S / 2);
+    g.globalAlpha = 1;
+  } else if (pattern === 'floral') {
+    const petal = light ? (luminance(color) > 0.85 ? '#f4a9bb' : '#ffffff') : '#ffffff';
+    for (const [x, y] of spots) {
+      g.fillStyle = petal;
+      for (let i = 0; i < 5; i += 1) {
+        const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
+        g.beginPath();
+        g.arc(x + Math.cos(a) * 7, y + Math.sin(a) * 7, 5.5, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.fillStyle = '#f6c945';
+      g.beginPath();
+      g.arc(x, y, 4, 0, Math.PI * 2);
+      g.fill();
+    }
+  } else if (pattern === 'heart') {
+    for (const [x, y] of spots) {
+      g.beginPath();
+      g.moveTo(x, y + 9);
+      g.bezierCurveTo(x - 16, y - 2, x - 7, y - 13, x, y - 4);
+      g.bezierCurveTo(x + 7, y - 13, x + 16, y - 2, x, y + 9);
+      g.fill();
+    }
+  } else if (pattern === 'star') {
+    for (const [x, y] of spots) star(g, x, y, 10);
+  }
+  clothCanvases.set(key, c);
+  return c;
+}
+
+/**
+ * 一块布的材质：纯色就是普通的卡通材质；有花纹的按这块布的大小（绕一圈多长、多高）平铺，花纹在哪件衣服上都差不多大。
+ */
+export function cloth(color: string, pattern: string, around: number, height: number, opts: { side?: THREE.Side } = {}): THREE.MeshToonMaterial {
+  if (!pattern || pattern === 'plain') return toon(color, opts);
+  const TILE = 0.15;
+  const rx = Math.max(1, Math.round(around / TILE));
+  const ry = Math.max(1, Math.round((height / TILE) * 2) / 2);
+  const key = `cloth|${color}|${pattern}|${rx}|${ry}|${opts.side ?? 0}`;
+  let m = materials.get(key) as THREE.MeshToonMaterial | undefined;
+  if (!m) {
+    const t = texture(clothTile(pattern, color), [rx, ry]);
+    clothTextures.push(t);
+    m = new THREE.MeshToonMaterial({ map: t, gradientMap: toonGradient() });
+    if (opts.side !== undefined) m.side = opts.side;
+    materials.set(key, m);
+  }
+  return m;
+}
+
 /** 晚上灯亮：所有会发光的材质一起调 */
 export function setGlow(on: boolean) {
   for (const m of materials.values()) if (m.userData.glow) (m as THREE.MeshToonMaterial).emissiveIntensity = on ? 1.1 : 0;
@@ -55,6 +162,9 @@ export function disposeMaterials() {
   materials.clear();
   gradient?.dispose();
   gradient = null;
+  for (const t of clothTextures) t.dispose();
+  clothTextures.length = 0;
+  clothCanvases.clear();
   for (const t of faceCache.values()) t.dispose();
   faceCache.clear();
 }
