@@ -8,6 +8,8 @@ import { useAppearanceStore } from '@/stores/appearance';
 import { useRealWorldStore } from '@/stores/realworld';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { databaseState } from '@/db/idb';
+import { startup } from '@/startup';
 
 const route = useRoute();
 const app = useAppStore();
@@ -29,11 +31,39 @@ const accent = computed(() => {
   const fromRoute = chars.byId((route.params.charId as string | undefined) ?? (route.query.char as string | undefined));
   return (fromChat ?? fromRoute ?? chars.byId(app.activeCharacterId))?.accent ?? null;
 });
+
+const loadingTitle = computed(() => {
+  if (databaseState.status === 'outdated') return 'App 已在其他页面更新';
+  if (databaseState.status === 'blocked') return '请先关闭其他 AI 陪伴页面';
+  if (startup.error || databaseState.status === 'error') return '本机数据暂时无法读取';
+  return '正在读取本机数据';
+});
+const loadingMessage = computed(() => {
+  if (databaseState.status === 'outdated') return '重新打开本页，继续使用已保存的设置和聊天。';
+  if (databaseState.status === 'blocked') return '旧页面正在占用数据。请关闭其他浏览器标签页和已安装的 App 窗口，本页会自动继续读取。';
+  if (startup.error || databaseState.status === 'error') return '请重新打开后再试。不要清除网站数据，已保存的 Key 和聊天需要从这里读取。';
+  return '正在读取已保存的 Key、设置和聊天，请稍候。';
+});
+const reload = () => window.location.reload();
 </script>
 
 <template>
   <AccentScope :accent="accent" class="app-frame">
-    <RouterView />
-    <InAppBanner />
+    <template v-if="startup.ready && databaseState.status !== 'outdated'">
+      <RouterView />
+      <InAppBanner />
+    </template>
+    <section v-else class="startup-status" role="status" aria-live="polite">
+      <h1>{{ loadingTitle }}</h1>
+      <p>{{ loadingMessage }}</p>
+      <button type="button" @click="reload">重新打开</button>
+    </section>
   </AccentScope>
 </template>
+
+<style scoped>
+.startup-status { display: flex; flex-direction: column; justify-content: center; min-height: 100%; padding: 32px; }
+.startup-status h1 { font-size: 20px; margin: 0 0 12px; }
+.startup-status p { color: var(--ink-2); margin: 0 0 24px; line-height: 1.8; }
+.startup-status button { align-self: flex-start; background: var(--accent); color: var(--on-accent); padding: 10px 20px; border-radius: var(--radius-sm); }
+</style>
