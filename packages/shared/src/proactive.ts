@@ -16,11 +16,10 @@ import type { EnvironmentSettings } from './types/settings.ts';
 export interface ProactivePlanInput {
   character: Pick<Character, 'id' | 'proactive'>;
   rules: ProactiveRule[];
-  env: Pick<EnvironmentSettings, 'wakeTime' | 'sleepTime' | 'meals'>;
+  env: Pick<EnvironmentSettings, 'timezone' | 'wakeTime' | 'sleepTime' | 'meals'>;
   /** 排哪一天（当天任意时刻） */
   day: Date;
-  /** 云端与客户端按同一个 IANA 时区排期；date 可指定跨午夜的上一天。 */
-  timeZone?: string;
+  /** 按 env.timezone 排期；date 可指定跨午夜的上一天。 */
   date?: string;
   /** 这个角色记着的待跟进的事（到期时间在这一天的会排进去） */
   followups?: { id: string; content: string; dueAt: number }[];
@@ -104,10 +103,9 @@ interface Draft {
 export function planTouchpoints(input: ProactivePlanInput): Touchpoint[] {
   const { character: c, env } = input;
   const p = c.proactive;
-  const date = input.date ?? (input.timeZone ? zonedDateKey(input.day.getTime(), input.timeZone) : dateKey(input.day));
-  const dayStart = new Date(input.day);
-  dayStart.setHours(0, 0, 0, 0);
-  const base = input.timeZone ? zonedInstant(date, 0, input.timeZone) : dayStart.getTime();
+  const timeZone = env.timezone;
+  const date = input.date ?? zonedDateKey(input.day.getTime(), timeZone);
+  const base = zonedInstant(date, 0, timeZone);
   const rules = new Map(input.rules.map((r) => [r.id, r]));
   const allowed = new Set(p.triggers);
   const on = (id: ProactiveTriggerId) => allowed.has(id) && rules.get(id)?.enabled === true;
@@ -140,10 +138,9 @@ export function planTouchpoints(input: ProactivePlanInput): Touchpoint[] {
   if (on('bedtime')) add('bedtime', sleep + 10 + Math.round(10 * jitter('bedtime')), p.allowCalls ? 'call' : 'message', p.allowCalls ? '过了睡觉时间还没睡：打电话催{{user}}睡觉' : undefined);
   if (on('followup')) {
     for (const f of input.followups ?? []) {
-      if (input.timeZone && zonedDateKey(f.dueAt, input.timeZone) !== date) continue;
-      const parts = input.timeZone ? zonedParts(f.dueAt, input.timeZone) : null;
-      const minute = parts ? parts.hour * 60 + parts.minute : Math.round((f.dueAt - base) / 60_000);
-      if (minute < 0 || minute >= 1440) continue;
+      if (zonedDateKey(f.dueAt, timeZone) !== date) continue;
+      const parts = zonedParts(f.dueAt, timeZone);
+      const minute = parts.hour * 60 + parts.minute;
       add('followup', minute, 'message', `{{user}}之前提过的事到时间了，问问结果：${f.content}`, `followup:${f.id}`);
     }
   }
@@ -178,7 +175,8 @@ export function planTouchpoints(input: ProactivePlanInput): Touchpoint[] {
       characterId: c.id,
       ruleId: d.ruleId,
       date,
-      dueAt: input.timeZone ? zonedInstant(date, d.minute, input.timeZone) : base + d.minute * 60_000,
+      timezone: timeZone,
+      dueAt: zonedInstant(date, d.minute, timeZone),
       action: d.action,
       hint: d.hint,
       status: skipReason ? 'skipped' : 'planned',

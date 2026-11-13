@@ -1,4 +1,5 @@
 import { formatDuration } from '../environment.ts';
+import { calendarParts } from '../timezone.ts';
 
 /**
  * SillyTavern 宏（常用的一部分）。名字不区分大小写；不认识的宏原样保留。
@@ -22,6 +23,7 @@ export interface MacroContext {
   lastCharMessage?: string;
   model?: string;
   now?: Date;
+  timeZone?: string;
   /** 距上次你发消息多久（毫秒）；{{idle_duration}} */
   idleMs?: number | null;
   /** 聊天变量，{{setvar}} 会改它 */
@@ -61,7 +63,7 @@ function one(raw: string, ctx: MacroContext): string | null {
   const body = raw.trim();
   if (body.startsWith('//')) return '';
   const lower = body.toLowerCase();
-  const now = ctx.now ?? new Date();
+  const now = calendarParts((ctx.now ?? new Date()).getTime(), ctx.timeZone);
   const rnd = ctx.random ?? Math.random;
   const vars = ctx.vars;
 
@@ -106,15 +108,15 @@ function one(raw: string, ctx: MacroContext): string | null {
     case 'noop':
       return '';
     case 'time':
-      return `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      return `${pad(now.hour)}:${pad(now.minute)}`;
     case 'date':
-      return `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
+      return `${now.year}年${now.month}月${now.day}日`;
     case 'weekday':
-      return WEEKDAY[now.getDay()] ?? '';
+      return WEEKDAY[now.weekday] ?? '';
     case 'isotime':
-      return `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      return `${pad(now.hour)}:${pad(now.minute)}`;
     case 'isodate':
-      return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      return `${now.year}-${pad(now.month)}-${pad(now.day)}`;
     case 'idle_duration':
       return ctx.idleMs == null ? '刚刚' : formatDuration(ctx.idleMs / 60_000);
     case 'weather':

@@ -1,4 +1,5 @@
 import type { TimeOfDay } from './scenes.ts';
+import { calendarParts } from './timezone.ts';
 
 export const TIME_OF_DAY_LABEL: Record<TimeOfDay, string> = {
   dawn: '清晨',
@@ -34,10 +35,11 @@ const SOLAR_TERMS: [number, number, string][] = [
 ];
 
 /** 返回"立冬"（当天）或"立冬后第 2 天"（7 天内），更远则返回 null */
-export function solarTermNote(date: Date): string | null {
-  const day = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+export function solarTermNote(date: Date, timeZone?: string): string | null {
+  const p = calendarParts(date.getTime(), timeZone);
+  const day = Date.UTC(p.year, p.month - 1, p.day);
   let best: { name: string; diff: number } | null = null;
-  for (const year of [date.getFullYear() - 1, date.getFullYear()]) {
+  for (const year of [p.year - 1, p.year]) {
     for (const [m, d, name] of SOLAR_TERMS) {
       const diff = Math.round((day - Date.UTC(year, m - 1, d)) / 86_400_000);
       if (diff >= 0 && (!best || diff < best.diff)) best = { name, diff };
@@ -60,6 +62,7 @@ export interface WeatherSnapshot {
 
 export interface EnvironmentInput {
   now: Date;
+  timeZone?: string;
   /** 你那边的天气 */
   weather?: WeatherSnapshot | null;
   /** 她那边的天气：她住在别的城市时（例如国内的角色用中国的天气）；和你在同一个地方时不给 */
@@ -98,12 +101,12 @@ export function weatherLine(w: WeatherSnapshot): string {
  * 拼出注入提示词的【当前环境】块。客户端每轮对话前调用，Worker 写主动消息时也用同一个函数。
  */
 export function formatEnvironmentBlock(input: EnvironmentInput): string {
-  const d = input.now;
+  const d = calendarParts(input.now.getTime(), input.timeZone);
   const parts: string[] = [];
   parts.push(
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${WEEKDAYS[d.getDay()]} ${pad(d.getHours())}:${pad(d.getMinutes())}（${TIME_OF_DAY_LABEL[timeOfDay(d.getHours())]}）`,
+    `${d.year}-${pad(d.month)}-${pad(d.day)} ${WEEKDAYS[d.weekday]} ${pad(d.hour)}:${pad(d.minute)}（${TIME_OF_DAY_LABEL[timeOfDay(d.hour)]}）`,
   );
-  const term = solarTermNote(d);
+  const term = solarTermNote(input.now, input.timeZone);
   if (term) parts.push(term);
   const her = input.herWeather;
   if (input.weather && her) {

@@ -114,7 +114,7 @@ test('stopping or changing a role during model generation suppresses stale outpu
 test('daily token budget is reserved atomically across concurrent roles', async (t) => {
   const { env, DB } = await fixture(t);
   const a = context('one'); const b = context('two');
-  const request = proactivePrompt(a, planTouchpoints({ character: a.character, rules: a.rules, env: a.environment, day: new Date(NOW), timeZone: 'UTC', followups: [{ id: 'due', content: 'The interview result', dueAt: NOW }] })[0]!, NOW, 'test');
+  const request = proactivePrompt(a, planTouchpoints({ character: a.character, rules: a.rules, env: a.environment, day: new Date(NOW), followups: [{ id: 'due', content: 'The interview result', dueAt: NOW }] })[0]!, NOW, 'test');
   const { estimateTokens } = await import('@app/shared');
   const keys = credentials(); keys.routes[0]!.dailyTokenBudget = estimateTokens(JSON.stringify(request.messages)) + (request.maxTokens ?? 600) + 20;
   await saveCredentials(env, keys);
@@ -130,7 +130,7 @@ test('daily token budget is reserved atomically across concurrent roles', async 
 
 test('runtime gates use the user timezone, recent chat, busy state, quiet hours and unanswered backoff', () => {
   const c = context();
-  const point = planTouchpoints({ character: c.character, rules: c.rules, env: c.environment, day: new Date(NOW), timeZone: 'UTC', followups: [{ id: 'due', content: '', dueAt: NOW }] })[0]!;
+  const point = planTouchpoints({ character: c.character, rules: c.rules, env: c.environment, day: new Date(NOW), followups: [{ id: 'due', content: '', dueAt: NOW }] })[0]!;
   assert.equal(gate(c, point, NOW), null);
   c.character.proactive.quietHours = { start: '11:00', end: '13:00' };
   assert.match(gate(c, point, NOW)!, /勿扰/);
@@ -147,13 +147,13 @@ test('planner handles UTC boundaries, midnight and DST without a fixed 24-hour a
   assert.equal(new Date(zonedInstant('2026-03-08', 150, 'America/New_York')).toISOString(), '2026-03-08T07:30:00.000Z');
   assert.equal(new Date(zonedInstant('2026-11-01', 90, 'America/New_York')).toISOString(), '2026-11-01T05:30:00.000Z');
   const c = context('late', 'America/New_York'); c.character.proactive.triggers = ['bedtime']; c.environment.sleepTime = '00:30';
-  const points = planTouchpoints({ character: c.character, rules: c.rules, env: c.environment, day: new Date('2026-03-07T12:00Z'), timeZone: c.environment.timezone });
+  const points = planTouchpoints({ character: c.character, rules: c.rules, env: c.environment, day: new Date('2026-03-07T12:00Z') });
   assert.equal(zonedDateKey(points[0]!.dueAt, c.environment.timezone), '2026-03-08');
 });
 
 test('real shared model adapter assembles role, preset, memory and fresh local time only at firing', async (t) => {
   const c = context();
-  const point = planTouchpoints({ character: c.character, rules: c.rules, env: c.environment, day: new Date(NOW), timeZone: 'UTC', followups: [{ id: 'due', content: 'The interview result', dueAt: NOW }] })[0]!;
+  const point = planTouchpoints({ character: c.character, rules: c.rules, env: c.environment, day: new Date(NOW), followups: [{ id: 'due', content: 'The interview result', dueAt: NOW }] })[0]!;
   let calls = 0;
   t.mock.method(globalThis, 'fetch', async (_url: string, init: RequestInit) => {
     const req = JSON.parse(init.body as string);

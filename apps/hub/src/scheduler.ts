@@ -26,17 +26,20 @@ export async function planContext(env: Env, row: ContextRow, now: number) {
   const today = zonedDateKey(now, context.environment.timezone);
   const points = [-1, 0, 1].flatMap((offset) => planTouchpoints({
     character: context.character, rules: context.rules, env: context.environment,
-    day: new Date(now), timeZone: context.environment.timezone, date: shiftDate(today, offset),
+    day: new Date(now), date: shiftDate(today, offset),
     followups: context.memories.filter((m) => m.type === 'followup' && m.dueAt).map((m) => ({ ...m, dueAt: m.dueAt! })),
   }));
   // Dates are materialized by Cron itself, including after several days without any client.
-  // Replanning only changes unclaimed future work; completed IDs are never resurrected.
+  // A timezone change also moves overdue, unclaimed work. Completed IDs are never resurrected.
   if (!points.length) return;
   await env.DB.batch(points.map((t) => env.DB.prepare(`
-    INSERT INTO touchpoints(id, character_id, rule_id, due_at, status, data) VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET due_at = excluded.due_at, data = excluded.data, status = excluded.status
-    WHERE touchpoints.status IN ('planned', 'skipped') AND touchpoints.lease_until <= ? AND touchpoints.due_at > ?
-  `).bind(t.id, t.characterId, t.ruleId, t.dueAt, t.status, JSON.stringify(t), now, now)));
+    INSERT INTO touchpoints(id, character_id, rule_id, due_at, status, data)
+    SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM contexts WHERE character_id = ? AND revision = ?)
+    ON CONFLICT(id) DO UPDATE SET due_at = excluded.due_at, data = excluded.data, status = excluded.status, retry_at = 0, last_error = NULL
+    WHERE touchpoints.status IN ('planned', 'skipped') AND touchpoints.lease_until <= ?
+      AND (touchpoints.due_at > ? OR touchpoints.due_at != excluded.due_at
+        OR COALESCE(json_extract(touchpoints.data, '$.timezone'), ?) != ?)
+  `).bind(t.id, t.characterId, t.ruleId, t.dueAt, t.status, JSON.stringify(t), row.character_id, row.revision, now, now, t.timezone, t.timezone)));
 }
 
 export function gate(context: ProactiveContext, t: Touchpoint, now: number): string | null {
@@ -86,18 +89,22 @@ export async function releaseExpired(env: Env, now: number) {
 async function fire(env: Env, point: PointRow, credentials: ProactiveCredentials, now: number, generate: Generator) {
   const lease = crypto.randomUUID();
   const claimed = await env.DB.prepare(`UPDATE touchpoints SET lease = ?, lease_until = ?, attempts = attempts + 1
-    WHERE id = ? AND status = 'planned' AND lease_until <= ? AND retry_at <= ? RETURNING id`)
-    .bind(lease, now + LEASE_MS, point.id, now, now).first();
+    WHERE id = ? AND status = 'planned' AND due_at <= ? AND lease_until <= ? AND retry_at <= ? RETURNING data`)
+    .bind(lease, now + LEASE_MS, point.id, now, now, now).first<{ data: string }>();
   if (!claimed) return;
   let used = 0;
   try {
-    const t = JSON.parse(point.data) as Touchpoint;
+    const t = JSON.parse(claimed.data) as Touchpoint;
     const row = await env.DB.prepare('SELECT * FROM contexts WHERE character_id = ?').bind(t.characterId).first<ContextRow>();
     if (!row) {
       await skip('角色已删除');
       return;
     }
     const context = JSON.parse(row.data) as ProactiveContext;
+    if (t.timezone && t.timezone !== context.environment.timezone) {
+      await skip('时区已更改，旧计划已取消');
+      return;
+    }
     const serverHistory = await env.DB.prepare('SELECT data FROM messages WHERE character_id = ? ORDER BY created_at DESC LIMIT 200').bind(t.characterId).all<{ data: string }>();
     const history = new Map(serverHistory.results.map((m) => { const v = JSON.parse(m.data) as Message; return [v.id, v] as const; }));
     // Client edits/read states win for the same message; cloud messages missing from the client remain.
@@ -125,6 +132,7 @@ async function fire(env: Env, point: PointRow, credentials: ProactiveCredentials
     const current = JSON.parse(latest.data) as ProactiveContext;
     const changed = latest.revision !== row.revision;
     if (changed) {
+      if (current.environment.timezone !== context.environment.timezone) throw new Error('生成期间时区有更新，下次检测重新排期');
       const currentGate = gate(current, t, Date.now());
       if (currentGate) { await skip(currentGate); return; }
       // Regenerate from changed context on the next tick; never publish stale generated content.
@@ -152,7 +160,7 @@ async function fire(env: Env, point: PointRow, credentials: ProactiveCredentials
     await release(env, lease, used);
   }
   async function skip(reason: string) {
-    const t = JSON.parse(point.data) as Touchpoint;
+    const t = JSON.parse(claimed!.data) as Touchpoint;
     await env.DB.prepare("UPDATE touchpoints SET status = 'skipped', data = ?, lease = NULL, lease_until = 0 WHERE id = ? AND lease = ?")
       .bind(JSON.stringify({ ...t, status: 'skipped', skipReason: reason, updatedAt: now }), point.id, lease).run();
   }
