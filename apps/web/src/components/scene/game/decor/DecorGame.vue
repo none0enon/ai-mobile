@@ -749,6 +749,8 @@ const hint = computed(() =>
 }
 .rooms {
   display: flex;
+  /* 横向能滑就成了滚动容器，min-height 变成 0；不写 flex: none 的话手机上高度不够时会被 3D 画面挤成 0 高，标签整排看不见 */
+  flex: none;
   gap: 6px;
   margin-bottom: 8px;
   overflow-x: auto;
