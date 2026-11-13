@@ -20,6 +20,7 @@ import { useRealWorldStore } from '@/stores/realworld';
  * drawing：正在画（顶栏右边转圈，文字给读屏和长按提示）。
  * bare：外壳只给背景、立绘和顶栏，她的话、面板、画好的图都由场景自己在 overlay 里摆（陪伴学习的分屏和专注画面）。
  * back：左上角返回做什么（一起游戏打开了一个游戏时回游戏列表）；不给时返回上一页。
+ * hideMode：右上角不放"连线 / 坐在她旁边"（健身那里放的是连麦）。
  */
 const props = withDefaults(
   defineProps<{
@@ -44,8 +45,9 @@ const props = withDefaults(
     drawing?: string | null;
     bare?: boolean;
     back?: (() => void) | null;
+    hideMode?: boolean;
   }>(),
-  { rain: false, dim: 0, typing: false, hideFigure: false, fill: false, pokeable: false, showHotspots: false, art: null, drawing: null, bare: false, back: null },
+  { rain: false, dim: 0, typing: false, hideFigure: false, fill: false, pokeable: false, showHotspots: false, art: null, drawing: null, bare: false, back: null, hideMode: false },
 );
 const emit = defineEmits<{ (e: 'poke', h: PokeHotspot, kind: 'tap' | 'long'): void }>();
 
@@ -111,7 +113,7 @@ function openArt() {
         <button class="pill" aria-label="返回" @click="back ? back() : goBack('/map')"><span class="i-lucide-chevron-left text-[20px]" /></button>
         <span class="pill title"><span :class="scene.icon" /><span class="truncate">{{ title ?? titleAt(location, sceneId) }}</span></span>
         <span class="flex-1" />
-        <button v-if="modeText" class="pill mode" :class="together ?? ''" :disabled="together === 'bring'" :aria-label="`怎么在一起：${modeText}`" @click="toggleMode">
+        <button v-if="modeText && !hideMode" class="pill mode" :class="together ?? ''" :disabled="together === 'bring'" :aria-label="`怎么在一起：${modeText}`" @click="toggleMode">
           <span :class="together === 'remote' ? 'i-lucide-link' : together === 'visit' ? 'i-lucide-armchair' : 'i-lucide-navigation'" class="shrink-0" />
           <span class="truncate">{{ modeText }}</span>
         </button>
