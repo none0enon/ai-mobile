@@ -5,6 +5,7 @@ import { markRaw, ref } from 'vue';
 import { getAll, getOne, write, type StoreName } from '@/db/idb';
 import { memories as demoMemories } from '@/mock/memories';
 import { uid } from '@/utils/id';
+import { legacySummaryId, reconcileSummaries, summaryKey } from '@/services/summaryRecords';
 
 /**
  * 记忆（设计文档 §6）：事实记忆、故事片段、时间线、画像卡，存在本机数据库的四张表里，刷新、离线后还在。
@@ -41,6 +42,7 @@ export const useMemoryStore = defineStore('memory', () => {
   const lexical = markRaw(new LexicalIndex());
   const dirty: Record<Table, Set<string>> = { memories: new Set(), slices: new Set(), summaries: new Set(), profiles: new Set() };
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const saving = new Set<Promise<boolean>>();
 
   function indexMemory(m: Memory) {
     const key = memKey(m.id);
@@ -90,6 +92,7 @@ export const useMemoryStore = defineStore('memory', () => {
     slices.value = ss;
     summaries.value = cs;
     profiles.value = ps;
+    for (const id of reconcileSummaries(summaries.value)) dirty.summaries.add(id);
     // 第一次运行：演示角色的记忆放进库里（以后和别的记忆一样能改能删）
     if (!seeded) {
       const have = new Set(ms.map((m) => m.id));
@@ -113,17 +116,24 @@ export const useMemoryStore = defineStore('memory', () => {
   async function flush() {
     clearTimeout(timer);
     const lists: Record<Table, { id: string }[]> = { memories: memories.value, slices: slices.value, summaries: summaries.value, profiles: profiles.value };
-    await Promise.all(
+    const pending = [...saving];
+    const jobs =
       (Object.keys(dirty) as Table[]).map(async (t) => {
         const ids = [...dirty[t]];
-        if (!ids.length) return;
+        if (!ids.length) return true;
         dirty[t].clear();
         const byId = new Map(lists[t].map((r) => [r.id, r]));
         const puts = ids.filter((id) => byId.has(id)).map((id) => ({ key: id, value: clone(byId.get(id)) }));
         const dels = ids.filter((id) => !byId.has(id));
-        await write(t as StoreName, puts, dels);
-      }),
-    );
+        const job = write(t as StoreName, puts, dels);
+        saving.add(job);
+        try {
+          const ok = await job;
+          if (!ok) for (const id of ids) dirty[t].add(id);
+          return ok;
+        } finally { saving.delete(job); }
+      });
+    return (await Promise.all([...pending, ...jobs])).every(Boolean);
   }
 
   if (typeof document !== 'undefined') {
@@ -208,7 +218,7 @@ export const useMemoryStore = defineStore('memory', () => {
   // —— 时间线 ——
 
   function summariesOf(chatId: string): ChapterSummary[] {
-    return summaries.value.filter((s) => s.chatId === chatId && !s.deleted).sort((a, b) => a.fromAt - b.fromAt || a.level - b.level);
+    return summaries.value.filter((s) => s.chatId === chatId && !s.deleted && !s.duplicateOf).sort((a, b) => a.fromAt - b.fromAt || a.level - b.level);
   }
 
   /** 时间线：各层还没合并的段，从旧到新（正好覆盖全部历史，越早越粗） */
@@ -229,6 +239,9 @@ export const useMemoryStore = defineStore('memory', () => {
   }
 
   function addSummary(s: ChapterSummary): ChapterSummary {
+    const key = summaryKey(s);
+    const have = summaries.value.find((row) => !row.duplicateOf && (row.id === s.id || summaryKey(row) === key));
+    if (have) return have;
     summaries.value.push(s);
     touch('summaries', s.id);
     return summaries.value.at(-1) as ChapterSummary;
@@ -264,31 +277,34 @@ export const useMemoryStore = defineStore('memory', () => {
   }
 
   /** 以前写在聊天上的摘要（chat.summaries）搬进时间线，搬完从聊天上去掉 */
-  function migrateChatSummaries(chats: Chat[], listOf: (chatId: string) => Message[]) {
-    for (const chat of chats) {
-      const old = chat.summaries;
-      if (!old?.length) continue;
-      if (!summariesOf(chat.id).length) {
-        const msgs = listOf(chat.id);
-        const timeOf = (id: string, fallback: number) => msgs.find((m) => m.id === id)?.createdAt ?? fallback;
-        for (const s of old) {
-          addSummary({
-            id: uid('sum'),
-            chatId: chat.id,
-            level: 0,
-            fromMessageId: s.fromMessageId,
-            toMessageId: s.toMessageId,
-            fromAt: timeOf(s.fromMessageId, s.at),
-            toAt: timeOf(s.toMessageId, s.at),
-            text: s.text,
-            mergedInto: null,
-            createdAt: s.at,
-            updatedAt: s.at,
-          });
-        }
-      }
-      delete chat.summaries;
-    }
+  async function migrateChatSummaries(chats: Chat[], listOf: (chatId: string) => Message[]) {
+    const migrations = chats.filter((chat) => chat.summaries?.length).map((chat) => ({ chat, old: chat.summaries! }));
+    await Promise.all(migrations.map(async ({ chat, old }) => {
+      const msgs = listOf(chat.id);
+      const timeOf = (id: string, fallback: number) => msgs.find((m) => m.id === id)?.createdAt ?? fallback;
+      const converted = await Promise.all(old.map(async (s): Promise<ChapterSummary> => {
+        const identity = { chatId: chat.id, level: 0, fromMessageId: s.fromMessageId, toMessageId: s.toMessageId, text: s.text };
+        return {
+          id: await legacySummaryId(identity),
+          chatId: chat.id,
+          level: 0,
+          fromMessageId: s.fromMessageId,
+          toMessageId: s.toMessageId,
+          fromAt: timeOf(s.fromMessageId, s.at),
+          toAt: timeOf(s.toMessageId, s.at),
+          text: s.text,
+          mergedInto: null,
+          createdAt: s.at,
+          updatedAt: s.at,
+        };
+      }));
+      // A partially completed migration must still copy the missing segments.
+      for (const s of converted) addSummary(s);
+    }));
+    for (const id of reconcileSummaries(summaries.value)) touch('summaries', id);
+    // Never clear the only durable copy before the summary writes (including an earlier flush) finish.
+    if (!await flush()) throw new Error('回忆未能保存，旧摘要已保留，请重新打开 App');
+    for (const { chat, old } of migrations) if (chat.summaries === old) delete chat.summaries;
   }
 
   // —— 画像卡 ——

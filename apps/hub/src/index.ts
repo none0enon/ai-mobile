@@ -109,7 +109,7 @@ async function api(request: Request, env: Env): Promise<Response> {
         ON CONFLICT(character_id) DO UPDATE SET revision = contexts.revision + 1, data = excluded.data, updated_at = excluded.updated_at
         WHERE contexts.revision = ? RETURNING revision`)
         .bind(id, JSON.stringify(context), Date.now(), revision, id, revision).first<{ revision: number }>();
-      if (!updated) throw new HttpError(409, '另一台设备更新了角色上下文，请重新连接后同步');
+      if (!updated) throw new HttpError(409, '另一台设备更新了角色上下文，请在「云端与同步」选择「用本机设置重新同步」');
       return json(updated);
     }
   }
@@ -140,7 +140,7 @@ async function api(request: Request, env: Env): Promise<Response> {
         ON CONFLICT(character_id) DO UPDATE SET revision = rhythm_contexts.revision + 1, data = excluded.data, updated_at = excluded.updated_at
         WHERE rhythm_contexts.revision = ? RETURNING revision`)
         .bind(id, JSON.stringify(c), Date.now(), revision, id, revision).first<{ revision: number }>();
-      if (!updated) throw new HttpError(409, '另一台设备更新了节律设置，请重新连接后同步');
+      if (!updated) throw new HttpError(409, '另一台设备更新了节律设置，请在「云端与同步」选择「用本机设置重新同步」');
       return json(updated);
     }
   }
@@ -174,7 +174,7 @@ async function api(request: Request, env: Env): Promise<Response> {
         ON CONFLICT(character_id) DO UPDATE SET revision = memory_contexts.revision + 1, data = excluded.data, updated_at = excluded.updated_at
         WHERE memory_contexts.revision = ? RETURNING revision`)
         .bind(id, JSON.stringify(c), Date.now(), revision, id, revision).first<{ revision: number }>();
-      if (!updated) throw new HttpError(409, '另一台设备更新了记忆整理的内容，请重新连接后同步');
+      if (!updated) throw new HttpError(409, '另一台设备更新了记忆整理的内容，请在「云端与同步」选择「用本机设置重新同步」');
       return json(updated);
     }
   }

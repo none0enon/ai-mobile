@@ -95,6 +95,8 @@ export interface ChapterSummary extends SyncMeta {
   text: string;
   /** 合并进了哪一段；合并后不再单独进提示词 */
   mergedInto: string | null;
+  /** 完全相同的旧摘要只展示一次；原记录保留，指向展示的那条。 */
+  duplicateOf?: string;
 }
 
 /** 画像卡的一行 */

@@ -98,15 +98,15 @@ function followLatestChat() {
 }
 
 app.mount('#app');
-void hydrated.then((results) => {
+void hydrated.then(async (results) => {
   if (results.some((r) => r.status === 'rejected')) {
     startup.error = true;
     return;
   }
-  // 页面还没开放编辑：先结束上次留下的场景，再迁移以前写在聊天上的摘要。
+  // 旧摘要持久化后再开放页面、结束场景，避免和场景结束时触发的自动总结重叠。
   const chats = useChatStore();
+  await useMemoryStore().migrateChatSummaries(chats.chats, chats.list);
   chats.endLeftoverScenes();
-  useMemoryStore().migrateChatSummaries(chats.chats, chats.list);
   followLatestChat();
   startup.ready = true;
   useRhythmStore().start();
@@ -115,4 +115,4 @@ void hydrated.then((results) => {
   useProactiveStore().start();
   useHubStore().start();
   void maybeAutoConsolidate(useHubStore().connected);
-});
+}).catch(() => { startup.error = true; });

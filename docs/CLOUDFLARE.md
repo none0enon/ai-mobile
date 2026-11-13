@@ -77,19 +77,19 @@ pnpm build
 pnpm --filter @app/hub exec wrangler tail --config wrangler.deploy.json
 ```
 
-「云端与同步」显示真实的上次云端检测时间、上次同步和错误。「主动消息」显示云端计划、生成错误、推送错误。`/health` 不需要认证；其余 API 使用登录得到的设备令牌（D1 仅存令牌哈希）。没有公开的 Cron 手动触发 HTTP 接口。Cron 新配置在 Cloudflare 传播可能需要约 15 分钟。
+「云端与同步」显示真实的上次云端检测时间、上次同步和错误。旧 Worker 缺少接口时会提示更新，版本冲突与其他错误分别列出。「主动消息」区分本机待同步的计划和云端已确认的计划；旧设置已发送的历史消息保留实际时间。`/health` 不需要认证；其余 API 使用登录得到的设备令牌（D1 仅存令牌哈希）。没有公开的 Cron 手动触发 HTTP 接口。Cron 新配置在 Cloudflare 传播可能需要约 15 分钟。
 
 开发时 `wrangler dev --test-scheduled` 提供本地测试入口 `/cdn-cgi/local/scheduled`。它是开发工具的入口，不在生产 Worker 的路由中。
 
 ## 持续部署
 
-`.github/workflows/hub.yml` 支持手动部署，以及配置好变量后 main 更新时部署。仓库 Secrets 设置 `CLOUDFLARE_API_TOKEN`（Worker 编辑 + D1 编辑）；Variables 设置 `CLOUDFLARE_ACCOUNT_ID`、`HUB_D1_ID`，自托管前端再设置 `HUB_APP_URL`。运行时秘密已用上述 secret bulk 写入，不随源码部署覆盖。缺少仓库变量时自动部署跳过；手动部署会明确报缺少配置。
+`.github/workflows/hub.yml` 支持手动部署，以及 main 更新时部署。仓库 Secrets 设置 `CLOUDFLARE_API_TOKEN`（Worker 编辑 + D1 编辑）；Variables 设置 `CLOUDFLARE_ACCOUNT_ID`、`HUB_D1_ID`，自托管前端再设置 `HUB_APP_URL`。运行时秘密已用上述 secret bulk 写入，不随源码部署覆盖。缺少上述密钥或变量时，工作流会明确失败并列出缺失名称，不再静默跳过。已有本机 Wrangler 登录也可按前述 configure → migrations apply → deploy 更新，保持原有运行时密钥。
 
 ## 范围
 
 这里包括主动消息上下文、带服务器递增 seq 的收件箱，以及每日节律上下文与结果，不是整个 M2 素材/记忆/多设备同步。上下文最多保留最近 200 条定稿消息；新的云端消息会合并进下一次生成上下文。删除角色会注销其云端计划。每个设备只删除自己成功上传过的角色；空设备不会清空云端。
 
-同一角色的上下文通过 revision 防止旧请求覆盖。多设备发生修改冲突会报错；重新连接表示以这台设备作为上下文来源。尚未导入角色的设备不会跳过对应的收件箱游标，需先导入角色。
+同一角色的上下文通过 revision 防止旧请求覆盖。多设备发生修改冲突会报错；「用本机设置重新同步」会读取最新 revision，再以这台设备作为上下文来源；不需要断开或重新填写密码。尚未导入角色的设备不会跳过对应的收件箱游标，需先导入角色。
 
 目前支持文本消息、歌曲标签、来电通知。云端生图、真实语音通话、天气/运动事件接入、完整 Android 原生壳和素材备份仍属于各自后续模块，界面不会冒充已接入。
 

@@ -1,4 +1,4 @@
-import { zonedDateKey, zonedInstant, zonedParts } from './timezone.ts';
+import { shiftDate, zonedDateKey, zonedInstant, zonedParts } from './timezone.ts';
 import type { Character, ProactivePersonality } from './types/character.ts';
 import type { HHMM, ISODate } from './types/common.ts';
 import type { ProactiveRule, ProactiveTriggerId, Touchpoint } from './types/proactive.ts';
@@ -185,14 +185,14 @@ export function planTouchpoints(input: ProactivePlanInput): Touchpoint[] {
   });
 }
 
-/** "07:42"：计划里的时刻（过了半夜的显示成"次日 00:40"） */
+/** Render the actual calendar day, including historical schedules from a different timezone. */
 export function touchpointClock(t: Pick<Touchpoint, 'dueAt' | 'date'>, timeZone?: string): string {
-  if (timeZone) {
-    const p = zonedParts(t.dueAt, timeZone);
-    const label = hhmmOf(p.hour * 60 + p.minute);
-    return zonedDateKey(t.dueAt, timeZone) === t.date ? label : `次日 ${label}`;
-  }
   const d = new Date(t.dueAt);
-  const label = hhmmOf(d.getHours() * 60 + d.getMinutes());
-  return dateKey(d) === t.date ? label : `次日 ${label}`;
+  const p = timeZone ? zonedParts(t.dueAt, timeZone) : { hour: d.getHours(), minute: d.getMinutes() };
+  const actual = timeZone ? zonedDateKey(t.dueAt, timeZone) : dateKey(d);
+  const label = hhmmOf(p.hour * 60 + p.minute);
+  if (actual === t.date) return label;
+  if (actual === shiftDate(t.date, -1)) return `前一天 ${label}`;
+  if (actual === shiftDate(t.date, 1)) return `次日 ${label}`;
+  return `${actual} ${label}`;
 }

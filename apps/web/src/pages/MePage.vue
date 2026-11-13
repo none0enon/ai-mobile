@@ -89,7 +89,7 @@ const groups = computed(() => [
   {
     title: '数据',
     rows: [
-      { icon: 'i-lucide-refresh-cw', label: '云端与同步', value: hub.connected ? '已连接 Worker' : '仅本机', to: '/me/sync' },
+      { icon: 'i-lucide-refresh-cw', label: '云端与同步', value: hub.connected ? (hub.error ? '同步异常' : hub.lastSyncAt ? '已同步' : '等待同步') : '仅本机', to: '/me/sync' },
       { icon: 'i-lucide-palette', label: '外观', value: THEME_LABEL[app.themeSetting], to: '/me/appearance' },
       { icon: 'i-lucide-smartphone', label: '装成 App', value: pwa.standalone ? '已安装' : pwa.canPrompt ? '可以安装' : '', to: '/me/install' },
     ],

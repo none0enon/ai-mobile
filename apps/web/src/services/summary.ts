@@ -21,7 +21,7 @@ import { messageToText, MissingPresetError, personaOf } from './prompt';
  */
 
 /** 最后这几条先不整理 */
-const KEEP_RECENT = 4;
+export const SUMMARY_KEEP_RECENT = 4;
 /** 给模型看的相关旧记忆最多这么多条 */
 const RELATED = 30;
 /** 向量相似度到这么高就算"可能重复" */
@@ -42,7 +42,7 @@ export interface SummaryOutcome {
 /** 还没总结、已经定稿的消息（失败的、被打断的不算） */
 export function pendingForSummary(chat: Chat, list: Message[]): Message[] {
   const at = chat.summaryUntilMessageId ? list.findIndex((m) => m.id === chat.summaryUntilMessageId) : -1;
-  return list.slice(at + 1, Math.max(at + 1, list.length - KEEP_RECENT)).filter((m) => !m.meta.error && !m.meta.interrupted && (m.text || m.parts.length));
+  return list.slice(at + 1, Math.max(at + 1, list.length - SUMMARY_KEEP_RECENT)).filter((m) => !m.meta.error && !m.meta.interrupted && (m.text || m.parts.length));
 }
 
 const norm = (s: string) => s.replace(/[\s\p{P}]/gu, '');
@@ -139,7 +139,18 @@ async function embedNew(characterId: string, memoryIds: string[], sliceIds: stri
 }
 
 /** 整理一段；没有要整理的返回 null。chat 要传聊天 store 里的那个对象（结果直接写在上面） */
-export async function summarizeChat(chat: Chat, list: Message[], opts: { signal?: AbortSignal } = {}): Promise<SummaryOutcome | null> {
+const inFlight = new Map<string, Promise<SummaryOutcome | null>>();
+
+/** Automatic, manual and backfill callers share the same in-flight batch; different chats run independently. */
+export function summarizeChat(chat: Chat, list: Message[], opts: { signal?: AbortSignal } = {}): Promise<SummaryOutcome | null> {
+  const running = inFlight.get(chat.id);
+  if (running) return running;
+  const job = summarizeBatch(chat, list, opts).finally(() => { inFlight.delete(chat.id); });
+  inFlight.set(chat.id, job);
+  return job;
+}
+
+async function summarizeBatch(chat: Chat, list: Message[], opts: { signal?: AbortSignal }): Promise<SummaryOutcome | null> {
   const ai = useAiStore();
   const chars = useCharacterStore();
   const mem = useMemoryStore();

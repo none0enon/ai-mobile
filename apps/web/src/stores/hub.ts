@@ -7,6 +7,7 @@ import { applyMemoryOps, packConsolidation } from '@/services/consolidate';
 import { alwaysOn, memoryBlock, summaryBlock } from '@/services/memoryBlocks';
 import { personaOf } from '@/services/prompt';
 import { homeBlock, lifeFlags } from '@/services/homeBlock';
+import { settleSyncJobs } from '@/services/hubSync';
 import { useAiStore } from './ai';
 import { useAppStore } from './app';
 import { useCharacterStore } from './characters';
@@ -24,6 +25,7 @@ interface SavedHub {
   rhythmRevisions: Record<string, number>; rhythmHashes: Record<string, string>; rhythmApiHash: string;
   /** 记忆整理：每个角色上传过的版本和内容指纹、API 指纹、已经应用到哪一次云端结果 */
   memoryRevisions?: Record<string, number>; memoryHashes?: Record<string, string>; memoryApiHash?: string; memoryAppliedAt?: number;
+  lastSyncAt?: number;
 }
 export const useHubStore = defineStore('hub', () => {
   const config = reactive<SavedHub>({ url: '', cursor: 0, deviceId: '', active: false, preview: 'name-only', revisions: {}, hashes: {}, apiHash: '', rhythmRevisions: {}, rhythmHashes: {}, rhythmApiHash: '',
@@ -37,6 +39,9 @@ export const useHubStore = defineStore('hub', () => {
   const points = ref<HubTouchpoint[]>([]);
   const lastSyncAt = ref<number | null>(null);
   const error = ref('');
+  const supportsRhythm = computed(() => typeof status.value?.rhythmConfigured === 'boolean');
+  const supportsMemory = computed(() => typeof status.value?.memoryConfigured === 'boolean');
+  const upgradeRequired = computed(() => !!status.value && (!supportsRhythm.value || !supportsMemory.value));
   const syncing = ref(false);
   let started = false;
   let connectionVersion = 0;
@@ -60,9 +65,11 @@ export const useHubStore = defineStore('hub', () => {
     if (saved) Object.assign(config, saved);
     token.value = secret ?? '';
     savedPassword.value = password ?? '';
+    lastSyncAt.value = saved?.lastSyncAt ?? null;
   }
 
   async function connect(url: string, password: string) {
+    if (syncing.value) throw new Error('正在同步，请稍后再连接');
     const parsed = new URL(url);
     if (parsed.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(parsed.hostname)) throw new Error('Worker 地址必须是 HTTPS');
     const base = parsed.origin;
@@ -73,27 +80,49 @@ export const useHubStore = defineStore('hub', () => {
     syncing.value = false;
     error.value = '';
     if (config.url !== base) Object.assign(config, { cursor: 0, active: false, revisions: {}, hashes: {}, apiHash: '', rhythmRevisions: {}, rhythmHashes: {}, rhythmApiHash: '',
-      memoryRevisions: {}, memoryHashes: {}, memoryApiHash: '', memoryAppliedAt: 0 });
+      memoryRevisions: {}, memoryHashes: {}, memoryApiHash: '', memoryAppliedAt: 0, lastSyncAt: undefined });
+    status.value = null; points.value = []; lastSyncAt.value = config.lastSyncAt ?? null;
     config.url = base;
     config.deviceId = result.deviceId;
     token.value = result.token;
     if (!await write('secrets', [{ key: 'hub:token', value: result.token }, { key: 'hub:password', value: password }])) throw new Error('无法保存登录信息，请允许浏览器存储');
     savedPassword.value = password;
-    const [remote, rhythms, memoryContexts] = await Promise.all([
-      request<{ contexts: { id: string; revision: number }[] }>('/v1/proactive/contexts'),
-      request<{ contexts: { id: string; revision: number }[] }>('/v1/rhythm/contexts'),
-      request<{ contexts: { id: string; revision: number }[] }>('/v1/memory/contexts').catch(() => ({ contexts: [] })),
-    ]);
-    config.memoryRevisions = Object.fromEntries(memoryContexts.contexts.map((c) => [c.id, c.revision]));
-    config.memoryHashes = {};
-    // Reconnect is an explicit choice of this device as the source of context updates.
-    config.revisions = Object.fromEntries(remote.contexts.map((c) => [c.id, c.revision]));
-    config.hashes = {};
-    config.rhythmRevisions = Object.fromEntries(rhythms.contexts.map((c) => [c.id, c.revision]));
-    config.rhythmHashes = Object.fromEntries(Object.keys(config.rhythmHashes).map((id) => [id, '']));
-    await refreshStatus();
     if (!await save()) throw new Error('无法保存连接地址，请允许浏览器存储');
-    await syncNow();
+    await resyncFromDevice();
+  }
+
+  /** Explicit recovery chooses this device's settings; ordinary sync never overwrites a revision conflict. */
+  async function resyncFromDevice() {
+    if (!connected.value || syncing.value) return;
+    const version = connectionVersion;
+    syncing.value = true;
+    try {
+      await refreshStatus();
+      const jobs = [
+        { label: '主动消息版本', run: async () => {
+          const data = await request<{ contexts: { id: string; revision: number }[] }>('/v1/proactive/contexts');
+          config.revisions = Object.fromEntries(data.contexts.map((c) => [c.id, c.revision]));
+          config.hashes = {}; config.apiHash = '';
+        } },
+        ...(supportsRhythm.value ? [{ label: '节律版本', run: async () => {
+          const data = await request<{ contexts: { id: string; revision: number }[] }>('/v1/rhythm/contexts');
+          config.rhythmRevisions = Object.fromEntries(data.contexts.map((c) => [c.id, c.revision]));
+          config.rhythmHashes = Object.fromEntries(Object.keys(config.rhythmHashes).map((id) => [id, '']));
+          config.rhythmApiHash = '';
+        } }] : []),
+        ...(supportsMemory.value ? [{ label: '记忆版本', run: async () => {
+          const data = await request<{ contexts: { id: string; revision: number }[] }>('/v1/memory/contexts');
+          config.memoryRevisions = Object.fromEntries(data.contexts.map((c) => [c.id, c.revision]));
+          config.memoryHashes = {}; config.memoryApiHash = '';
+        } }] : []),
+      ];
+      await settleSyncJobs(jobs);
+      if (!await save()) throw new Error('无法保存同步版本，请允许浏览器存储');
+    } catch (e) {
+      if (version === connectionVersion) error.value = e instanceof Error ? e.message : String(e);
+      throw e;
+    } finally { if (version === connectionVersion) syncing.value = false; }
+    if (version === connectionVersion) await syncNow();
   }
 
   async function disconnect() {
@@ -344,11 +373,25 @@ export const useHubStore = defineStore('hub', () => {
       await refreshStatus();
       // Context updates and inbox reads are independent. Neither starts cloud generation.
       // 记忆：先拉云端整理好的结果并应用，再上传这次要整理的
-      const memory = pullMemories().then(() => uploadMemories());
-      const jobs = await Promise.allSettled([pull(), pullRhythms(), uploadRhythms(), memory, ...(config.active ? [uploadContexts(), uploadApi()] : [])]);
-      const failure = jobs.find((r) => r.status === 'rejected');
-      if (failure?.status === 'rejected') throw failure.reason;
-      if (version === connectionVersion) { lastSyncAt.value = Date.now(); error.value = ''; }
+      const jobs = [
+        { label: '收件箱', run: pull },
+        ...(supportsRhythm.value ? [
+          { label: '节律结果', run: pullRhythms },
+          { label: '节律设置', run: uploadRhythms },
+        ] : []),
+        ...(supportsMemory.value ? [{ label: '记忆整理', run: () => pullMemories().then(uploadMemories) }] : []),
+        ...(config.active ? [
+          { label: '角色上下文（含时区和作息）', run: uploadContexts },
+          { label: '主动消息 API', run: () => uploadApi() },
+        ] : []),
+        ...(upgradeRequired.value ? [{ label: 'Worker 版本', run: async () => { throw new Error('云端版本过旧，请部署最新 main 的 Worker 和数据库迁移；当前节律、记忆及排期设置可能未生效'); } }] : []),
+      ];
+      await settleSyncJobs(jobs);
+      if (version === connectionVersion) {
+        config.lastSyncAt = Date.now();
+        if (!await save()) throw new Error('无法保存同步状态');
+        lastSyncAt.value = config.lastSyncAt; error.value = '';
+      }
     } catch (e) { if (version === connectionVersion) error.value = e instanceof Error ? e.message : String(e); }
     finally { if (version === connectionVersion) syncing.value = false; }
   }
@@ -401,5 +444,5 @@ export const useHubStore = defineStore('hub', () => {
       clearTimeout(debounce); debounce = setTimeout(() => void syncNow(), 500);
     }, { deep: true });
   }
-  return { config, savedPassword, connected, status, points, error, syncing, lastSyncAt, memoryErrors, hydrate, connect, disconnect, syncNow, enable, disable, subscribe, addWebhook, removeChannel, testChannel, start };
+  return { config, savedPassword, connected, status, points, error, syncing, lastSyncAt, memoryErrors, supportsRhythm, supportsMemory, upgradeRequired, hydrate, connect, resyncFromDevice, disconnect, syncNow, enable, disable, subscribe, addWebhook, removeChannel, testChannel, start };
 });
