@@ -248,6 +248,7 @@ export const TASK_MARKERS: Record<'theater' | 'summary' | 'image' | 'rhythm' | '
     healthProfile: '你的身体、目标和身体情况',
     healthTime: '能练的方式和时间',
     healthKitchen: '食材、忌口、做饭时间和厨具',
+    healthNearby: '附近能吃的和能买的（接了 Google 地图时）',
     healthToday: '今天（日期、星期、天气）',
     healthWeek: '这周的计划（排今天时）',
     healthRecent: '最近练了什么、家务里做了什么饭',

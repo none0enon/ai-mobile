@@ -198,6 +198,40 @@ export interface WeatherClient {
 /** 附近地点的种类（对应 Google Places 的类型），决定能一起做什么 */
 export type RealPlaceKind = 'cafe' | 'restaurant' | 'park' | 'gym' | 'library';
 
+/** 附近能吃饭的地方（排健康计划时外食从这里挑；Google Places 附近搜索） */
+export interface FoodPlace {
+  id: string;
+  name: string;
+  /** 什么店：Google 地图上的种类（"沙拉店""快餐店""日本料理店"） */
+  type: string;
+  distanceKm: number;
+  /** 价位 1–4（$ 到 $$$$），不知道是 undefined */
+  price?: number;
+  rating?: number;
+  ratings?: number;
+  /** 营业时间：周一到周日七行（Google 给的原文，"星期一: 10:30–21:00"） */
+  hours?: string[];
+  takeout?: boolean;
+  delivery?: boolean;
+  dineIn?: boolean;
+  vegetarian?: boolean;
+  breakfast?: boolean;
+  lunch?: boolean;
+  dinner?: boolean;
+  /** Google 写的一句介绍 */
+  summary?: string;
+  mapsUri?: string;
+}
+
+/** 附近的超市 */
+export interface GroceryStore {
+  id: string;
+  name: string;
+  type: string;
+  distanceKm: number;
+  mapsUri?: string;
+}
+
 /**
  * 真实世界的地图（M3 接 Google Maps Platform：Geocoding、Places API (New) 附近搜索、Maps JavaScript API 画图）。
  * Key 放在"连接"里，只存本机，按应用 / 网址做限制。家的地址不发给对话模型。
@@ -213,6 +247,10 @@ export interface MapsClient {
   whereAmI(): Promise<LatLng | null>;
   /** 附近可以带她一起去的地方（有 Key 时是 Google Places 的结果，缓存一天；force 不用缓存） */
   nearby(center: LatLng | null, kinds: RealPlaceKind[], opts?: { force?: boolean }): Promise<MapLocation[]>;
+  /** 附近能吃饭的地方（排健康计划时外食用；没 Key 时是空的，缓存一天） */
+  food(center: LatLng, opts?: { force?: boolean }): Promise<FoodPlace[]>;
+  /** 附近的超市（排健康计划时要买的东西用；没 Key 时是空的，缓存一天） */
+  groceries(center: LatLng, opts?: { force?: boolean }): Promise<GroceryStore[]>;
 }
 
 export interface SyncStatus {

@@ -67,17 +67,52 @@ export interface ChoreMark {
   note?: string;
 }
 
+/** 健康计划里提到的一家店在地图上（App 按店名对上附近搜到的店） */
+export interface MealSpot {
+  name: string;
+  /** 什么店（沙拉店、快餐店……，Google 地图上的种类） */
+  type?: string;
+  distanceKm?: number;
+  mapsUri?: string;
+}
+
+/**
+ * 只在某一天的一件事（不是每天、每周重复的家务）：健康计划里要提前做的饭（泡隔夜燕麦、晚饭多做一份当明天的便当）
+ * 发到那天的家务里，"共同的家"照样能开始、打勾、拖；带着没来得及做时的备案
+ */
+export interface ExtraChore {
+  id: string;
+  name: string;
+  kind: ChoreKind;
+  slot: ChoreWhen;
+  minutes: number;
+  /** 从哪来（现在只有健康计划） */
+  source: 'health';
+  /** 给哪顿备的（"明天午饭"） */
+  meal?: string;
+  /** 怎么做 */
+  steps?: string[];
+  /** 没来得及做怎么办 */
+  backup?: string;
+  /** 备案里提到的附近的店 */
+  backupSpot?: MealSpot;
+}
+
 /** 一个人设一天的家务记录（家务日从凌晨 4 点算起，同节律） */
 export interface ChoreDay {
   personaId: string;
   date: ISODate;
-  /** `${家务 id}:${什么时候}`（每天的）/ `${家务 id}:w`（每周的）→ 记录 */
+  /** `${家务 id}:${什么时候}`（每天的）/ `${家务 id}:w`（每周的）/ `extra:${id}`（临时的）→ 记录 */
   marks: Record<string, ChoreMark>;
+  /** 这一天临时的事（健康计划发来的要提前做的饭） */
+  extra?: ExtraChore[];
 }
 
 export type HealthSex = 'male' | 'female';
 export type FitTimeOfDay = 'morning' | 'noon' | 'evening' | 'any';
 export type MealKey = 'breakfast' | 'lunch' | 'dinner';
+/** 不自己做的那顿能不能带提前做好的（便当、隔夜燕麦）：能带也能热 / 能带但热不了 / 不带 */
+export type HealthBento = 'heat' | 'cold' | 'off';
 
 export interface HealthSettings {
   enabled: boolean;
@@ -102,10 +137,17 @@ export interface HealthSettings {
   ingredients: string[];
   /** 忌口、过敏 */
   avoid: string;
-  /** 每顿能花多少分钟做饭（0 = 不自己做：食堂、外卖、在外面吃） */
+  /** 每顿能花多少分钟做饭（0 = 那顿不做饭：外食，或者吃提前做好带去的） */
   cookMinutes: Record<MealKey, number>;
+  /** 做饭时间是 0 的那顿能不能带提前做好的（便当、隔夜燕麦），带去了能不能热 */
+  bento: HealthBento;
   /** 有的厨具 */
   tools: string[];
+  /**
+   * 接了 Google 地图时，外食从附近真实的店里挑、要买的东西按附近超市和网店（Amazon、Kroger……）真能买到的写
+   * （店名、种类、距离会发给「健康计划」的模型，地址和坐标不发）
+   */
+  nearby: boolean;
   /** 身体情况（旧伤、膝盖不好……） */
   note: string;
 }

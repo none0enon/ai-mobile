@@ -1,11 +1,12 @@
 import { shiftDate } from './timezone.ts';
 import type { ISODate } from './types/common.ts';
-import type { ChoreDay, ChoreDef, ChoreEffect, ChoreKind, ChoreMark, ChoreWhen, HouseworkSettings } from './types/life.ts';
+import type { ChoreDay, ChoreDef, ChoreEffect, ChoreKind, ChoreMark, ChoreWhen, ExtraChore, HouseworkSettings, MealSpot } from './types/life.ts';
 
 /**
  * 家务系统的算法部分（设计文档 §9.12）：今天要做哪几件、哪件过了时间、拖了几次、几天没做，
  * 以及发给模型的"家务"那几行。她怎么反应写在预设里（对话预设"家务：你怎么反应"、"共同的家"功能预设），这里只有数据。
  * 家务日和节律一样从凌晨 4 点算起：熬夜到一点刷牙，还算前一天的"睡前刷牙"。
+ * 除了每天、每周重复的家务，某一天还可以有临时的事（ChoreDay.extra）：健康计划里要提前做的饭发到这里，带着没来得及做的备案。
  */
 
 export const CHORE_WHEN: Record<ChoreWhen, { label: string; icon: string }> = {
@@ -100,6 +101,48 @@ export function normalizeHousework(raw: unknown): HouseworkSettings {
   return { enabled: raw.enabled === true, chores };
 }
 
+/** 读进来的临时的事补齐字段；不像样时返回 null */
+export function normalizeExtra(raw: unknown): ExtraChore | null {
+  if (!isObj(raw)) return null;
+  const id = typeof raw.id === 'string' ? raw.id.slice(0, 60) : '';
+  const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, 60) : '';
+  if (!id || !name) return null;
+  const kind = (typeof raw.kind === 'string' && raw.kind in CHORE_KINDS ? raw.kind : 'cooking') as ChoreKind;
+  const slot = (typeof raw.slot === 'string' && raw.slot in CHORE_WHEN ? raw.slot : 'any') as ChoreWhen;
+  const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const spot = isObj(raw.backupSpot) && typeof raw.backupSpot.name === 'string' ? (raw.backupSpot as unknown as MealSpot) : undefined;
+  const steps = (Array.isArray(raw.steps) ? raw.steps : []).filter((x): x is string => typeof x === 'string' && !!x.trim()).slice(0, 8);
+  return {
+    id,
+    name,
+    kind,
+    slot,
+    minutes: intIn(raw.minutes, 1, 240, 10),
+    source: 'health',
+    ...(str(raw.meal, 30) ? { meal: str(raw.meal, 30) } : {}),
+    ...(steps.length ? { steps } : {}),
+    ...(str(raw.backup, 200) ? { backup: str(raw.backup, 200) } : {}),
+    ...(spot ? { backupSpot: spot } : {}),
+  };
+}
+
+/** 临时的事当成一件家务（清单、提示词照常用）：没做时她提醒你照备案来 */
+export function extraChoreDef(x: ExtraChore): ChoreDef {
+  return {
+    id: x.id,
+    name: x.name,
+    kind: x.kind,
+    freq: 'daily',
+    slots: [x.slot],
+    days: [],
+    perWeek: 1,
+    minutes: x.minutes,
+    effect: 'custom',
+    effectNote: x.backup ? `没来得及也没关系，提醒照备案来：${x.backup}` : '提醒一句',
+    addedAt: 0,
+  };
+}
+
 // —— 日期 ——
 
 /** 这一天是周几（0 周日） */
@@ -173,6 +216,8 @@ export interface ChoreItem {
   sinceDone: number | null;
   /** 今天之前连着几天没做（每天的；从加上这件家务算起） */
   missedDays: number;
+  /** 临时的事（健康计划发来的要提前做的饭）：给哪顿备的、怎么做、没来得及做的备案 */
+  extra?: ExtraChore;
 }
 
 export interface ChoreDayInput {
@@ -304,6 +349,27 @@ export function choreItems(input: ChoreDayInput): ChoreItem[] {
       missedDays: 0,
     });
   }
+  // 这一天临时的事（健康计划发来的要提前做的饭）
+  for (const x of history[date]?.extra ?? []) {
+    const key = `extra:${x.id}`;
+    const mark = today[key] ?? EMPTY;
+    const dueMin = slotDeadline(x.slot, sleepMin);
+    out.push({
+      key,
+      chore: extraChoreDef(x),
+      slot: x.slot,
+      label: x.name,
+      when: `${CHORE_WHEN[x.slot].label}${x.meal ? ` · 给${x.meal}` : ''}`,
+      mark,
+      overdue: mark.status !== 'done' && nowMin >= dueMin,
+      early: mark.status === 'todo' && nowMin < slotOpens(x.slot, sleepMin),
+      dueMin,
+      lastDone: null,
+      sinceDone: null,
+      missedDays: 0,
+      extra: x,
+    });
+  }
   return out.sort((a, b) => a.dueMin - b.dueMin || a.chore.name.localeCompare(b.chore.name));
 }
 
@@ -389,7 +455,7 @@ export function formatChoreBlock(opts: {
   if (!items.length) return `【家务】${userName}今天没有要做的家务（截至 ${opts.nowText}）。`;
   const lines = items.map((it) => {
     const extra = it.chore.freq === 'weekly' ? `（${it.week ? `每周 ${it.week.need} 次，这周做了 ${it.week.done} 次` : choreSchedule(it.chore)}）` : '';
-    const label = it.chore.freq === 'daily' ? it.label : `${it.label}${extra}`;
+    const label = it.extra ? `${it.label}（健康计划里要提前做的${it.extra.meal ? `，给${it.extra.meal}` : ''}）` : it.chore.freq === 'daily' ? it.label : `${it.label}${extra}`;
     const pending = it.mark.status !== 'done' && (it.overdue || it.mark.status === 'later' || it.missedDays > 0);
     const effect = pending ? effectLine(it.chore, userName) : '';
     return `- ${label}：${choreStateText(it, opts.timeZone)}${effect ? `｜没做时：${effect}` : ''}`;

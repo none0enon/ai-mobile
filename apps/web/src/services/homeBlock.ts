@@ -10,10 +10,10 @@ import { seedBlockContent } from '@/stores/library';
  * 触发条件写着 housework / health，没开的系统那一块不发）。两套都没开时这一块是空的，不发送。
  */
 
-/** 你人设里开着的系统：预设里触发条件写了它们的块只在开着时发送 */
+/** 你人设里开着的系统：预设里触发条件写了它们的块只在开着时发送（家务：有重复的家务，或者今天有健康计划发来的要提前做的饭） */
 export function lifeFlags(persona: Persona | undefined): LifeFlag[] {
   const out: LifeFlag[] = [];
-  if (persona?.housework?.enabled && persona.housework.chores.length) out.push('housework');
+  if (persona?.housework?.enabled && (persona.housework.chores.length || useHomeStore().extrasOf(persona.id).length)) out.push('housework');
   if (persona?.health?.enabled) out.push('health');
   return out;
 }
@@ -51,7 +51,8 @@ export function healthLines(persona: Persona): string {
     const meals = (['breakfast', 'lunch', 'dinner', 'snack'] as const)
       .map((k) => {
         const m = day.meals[k];
-        return m ? `${MEAL_LABEL[k]} ${m.name}${m.cook && m.minutes ? `（自己做，约 ${m.minutes} 分钟）` : ''}` : '';
+        const how = m?.cook && m.minutes ? `（自己做，约 ${m.minutes} 分钟${m.prep ? '，顺手备一份' : ''}）` : m?.bento ? '（带提前做好的便当）' : m?.place ? `（去${m.place}吃）` : '';
+        return m ? `${MEAL_LABEL[k]} ${m.name}${how}` : '';
       })
       .filter(Boolean);
     if (meals.length) lines.push(`今天吃什么（计划）：${meals.join('；')}`);

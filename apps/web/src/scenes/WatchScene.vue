@@ -4,7 +4,9 @@ import { showToast } from 'vant';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Avatar from '@/components/common/Avatar.vue';
+import FlyingDanmaku from '@/components/scene/FlyingDanmaku.vue';
 import SceneShell from '@/components/scene/SceneShell.vue';
+import { isHandheld, useTheater } from '@/composables/useTheater';
 import { personaOf } from '@/services/prompt';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
@@ -23,6 +25,8 @@ import { fetchYouTubeMeta, parseVideoLink, PLATFORM_LABEL, trackYouTube, youTube
  * 有字幕时：字幕按片内时间排好，她读的是接下来一段的字幕，提前批量写好要说的话，每句挂在一条字幕上，播到那一条才出现
  * （出现时存进聊天）。拖进度条就作废重写，晚到 3 秒以上的不出。
  * 你发弹幕她马上回；暂停时可以多聊两句；电影院模式下她不出声，散场后一次翻看她写在"票根背面"的话。
+ * 手机、平板上（电脑不会）开始一起看就进"放映厅"：横屏、铺满整个屏幕，她的话从画面上飘过去（composables/useTheater.ts）；
+ * 进不了系统全屏的（iPhone 的浏览器）就是一个没有内边距、铺满屏幕的框，屏幕竖着时里面转成横的。
  * 她说的话都来自「陪伴 · 快速」（"一起观影"功能预设 + 这一次的输入）；没接通时写明原因，不出演示台词。
  */
 type Phase = 'pick' | 'watching' | 'ended';
@@ -55,7 +59,7 @@ const userName = computed(() => personaOf(chat.chatById(chatId.value)).name);
 
 // —— 选片 ——
 const phase = ref<Phase>('pick');
-const source = ref<Source>('local');
+const source = ref<Source>('link');
 const title = ref('');
 const videoUrl = ref('');
 const videoName = ref('');
@@ -202,6 +206,8 @@ function onYouTube(info: YouTubeInfo) {
     ytError.value = youTubeErrorText(info.error);
     ytGaveUp.value = true;
     playing.value = false;
+    // 放映厅里看不到原因：出来，面板上写着为什么、可以去 YouTube 看
+    exitTheater();
     return;
   }
   if (info.title && !title.value.trim()) title.value = info.title;
@@ -420,9 +426,75 @@ interface Dm {
 const danmaku = ref<Dm[]>([]);
 let dmSeq = 0;
 function pushDanmaku(who: Dm['who'], text: string) {
+  // 放映厅里：从画面上飘过去
+  if (inTheater.value) {
+    flyEl.value?.push(who, text);
+    return;
+  }
   const id = (dmSeq += 1);
   danmaku.value = [...danmaku.value.slice(-3), { id, who, text }];
   setTimeout(() => (danmaku.value = danmaku.value.filter((d) => d.id !== id)), 6000);
+}
+
+// —— 放映厅：横屏、铺满屏幕看 ——
+/** 手机、平板（电脑上照旧，想全屏就点"全屏"） */
+const handheld = isHandheld();
+const screenEl = ref<HTMLElement | null>(null);
+const flyEl = ref<InstanceType<typeof FlyingDanmaku> | null>(null);
+const { on: inTheater, rotate: theaterRotated, size: theaterSize, enter: enterTheater, exit: exitTheater } = useTheater(screenEl);
+/** 在别处看时手机上没有画面，不进放映厅 */
+const canTheater = computed(() => source.value !== 'elsewhere');
+/** 屏幕竖着：里面的内容框宽高对调、转 90° */
+const boxStyle = computed(() => (theaterRotated.value ? { width: `${theaterSize.value.h}px`, height: `${theaterSize.value.w}px`, left: `${theaterSize.value.w}px` } : {}));
+/**
+ * 播放器自己的全屏会盖住弹幕：手机上把它关掉（YouTube 加 fs=0，iframe 不给全屏权限，视频不显示全屏按钮），全屏用放映厅。
+ * 电脑上照旧
+ */
+const frameSrc = computed(() => {
+  const l = link.value;
+  if (!l) return '';
+  return handheld && l.platform === 'youtube' ? `${l.src}&fs=0` : l.src;
+});
+const frameAllow = handheld ? 'autoplay; encrypted-media; picture-in-picture' : 'autoplay; fullscreen; encrypted-media; picture-in-picture';
+// 视频放不了：出来看原因
+watch(videoError, (e) => e && exitTheater());
+
+/**
+ * 顶上那一条按钮：进来时和点过以后露 4 秒，然后收成左上角一个小按钮；
+ * 在打字、等你点"开始计时"时一直露着；她没接通、这句没说出来时露 4 秒让你看到
+ */
+const barShown = ref(true);
+const typingOpen = ref(false);
+const theaterInput = ref<HTMLInputElement | null>(null);
+let barTimer: ReturnType<typeof setTimeout> | undefined;
+const barVisible = computed(() => barShown.value || typingOpen.value || (clockKind.value === 'manual' && !playing.value));
+function pokeBar() {
+  barShown.value = true;
+  clearTimeout(barTimer);
+  barTimer = setTimeout(() => (barShown.value = false), 4000);
+}
+watch(inTheater, (v) => {
+  if (v) pokeBar();
+  else typingOpen.value = false;
+});
+watch([notConnected, chatterError], ([a, b]) => {
+  if (inTheater.value && (a || b)) pokeBar();
+});
+async function toggleTyping() {
+  typingOpen.value = !typingOpen.value;
+  pokeBar();
+  if (typingOpen.value) {
+    await nextTick();
+    theaterInput.value?.focus();
+  }
+}
+/** 放映厅里发弹幕：发出去就收起输入框、收起键盘，好看弹幕 */
+function theaterSend() {
+  if (!input.value.trim() || replying.value) return;
+  void send();
+  typingOpen.value = false;
+  theaterInput.value?.blur();
+  pokeBar();
 }
 
 // —— 你发弹幕 / 暂停时聊 ——
@@ -464,6 +536,8 @@ async function send() {
 // —— 开始 / 散场 ——
 async function start() {
   if (!canStart.value) return;
+  // 手机上：开始就横屏全屏。系统全屏只认这一次点击，要在任何 await 之前进
+  if (handheld && canTheater.value) enterTheater();
   if (source.value === 'link' && !title.value.trim()) title.value = defaultTitle();
   phase.value = 'watching';
   t.value = 0;
@@ -484,6 +558,7 @@ const herScore = ref(0);
 const posted = ref(false);
 const backOfTicket = ref<string[]>([]);
 function stopWatching() {
+  exitTheater();
   videoEl.value?.pause();
   yt?.command('pauseVideo');
   yt?.destroy();
@@ -528,49 +603,88 @@ async function leaveTheater() {
 
 onBeforeUnmount(() => {
   clearInterval(loop);
+  clearTimeout(barTimer);
   yt?.destroy();
   if (videoUrl.value) URL.revokeObjectURL(videoUrl.value);
 });
 </script>
 
 <template>
-  <SceneShell scene-id="watch" :hide-figure="phase === 'watching'" :title="phase === 'watching' ? `《${title}》` : undefined" pose="sit" :line="phase === 'ended' ? herReview : ''" :typing="replying && phase === 'ended'" :layout="{ left: 78, bottom: 56, height: 30 }">
+  <SceneShell class="watch-shell" scene-id="watch" :hide-figure="phase === 'watching'" :title="phase === 'watching' ? `《${title}》` : undefined" pose="sit" :line="phase === 'ended' ? herReview : ''" :typing="replying && phase === 'ended'" :layout="{ left: 78, bottom: 56, height: 30 }">
     <template #overlay>
-      <div v-if="phase === 'watching'" class="screen">
-        <video
-          v-if="clockKind === 'video'"
-          ref="videoEl"
-          class="video"
-          :src="videoSrc"
-          controls
-          playsinline
-          @play="playing = true"
-          @pause="playing = false"
-          @seeked="onSeek"
-          @loadedmetadata="videoDuration = videoEl?.duration ?? 0"
-          @error="videoError = source === 'link' ? '这个链接放不了：可能失效了、不是视频文件，或者网站不让别的网页播放' : '这个视频浏览器放不了'"
-        />
-        <iframe
-          v-else-if="source === 'link' && link && link.platform !== 'direct'"
-          ref="frameEl"
-          class="video"
-          :src="link.src"
-          :title="`${PLATFORM_LABEL[link.platform]}播放器`"
-          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-          allowfullscreen
-          data-testid="player-frame"
-        />
-        <div v-else class="elsewhere">
-          <div class="num text-[34px] font-700">{{ mediaClock(t) }}</div>
-          <div class="text-[13px] text-ink-2 mt-1 px-4 text-center line-clamp-2">{{ curCue?.text ?? '　' }}</div>
-        </div>
-        <div v-if="!cinema" class="dm-layer">
-          <TransitionGroup name="dm">
-            <div v-for="d in danmaku" :key="d.id" class="dm" :class="d.who">
-              <Avatar v-if="d.who === 'her'" :character="her" :size="20" />
-              <span>{{ d.text }}</span>
+      <div v-if="phase === 'watching'" ref="screenEl" class="screen" :class="{ theater: inTheater }" data-testid="watch-screen">
+        <div class="box" :class="{ rot: theaterRotated }" :style="boxStyle">
+          <video
+            v-if="clockKind === 'video'"
+            ref="videoEl"
+            class="video"
+            :src="videoSrc"
+            controls
+            playsinline
+            v-bind="handheld ? { controlslist: 'nofullscreen', disablepictureinpicture: '' } : {}"
+            @play="playing = true"
+            @pause="playing = false"
+            @seeked="onSeek"
+            @loadedmetadata="videoDuration = videoEl?.duration ?? 0"
+            @error="videoError = source === 'link' ? '这个链接放不了：可能失效了、不是视频文件，或者网站不让别的网页播放' : '这个视频浏览器放不了'"
+          />
+          <iframe
+            v-else-if="source === 'link' && link && link.platform !== 'direct'"
+            ref="frameEl"
+            class="video"
+            :src="frameSrc"
+            :title="`${PLATFORM_LABEL[link.platform]}播放器`"
+            :allow="frameAllow"
+            :allowfullscreen="!handheld"
+            data-testid="player-frame"
+          />
+          <div v-else class="elsewhere">
+            <div class="num text-[34px] font-700">{{ mediaClock(t) }}</div>
+            <div class="text-[13px] text-ink-2 mt-1 px-4 text-center line-clamp-2">{{ curCue?.text ?? '　' }}</div>
+          </div>
+          <div v-if="!cinema && !inTheater" class="dm-layer">
+            <TransitionGroup name="dm">
+              <div v-for="d in danmaku" :key="d.id" class="dm" :class="d.who">
+                <Avatar v-if="d.who === 'her'" :character="her" :size="20" />
+                <span>{{ d.text }}</span>
+              </div>
+            </TransitionGroup>
+          </div>
+
+          <!-- 放映厅：她的话从画面上飘过去；顶上一条按钮，几秒后收成左上角的小按钮 -->
+          <template v-if="inTheater">
+            <FlyingDanmaku v-if="!cinema" ref="flyEl" :character="her" :top="56" />
+            <div class="th-bar" :class="{ off: !barVisible }" data-testid="theater-bar" @pointerdown="pokeBar">
+              <button type="button" class="th-btn" aria-label="退出全屏" data-testid="theater-exit" @click="exitTheater"><span class="i-lucide-minimize-2 text-[16px]" /></button>
+              <span class="th-title">《{{ title }}》</span>
+              <button v-if="notConnected" type="button" class="th-note bad" @click="exitTheater">{{ her.pronoun }}没接通，出去看看</button>
+              <span v-else-if="chatterError" class="th-note bad" :title="chatterError">{{ her.pronoun }}这句没说出来</span>
+              <span v-else-if="(chattering || replying) && !cinema" class="th-note">{{ her.pronoun }}在想…</span>
+              <template v-if="clockKind === 'manual'">
+                <button type="button" class="th-btn" aria-label="往回 5 秒" @click="setClock(t - 5)">-5</button>
+                <button type="button" class="th-btn wide on" data-testid="theater-clock" @click="playPause">
+                  {{ playing ? '暂停计时' : '开始计时' }}<span class="num">{{ mediaClock(t) }}</span>
+                </button>
+                <button type="button" class="th-btn" aria-label="往前 5 秒" @click="setClock(t + 5)">+5</button>
+              </template>
+              <span v-else-if="clockKind === 'youtube'" class="th-note num">{{ ytHeard ? mediaClock(t) : '连接中…' }}</span>
+              <button type="button" class="th-btn" :class="{ on: typingOpen }" aria-label="发弹幕" data-testid="theater-type" @click="toggleTyping"><span class="i-lucide-message-square-text text-[16px]" /></button>
+              <button type="button" class="th-btn wide" @click="stopWatching">看完了</button>
             </div>
-          </TransitionGroup>
+            <button v-if="!barVisible" type="button" class="th-handle" aria-label="显示按钮" data-testid="theater-handle" @click="pokeBar"><span class="i-lucide-ellipsis text-[18px]" /></button>
+            <form v-if="typingOpen" class="th-input" @submit.prevent="theaterSend">
+              <input
+                ref="theaterInput"
+                v-model="input"
+                class="th-field"
+                enterkeyhint="send"
+                :placeholder="playing ? '发一句弹幕' : `暂停了，和${her.pronoun}聊两句`"
+                aria-label="弹幕"
+                @focus="pokeBar"
+              />
+              <button type="submit" class="th-btn wide on" :disabled="replying">发送</button>
+            </form>
+          </template>
         </div>
       </div>
     </template>
@@ -584,8 +698,8 @@ onBeforeUnmount(() => {
     <!-- 选片 -->
     <template v-if="phase === 'pick'">
       <div class="flex gap-2 overflow-x-auto no-scrollbar">
-        <button type="button" class="chip" :class="{ on: source === 'local' }" @click="source = 'local'">在这里放视频</button>
         <button type="button" class="chip" :class="{ on: source === 'link' }" data-testid="source-link" @click="source = 'link'">贴链接</button>
+        <button type="button" class="chip" :class="{ on: source === 'local' }" data-testid="source-local" @click="source = 'local'">在这里放视频</button>
         <button type="button" class="chip" :class="{ on: source === 'elsewhere' }" @click="source = 'elsewhere'">在别处看</button>
       </div>
 
@@ -686,6 +800,7 @@ onBeforeUnmount(() => {
         <span class="text-[12.5px] text-ink-3">话量</span>
         <button v-for="(v, k) in TALK" :key="k" type="button" class="chip sm" :class="{ on: talk === k }" @click="talk = k">{{ v.label }}</button>
         <span class="flex-1" />
+        <van-button v-if="canTheater" size="small" round data-testid="theater-enter" @click="enterTheater"><span class="i-lucide-maximize-2 align-[-2px]" /> 全屏</van-button>
         <van-button size="small" round @click="stopWatching">看完了</van-button>
       </div>
     </template>
@@ -712,6 +827,13 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/*
+ * 页面进场动画（base.css 的 page-in）停在 transform: translateY(0)，transform 不是 none 的元素会把里面的
+ * position: fixed 困在自己里面（横屏时放映厅只有中间 480px 那一列）。这一页动画放完不保留最后一帧，transform 回到 none
+ */
+.watch-shell {
+  animation-fill-mode: backwards;
+}
 .screen {
   position: absolute;
   z-index: 9;
@@ -721,6 +843,143 @@ onBeforeUnmount(() => {
   aspect-ratio: 16 / 9;
   max-height: 34vh;
   background: #000;
+}
+.box {
+  position: absolute;
+  inset: 0;
+}
+/* 放映厅：铺满屏幕、没有内边距（系统全屏时就是整个屏幕） */
+.screen.theater {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  margin: 0;
+  padding: 0;
+  max-height: none;
+  aspect-ratio: auto;
+  overflow: hidden;
+}
+.screen.theater .box {
+  --th-l: env(safe-area-inset-left, 0px);
+  --th-r: env(safe-area-inset-right, 0px);
+  --th-t: env(safe-area-inset-top, 0px);
+}
+/* 屏幕竖着：框的左上角放在屏幕右上角，顺时针转 90°（手机往左横过来看就是正的） */
+.screen.theater .box.rot {
+  inset: auto;
+  top: 0;
+  transform-origin: 0 0;
+  transform: rotate(90deg);
+  --th-l: env(safe-area-inset-top, 0px);
+  --th-r: env(safe-area-inset-bottom, 0px);
+  --th-t: 0px;
+}
+.th-bar {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: calc(var(--th-t) + 6px) calc(var(--th-r) + 10px) 16px calc(var(--th-l) + 10px);
+  /* 压得住 YouTube 播放器自己在左上角显示的标题 */
+  background: linear-gradient(rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0.6) 62%, rgba(0, 0, 0, 0));
+  color: #fff;
+  transition:
+    opacity 0.3s var(--ease),
+    transform 0.3s var(--ease);
+}
+.th-bar.off {
+  opacity: 0;
+  transform: translateY(-10px);
+  pointer-events: none;
+}
+.th-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+}
+.th-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 34px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.th-btn.wide {
+  padding: 0 12px;
+}
+.th-btn.on {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.th-btn:disabled {
+  opacity: 0.5;
+}
+.th-note {
+  flex-shrink: 0;
+  max-width: 34%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.78);
+}
+.th-note.bad {
+  color: #ffb8b8;
+}
+.th-handle {
+  position: absolute;
+  z-index: 3;
+  top: calc(var(--th-t) + 8px);
+  left: calc(var(--th-l) + 10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.38);
+  color: rgba(255, 255, 255, 0.85);
+}
+.th-input {
+  position: absolute;
+  z-index: 3;
+  top: calc(var(--th-t) + 52px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  width: min(520px, calc(100% - 24px));
+}
+.th-field {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  outline: none;
+  font-size: 16px;
+}
+.th-field::placeholder {
+  color: rgba(255, 255, 255, 0.55);
 }
 .video {
   width: 100%;
