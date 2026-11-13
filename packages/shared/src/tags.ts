@@ -55,8 +55,10 @@ export const CONTROL_TAG_DOCS: Record<ControlTagKind, { syntax: string; desc: st
 
 const KIND_ALT = CONTROL_TAG_KINDS.join('|');
 // [ 或 【 开头，名字，可选的 : 或 ： 加取值，] 或 】 结尾
-const TAG_RE = new RegExp(`[\\[【](${KIND_ALT})(?:[:：]([^\\]】\\n]{0,200}))?[\\]】]`, 'gi');
-const MAX_TAG_LEN = 220;
+// 取值里可以有成对的【…】（约会的选项写成"【皮一下】…"时不会在中间断开）；约会的四个选项带前缀，放得下 360 字
+const VALUE = '(?:【[^】\\]\\n]{0,20}】|[^\\]【】\\n]){0,360}';
+const TAG_RE = new RegExp(`[\\[【](${KIND_ALT})(?:[:：](${VALUE}))?[\\]】]`, 'gi');
+const MAX_TAG_LEN = 380;
 
 function parseTag(kind: ControlTagKind, raw: string | undefined): ControlTag | null {
   const value = (raw ?? '').trim();
@@ -84,7 +86,7 @@ function parseTag(kind: ControlTagKind, raw: string | undefined): ControlTag | n
 function isPartialTag(tail: string): boolean {
   if (tail.length > MAX_TAG_LEN) return false;
   const normalized = tail.replace(/^【/, '[').replace('：', ':');
-  const m = /^\[([a-zA-Z]*)(:[^\]】\n]*)?$/.exec(normalized);
+  const m = /^\[([a-zA-Z]*)(:(?:【[^】\]\n]*】|[^\]】\n])*)?$/.exec(normalized);
   if (!m) return false;
   const name = (m[1] ?? '').toLowerCase();
   if (m[2] !== undefined) return (CONTROL_TAG_KINDS as readonly string[]).includes(name);
@@ -93,6 +95,14 @@ function isPartialTag(tail: string): boolean {
 
 function lastOpenBracket(s: string): number {
   return Math.max(s.lastIndexOf('['), s.lastIndexOf('【'));
+}
+
+/** 结尾还没收完的标签从哪开始：往前找（取值里可能已经有成对的【…】，最后一个括号不一定是标签的开头）；没有为 -1 */
+function partialTagStart(s: string): number {
+  for (let i = s.length - 1; i >= 0 && s.length - i <= MAX_TAG_LEN; i--) {
+    if ((s[i] === '[' || s[i] === '【') && isPartialTag(s.slice(i))) return i;
+  }
+  return -1;
 }
 
 export interface ParsedReply {
@@ -160,8 +170,8 @@ export function parseControlTags(raw: string, allowed?: readonly ControlTagKind[
     }
   }
   let tail = body.slice(last);
-  const open = lastOpenBracket(tail);
-  if (open !== -1 && isPartialTag(tail.slice(open))) {
+  const open = partialTagStart(tail);
+  if (open !== -1) {
     tail = tail.slice(0, open);
     pending = true;
   }

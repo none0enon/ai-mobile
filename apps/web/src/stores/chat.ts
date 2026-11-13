@@ -55,6 +55,8 @@ export interface GenerateOptions {
   flags?: string[];
   /** 流式时每次、写完时（done）给解析好的正文和标签（标签的位置是在正文里的下标）：心跳按位置执行 <device> 指令 */
   onParsed?(parsed: ParsedReply, done: boolean): void;
+  /** [cg:] 由场景自己画（用这个场景的生图预设和时刻，约会）：这里不往消息里放配图卡 */
+  sceneArt?: boolean;
 }
 
 export interface SceneReplyOptions {
@@ -76,6 +78,10 @@ export interface SceneReplyOptions {
   use?: PresetUseId;
   /** 这一次另外打开的预设触发条件（真心话大冒险选的尺度 td-level:名字） */
   flags?: string[];
+  /** 流式时每次、写完时给解析好的正文和标签（约会按段落翻页、按位置换表情，读选项和 [cg:]） */
+  onParsed?(parsed: ParsedReply, done: boolean): void;
+  /** [cg:] 由场景自己画，不往消息里放配图卡 */
+  sceneArt?: boolean;
 }
 
 export type SceneReplyResult = { ok: true; message: Message } | { ok: false; reason: string; notConnected?: boolean };
@@ -363,7 +369,7 @@ export const useChatStore = defineStore('chat', () => {
       for (const { tag } of parsed.tags) {
         // 歌曲卡片：点"一起听"时按歌名 + 歌手去网易云搜（还没有 id）
         if (tag.kind === 'music') parts.push({ type: 'music', songId: '', title: tag.title, artist: tag.artist });
-        if (tag.kind === 'cg') parts.push({ type: 'image', assetKey: null, caption: tag.value, generated: false });
+        if (tag.kind === 'cg' && !opts.sceneArt) parts.push({ type: 'image', assetKey: null, caption: tag.value, generated: false });
         if (tag.kind === 'choice') msg.meta.choices = tag.options;
         if (tag.kind === 'call') {
           setTimeout(() => {
@@ -429,6 +435,8 @@ export const useChatStore = defineStore('chat', () => {
       quick: opts.quick,
       use: opts.use,
       flags: opts.flags,
+      onParsed: opts.onParsed,
+      sceneArt: opts.sceneArt,
     });
     const msg = id ? find(chatId, id) : undefined;
     if (!msg) return { ok: false, reason: '没有生成回复' };

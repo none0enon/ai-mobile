@@ -200,6 +200,17 @@ const SEED_UPGRADES: SeedUpgrade[] = [
     added: ['mealStart', 'mealPrep', 'mealReady', 'mealFood', 'mealCheers', 'mealChat', 'mealEnd', 'sceneTask', 'mealLook'],
   },
   {
+    // 约会接上真实的模型：一段一段推进，每段结尾四个选项（顺着、逆着、皮一下、暧昧），也能自己说；
+    // 开场、每一段、结束约会各一块，加上程序填这一次输入的"场景任务"；心动时刻的 [cg:] 交给"生图 · 约会"
+    id: 'feature-date:vn',
+    file: 'feature-date.json',
+    replaced: {
+      sceneRule: ['【场景：约会】以旁白加对话推进约会。每轮结尾给出 2-3 个选项：[choice:选项A|选项B|选项C]；最浪漫的时刻可以用 [cg:画面描述] 请求一张配图；注意天气和时间。'],
+      jailbreak: ['用"（旁白）+「台词」"的形式推进约会，每轮结尾给 2-3 个选项。'],
+    },
+    added: ['dateStart', 'dateTurn', 'dateEnd', 'sceneTask'],
+  },
+  {
     // 健身加了连麦：一边练一边说话她就听得到，用她的声音回（fit-call）
     id: 'feature-exercise:mic',
     file: 'feature-exercise.json',

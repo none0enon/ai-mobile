@@ -129,6 +129,15 @@ export type MessagePart =
       place: string;
       when: string;
       status: 'invite' | 'accepted' | 'declined' | 'memory';
+      /** 约会回忆：走了几段、多少分钟 */
+      turns?: number;
+      minutes?: number;
+      /** 每种回法选了几次（顺着、逆着、皮一下、暧昧），自己说的算"自己说" */
+      picks?: Record<string, number>;
+      /** 她最后说的一句（结束约会时） */
+      farewell?: string;
+      /** 这次画的图（到达、关键时刻、留念） */
+      images?: { assetKey: string | null; url?: string; title: string; moment: string }[];
     }
   | { type: 'gift'; giftId: string; name: string }
   /** 一起看书：这一次读到哪、划了几句 */
