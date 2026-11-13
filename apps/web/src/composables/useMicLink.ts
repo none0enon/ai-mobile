@@ -258,7 +258,8 @@ export function useMicLink(opts: MicLinkOptions) {
     return `${ctx}连麦中（已经连了 ${clock(state.seconds)}）。回${user}刚才说的话。`;
   }
 
-  async function herTurn(kind: 'open' | 'reply' | 'whisper') {
+  /** custom：场景里的一件事让她开口（健身做完一个动作），用这件事自己的任务名和输入 */
+  async function herTurn(kind: 'open' | 'reply' | 'whisper', custom?: { name: string; input: string }) {
     const id = opts.chatId.value;
     if (!id || !state.on) return;
     if (!companion.value.live) {
@@ -289,7 +290,7 @@ export function useMicLink(opts: MicLinkOptions) {
     let mine: string | null = null;
     const run = chat.generate(id, undefined, {
       agent: 'companion',
-      task: { name: kind === 'whisper' ? (opts.tasks?.whisper ?? 'sleep-whisper') : (opts.tasks?.reply ?? 'sleep-call'), input: taskInput(kind) },
+      task: custom ?? { name: kind === 'whisper' ? (opts.tasks?.whisper ?? 'sleep-whisper') : (opts.tasks?.reply ?? 'sleep-call'), input: taskInput(kind) },
       cue: '连麦',
       allowedTags: opts.allowedTags?.() ?? ['expr'],
       // 要快：认得思考参数的接口把思考关到最少
@@ -410,6 +411,19 @@ export function useMicLink(opts: MicLinkOptions) {
     void startListening();
   }
 
+  /**
+   * 场景里的一件事让她开口（健身：开练、做完一个动作、练了一段时间、练完）：连着麦时用她的声音说，
+   * 她正说着的先停下（聊天里只留说出口的）。没连着返回 false，场景照平常的方式让她说
+   */
+  function announce(name: string, input: string): boolean {
+    if (!state.on) return false;
+    void (async () => {
+      if (state.her !== 'idle') await interruptHer();
+      if (state.on) await herTurn('reply', { name, input });
+    })();
+    return true;
+  }
+
   function setMuted(on: boolean) {
     state.muted = on;
     listener.muted = on;
@@ -429,6 +443,7 @@ export function useMicLink(opts: MicLinkOptions) {
     setMuted,
     tapToListen,
     say: (text: string) => youSaid(text, true),
+    announce,
     /** 你要她做别的（讲故事）：她在连麦里正回着的先停下，只留说出口的 */
     interrupt: interruptHer,
     noteHerLine,

@@ -1,19 +1,23 @@
 <script setup lang="ts">
 import { estimateKcal, FIT_METHODS, fitMethod, metFor, moveAmount, paceText, shiftDate, weekStartOf, type FitMove, type MessagePart } from '@app/shared';
 import { showConfirmDialog, showToast } from 'vant';
-import { computed, inject, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Avatar from '@/components/common/Avatar.vue';
 import Segmented from '@/components/common/Segmented.vue';
 import MoveHow from '@/components/health/MoveHow.vue';
 import { SCENE_LOCATION } from '@/components/scene/location';
+import MicLinkBar from '@/components/scene/MicLinkBar.vue';
 import PlaylistMusic from '@/components/scene/PlaylistMusic.vue';
 import SceneShell from '@/components/scene/SceneShell.vue';
 import StudyBubble from '@/components/scene/study/StudyBubble.vue';
 import TimerRing from '@/components/scene/TimerRing.vue';
+import { useDragFloat, type FloatPos } from '@/composables/useDragFloat';
+import { useMicLink } from '@/composables/useMicLink';
 import { services } from '@/services';
 import { fitMusic, type PlaylistSearch } from '@/services/musicPlayer';
 import { personaOf } from '@/services/prompt';
+import { SpeechQueue } from '@/services/speech';
 import { bluetoothSupported, createGpsTracker, createHeartRate, createStepCounter, isAndroid } from '@/services/workoutSensors';
 import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
@@ -29,9 +33,11 @@ import { clock } from '@/utils/time';
  * - 开始前（和练完）：上下各一半。上半屏是她的立绘和她那边在干什么；下半屏是你的安排：
  *   按照计划（今天的健身计划，一个动作一个动作地练）或者随便动动（从你人设里能接受的健身方式挑一个，可以定个时长）；
  *   记录：时长一直记；心率、消耗可选；室外的再加步数和距离。进阶的自动记录先只做安卓（蓝牙心率、计步、GPS），别的手机结束时手动填。
- * - 练的时候：整屏立绘，中间一个圆形计时器（照计划练：每组的计时、组间休息倒计时；随便动动：时长），下面是现在这个动作（点开看怎么做）、
- *   心率、消耗、步数、距离；最下面音乐、跟她说一句。
+ * - 练的时候：整屏立绘，一个半透明的圆形计时器（照计划练：每组的计时、组间休息倒计时；随便动动：时长），按住能拖到哪儿都行、记住位置；
+ *   下面是现在这个动作，怎么做直接展开着（开练了就不用再点）、心率、消耗、步数、距离；最下面音乐、跟她说一句。
  * - 她说的话（开练、做完一个动作、练了一段时间、边练边聊、结束）都来自「陪伴 · 快速」按"健身"功能预设，存进聊天；可以让她读出来。
+ * - 右上角连麦（composables/useMicLink.ts，和共同的家一样）：手上忙着，说话她就听得到、用她的声音回你（fit-call）；
+ *   连着的时候开练、做完一个动作、练了一段时间、练完她也在麦里说，不另外念。
  * - 练完：统计、补上手表上的数，"发给她"：运动卡片进聊天，她具体地评价；记录也记进健康计划（她平时聊天也知道你今天练没练）。
  */
 type Phase = 'setup' | 'active' | 'done';
@@ -81,6 +87,8 @@ interface Saved {
   targetMin?: number;
   voiceOn?: boolean;
   track?: boolean;
+  /** 计时器拖到了哪儿 */
+  ringPos?: FloatPos;
 }
 function loadSaved(): Saved {
   try {
@@ -98,13 +106,46 @@ const targetMin = ref(TARGETS.includes(saved.targetMin ?? -1) ? saved.targetMin!
 const voiceOn = ref(saved.voiceOn ?? false);
 /** 室外：用 GPS 记距离、用手机数步（安卓） */
 const track = ref(saved.track ?? true);
-watch([mode, method, targetMin, voiceOn, track], () => {
+/**
+ * 计时器的位置（能放的范围里的比例）。你拖过就一直放在那儿（记在本机）；
+ * 没拖过时每次开练放在左边、动作卡上面，不挡怎么做（随便动动没有动作卡，放在左边偏上）
+ */
+const RING_HOME: FloatPos = { x: 0, y: 0.3 };
+const validPos = (p: unknown): p is FloatPos => !!p && typeof p === 'object' && Number.isFinite((p as FloatPos).x) && Number.isFinite((p as FloatPos).y);
+const ringPos = ref<FloatPos>(validPos(saved.ringPos) ? saved.ringPos : { ...RING_HOME });
+let ringMoved = validPos(saved.ringPos);
+function persist() {
   try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ mode: mode.value, method: method.value, targetMin: targetMin.value, voiceOn: voiceOn.value, track: track.value }));
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ mode: mode.value, method: method.value, targetMin: targetMin.value, voiceOn: voiceOn.value, track: track.value, ...(ringMoved ? { ringPos: ringPos.value } : {}) }));
   } catch {
     // 存不下就算了
   }
+}
+watch([mode, method, targetMin, voiceOn, track], persist);
+const {
+  el: ringEl,
+  dragging: ringDragging,
+  style: ringStyle,
+  listeners: ringListeners,
+  onClickCapture: ringClickCapture,
+} = useDragFloat(ringPos, () => {
+  ringMoved = true;
+  persist();
 });
+const moveCardEl = ref<HTMLElement | null>(null);
+function placeRing() {
+  if (ringMoved) return;
+  const disc = ringEl.value;
+  const area = disc?.offsetParent as HTMLElement | null;
+  const card = moveCardEl.value;
+  if (!disc || !area || !card) {
+    ringPos.value = { ...RING_HOME };
+    return;
+  }
+  const room = area.clientHeight - disc.offsetHeight;
+  const top = card.getBoundingClientRect().top - area.getBoundingClientRect().top - disc.offsetHeight - 8;
+  ringPos.value = { x: 0, y: room > 0 ? Math.min(1, Math.max(0, top / room)) : 0 };
+}
 const methodInfo = computed(() => fitMethod(method.value));
 const outdoor = computed(() => mode.value === 'free' && methodInfo.value.outdoor);
 
@@ -142,6 +183,10 @@ const segEndsAt = ref<number | null>(null);
 const segPausedLeft = ref<number | null>(null);
 const doneMoves = ref<string[]>([]);
 const current = computed(() => steps.value[stepIndex.value] ?? null);
+// 开练、换到下一个动作（动作卡高矮不一样）：没拖过的计时器重新放到动作卡上面
+watch([phase, stepIndex], () => {
+  if (phase.value === 'active') void nextTick(placeRing);
+});
 const segLeftSec = computed(() => {
   if (segPausedLeft.value !== null) return segPausedLeft.value;
   return segEndsAt.value === null ? null : Math.max(0, Math.ceil((segEndsAt.value - now.value) / 1000));
@@ -175,7 +220,9 @@ const herLine = ref('');
 const notConnected = ref('');
 const stream = computed(() => (chatId.value ? chat.streams[chatId.value] : undefined));
 const streamingText = computed(() => (stream.value ? (chat.list(chatId.value).find((m) => m.id === stream.value!.messageId)?.text ?? '') : ''));
-const shownLine = computed(() => streamingText.value || herLine.value);
+/** 连着麦时是她在麦里最近说的那句 */
+const shownLine = computed(() => (link.state.on && lastCaption.value) || streamingText.value || herLine.value);
+const lastCaption = computed(() => [...link.state.captions].reverse().find((c) => c.who === 'her')?.text ?? '');
 const chatLink = computed(() => `/chat/${chatId.value}?mode=stage`);
 const cue = computed(() => {
   if (phase.value === 'setup') return '开练';
@@ -214,8 +261,11 @@ async function speak(text: string) {
 
 async function reply(task: string, lines: string[], userText?: string) {
   if (!chatId.value) return;
+  const input = lines.filter(Boolean).join('\n');
+  // 连着麦：她在麦里说（用她的声音，和回你的话同一路）
+  if (!userText && link.announce(task, input)) return;
   if (!userText && chat.streams[chatId.value]) chat.stop(chatId.value);
-  const r = await chat.sceneReply(chatId.value, { task, input: lines.filter(Boolean).join('\n'), userText, cue: cue.value, quick: true });
+  const r = await chat.sceneReply(chatId.value, { task, input, userText, cue: cue.value, quick: true });
   if (!r.ok) {
     if (r.notConnected) notConnected.value = r.reason;
     else if (!/还在回上一句/.test(r.reason)) showToast(r.reason);
@@ -350,14 +400,68 @@ function skipRest() {
 }
 
 // —— 边练边聊 ——
+function doingLine(): string {
+  return mode.value === 'plan' && current.value ? `现在在做：${current.value.move.name}（第 ${setNo.value}/${current.value.move.sets} 组${resting.value ? '，组间休息' : ''}）` : '';
+}
 const chatText = ref('');
 async function sendChat() {
   const t = chatText.value.trim();
-  if (!t || stream.value) return;
+  if (!t) return;
+  // 连着麦：打的字也走麦里那一路，她用声音回
+  if (link.state.on) {
+    chatText.value = '';
+    void link.say(t);
+    return;
+  }
+  if (stream.value) return;
   chatText.value = '';
-  await reply('fit-chat', [whatLine(), mode.value === 'plan' && current.value ? `现在在做：${current.value.move.name}（第 ${setNo.value}/${current.value.move.sets} 组${resting.value ? '，组间休息' : ''}）` : '', paused.value ? '暂停着' : '', ...statsLines()], t);
+  await reply('fit-chat', [whatLine(), doingLine(), paused.value ? '暂停着' : '', ...statsLines()], t);
 }
 const musicOpen = ref(false);
+
+// —— 连麦：手上忙着，说话她就听得到，用她的声音回你 ——
+let speech: SpeechQueue | null = null;
+function newSpeech(o: { onSentence?(text: string, i: number): void } = {}): SpeechQueue {
+  speech?.stop();
+  const q = new SpeechQueue({ characterId: her.value.id, onSentence: o.onSentence });
+  speech = q;
+  fitMusic.duck(true);
+  void q.drained().then(() => {
+    if (speech === q) fitMusic.duck(false);
+  });
+  return q;
+}
+function linkContext(): string {
+  if (phase.value === 'setup') return `${userName.value}还没开练，在准备。打算：${whatLine()}`;
+  if (phase.value === 'done') return `${userName.value}刚练完（${whatLine()}），一共练了 ${Math.max(1, Math.round((endedSec || activeSec.value) / 60))} 分钟`;
+  return [whatLine(), doingLine(), paused.value ? '暂停着' : '', ...statsLines()].filter(Boolean).join('\n');
+}
+const link = useMicLink({
+  chatId,
+  character: her,
+  userName,
+  newSpeech: (o) => newSpeech({ onSentence: o.onSentence }),
+  context: linkContext,
+  herBusy: () => false,
+  onInterrupt: () => undefined,
+  autoWhisper: () => false,
+  tasks: { reply: 'fit-call' },
+  input: (kind, info) =>
+    kind === 'open'
+      ? `${info.context}\n你们刚连上麦，${userName.value}${phase.value === 'active' ? '一边练一边' : ''}用语音跟你说话。先开口说第一句，1–2 个短句。`
+      : `${info.context}\n连麦中（已经连了 ${info.linked}）。回${userName.value}刚才说的话。`,
+});
+// 练着的时候挂断了麦：屏幕接着保持亮着（连麦挂断时会把它关掉）
+watch(
+  () => link.state.on,
+  (on) => {
+    if (!on && phase.value === 'active') void services.native.keepAwake(true);
+  },
+);
+function toggleLink() {
+  if (link.state.on) void link.hangUp();
+  else link.connect();
+}
 
 // —— 结束 ——
 const sent = ref(false);
@@ -380,7 +484,8 @@ async function finish(auto = false) {
   setCounting(false);
   gps.stop();
   stepCounter.stop();
-  void services.native.keepAwake(false);
+  // 还连着麦时屏幕接着亮（熄屏就听不到了），挂断时再关
+  if (!link.state.on) void services.native.keepAwake(false);
   now.value = Date.now();
   phase.value = 'done';
   musicOpen.value = false;
@@ -521,6 +626,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   chat.setLeaveSummary(her.value.id, null);
   clearInterval(ticker);
+  link.dispose();
+  speech?.stop();
   hr.disconnect();
   stepCounter.stop();
   gps.stop();
@@ -535,8 +642,19 @@ const figureLayout = computed(() => (view.value === 'split' ? { left: 50, bottom
 </script>
 
 <template>
-  <SceneShell scene-id="exercise" bare outfit="sport" :layout="figureLayout">
+  <SceneShell scene-id="exercise" bare hide-mode outfit="sport" :layout="figureLayout">
     <template #actions>
+      <button
+        type="button"
+        class="mic-pill"
+        :class="{ live: link.state.on }"
+        :aria-label="link.state.on ? `挂断连麦（已经连了 ${clock(link.state.seconds)}）` : `和${her.name}连麦：说话${her.pronoun}就听得到`"
+        data-testid="fit-mic"
+        @click="toggleLink"
+      >
+        <template v-if="link.state.on"><span class="i-lucide-phone-off shrink-0" /><span class="num">{{ clock(link.state.seconds) }}</span></template>
+        <template v-else><span class="i-lucide-headphones shrink-0" />连麦</template>
+      </button>
       <button type="button" class="pill-btn" :class="{ off: !voiceOn }" :aria-pressed="voiceOn" :aria-label="voiceOn ? `${her.pronoun}的声音：开（点一下关掉）` : `${her.pronoun}的声音：关（点一下打开）`" @click="voiceOn = !voiceOn">
         <span :class="voiceOn ? 'i-lucide-volume-2' : 'i-lucide-volume-x'" />
       </button>
@@ -546,6 +664,7 @@ const figureLayout = computed(() => (view.value === 'split' ? { left: 50, bottom
       <div class="fit" :class="`v-${view}`" :data-view="view">
         <!-- ============ 开始前 / 练完：上下各一半 ============ -->
         <template v-if="view === 'split'">
+          <div v-if="link.state.on" class="split-link"><MicLinkBar :link="link" :pronoun="her.pronoun" type-form /></div>
           <div v-if="phase === 'setup'" class="plan-card" data-testid="her-side">
             <div class="flex items-center gap-2.5">
               <Avatar :character="her" :size="34" live />
@@ -692,7 +811,8 @@ const figureLayout = computed(() => (view.value === 'split' ? { left: 50, bottom
           <div class="shade bottom" aria-hidden="true" />
 
           <div class="her-col">
-            <div class="her-card">
+            <MicLinkBar v-if="link.state.on" :link="link" :pronoun="her.pronoun" />
+            <div v-else class="her-card">
               <div class="flex items-center gap-2">
                 <Avatar :character="her" :size="24" live />
                 <span class="flex-1 min-w-0 text-[12px] text-ink-2 truncate">{{ her.name }} · {{ herState }}</span>
@@ -705,30 +825,16 @@ const figureLayout = computed(() => (view.value === 'split' ? { left: 50, bottom
             </div>
           </div>
 
-          <div class="ring-zone">
-            <div class="ring-disc" role="timer" :aria-label="`${display.label}：${clock(display.sec)}`" data-testid="fit-ring">
-              <TimerRing :remain-sec="display.sec" :total-sec="display.total" :count-up="display.countUp" :size="188" :label="paused ? '暂停中' : display.label" :tone="display.tone">
-                <div class="ctrls mt-2">
-                  <button type="button" class="mini-c" :aria-label="paused ? '继续' : '暂停'" @click="togglePause"><span :class="paused ? 'i-lucide-play' : 'i-lucide-pause'" /></button>
-                  <button v-if="resting" type="button" class="mini-c wide" @click="skipRest"><span class="i-lucide-skip-forward" />跳过</button>
-                  <button type="button" class="mini-c wide" data-testid="fit-end" @click="finish()">结束</button>
-                </div>
-              </TimerRing>
-            </div>
-          </div>
-
           <!-- 照计划：现在这个动作 -->
-          <div v-if="mode === 'plan' && current" class="move-card" data-testid="move-card">
+          <div v-if="mode === 'plan' && current" ref="moveCardEl" class="move-card" data-testid="move-card">
             <div class="flex items-center gap-2">
               <span class="kind">{{ KIND_LABEL[current.kind] }} · {{ stepIndex + 1 }}/{{ steps.length }}</span>
               <span class="flex-1 min-w-0 text-[15.5px] font-700 truncate">{{ current.move.name }}</span>
               <span class="num text-[12.5px] text-accent-ink shrink-0">第 {{ setNo }}/{{ current.move.sets }} 组</span>
             </div>
             <div class="text-[12.5px] text-ink-2 mt-0.5 num">{{ moveAmount(current.move) }}<template v-if="current.move.rest && current.move.sets > 1"> · 组间歇 {{ current.move.rest }} 秒</template></div>
-            <details class="how-box">
-              <summary>怎么做</summary>
-              <MoveHow :move="current.move" />
-            </details>
+            <!-- 开练了就直接看得到怎么做，不用再点 -->
+            <MoveHow :key="stepIndex" :move="current.move" class="how-box" data-testid="move-how" />
             <div class="flex gap-2 mt-2">
               <button type="button" class="act" @click="nextMove(false)">跳过这个</button>
               <button v-if="!resting && !current.move.seconds" type="button" class="act primary" data-testid="set-done" @click="finishSet"><span class="i-lucide-check" />这组做完了</button>
@@ -753,9 +859,33 @@ const figureLayout = computed(() => (view.value === 'split' ? { left: 50, bottom
             </button>
             <form class="chat-form" @submit.prevent="sendChat">
               <input v-model="chatText" class="chat-input" :placeholder="`跟${her.pronoun}说一句`" aria-label="边练边聊" enterkeyhint="send" />
-              <button type="submit" class="pill icon" :disabled="!!stream || !chatText.trim()" aria-label="发送"><span class="i-lucide-send" /></button>
+              <button type="submit" class="pill icon" :disabled="(!link.state.on && !!stream) || !chatText.trim()" aria-label="发送"><span class="i-lucide-send" /></button>
             </form>
           </nav>
+
+          <!-- 计时器：半透明，按住拖到哪儿都行（不挡她、不挡动作），位置记在本机 -->
+          <div class="ring-track">
+            <div
+              ref="ringEl"
+              class="ring-disc"
+              :class="{ dragging: ringDragging }"
+              :style="ringStyle"
+              role="timer"
+              :aria-label="`${display.label}：${clock(display.sec)}（按住可以拖动）`"
+              data-testid="fit-ring"
+              v-on="ringListeners"
+              @click.capture="ringClickCapture"
+            >
+              <span class="grip i-lucide-grip-horizontal" aria-hidden="true" />
+              <TimerRing :remain-sec="display.sec" :total-sec="display.total" :count-up="display.countUp" :size="156" :label="paused ? '暂停中' : display.label" :tone="display.tone">
+                <div class="ctrls mt-1.5">
+                  <button type="button" class="mini-c" :aria-label="paused ? '继续' : '暂停'" @click="togglePause"><span :class="paused ? 'i-lucide-play' : 'i-lucide-pause'" /></button>
+                  <button v-if="resting" type="button" class="mini-c wide" @click="skipRest"><span class="i-lucide-skip-forward" />跳过</button>
+                  <button type="button" class="mini-c wide" data-testid="fit-end" @click="finish()">结束</button>
+                </div>
+              </TimerRing>
+            </div>
+          </div>
           <template v-if="musicOpen">
             <div class="pop-catcher" @click="musicOpen = false" />
             <div class="music-pop" role="dialog" aria-label="音乐">
@@ -778,7 +908,8 @@ const figureLayout = computed(() => (view.value === 'split' ? { left: 50, bottom
 .fit > * {
   pointer-events: auto;
 }
-.fit > .shade {
+.fit > .shade,
+.fit > .ring-track {
   pointer-events: none;
 }
 .pill-btn {
@@ -798,6 +929,34 @@ const figureLayout = computed(() => (view.value === 'split' ? { left: 50, bottom
 }
 .pill-btn.off {
   color: var(--ink-3);
+}
+.mic-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex-shrink: 0;
+  height: 38px;
+  padding: 0 13px;
+  border-radius: 99px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: var(--accent-ink);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+.mic-pill.live {
+  background: var(--bad);
+  border-color: transparent;
+  color: #fff;
+}
+.split-link {
+  position: absolute;
+  top: calc(var(--safe-top) + 58px);
+  left: 12px;
+  right: 12px;
 }
 
 /* —— 开始前 / 练完：上下各一半 —— */
@@ -1082,19 +1241,46 @@ const figureLayout = computed(() => (view.value === 'split' ? { left: 50, bottom
   color: var(--ink-2);
   font-size: 12px;
 }
-.ring-zone {
+/* 计时器能拖动的范围：顶栏下面到底栏上面 */
+.ring-track {
   position: absolute;
-  left: 8%;
-  top: 38%;
-  transform: translateY(-50%);
+  top: calc(var(--safe-top) + 56px);
+  bottom: calc(var(--safe-bottom) + 54px);
+  left: 8px;
+  right: 8px;
 }
 .ring-disc {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
   border-radius: 50%;
-  background: var(--veil);
+  /* 半透明：透过去看得到她和背景 */
+  background: rgba(127, 127, 127, 0.18);
+  background: color-mix(in srgb, var(--veil) 55%, transparent);
   border: 1px solid var(--glass-line);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: box-shadow 0.15s ease, background-color 0.15s ease;
+}
+.ring-disc.dragging {
+  cursor: grabbing;
+  background: var(--veil);
   box-shadow: var(--shadow);
+}
+.ring-disc :deep(.timer-ring) {
+  --ring-track: rgba(127, 127, 127, 0.25);
+}
+.ring-disc .grip {
+  position: absolute;
+  top: 15px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 14px;
+  color: var(--ink-3);
+  opacity: 0.8;
 }
 .ctrls {
   display: flex;
@@ -1134,13 +1320,11 @@ const figureLayout = computed(() => (view.value === 'split' ? { left: 50, bottom
 }
 .how-box {
   margin-top: 6px;
-  max-height: 30vh;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  max-height: 26vh;
   overflow-y: auto;
-}
-.how-box summary {
-  cursor: pointer;
-  font-size: 12.5px;
-  color: var(--accent-ink);
+  overscroll-behavior: contain;
 }
 .act {
   display: inline-flex;

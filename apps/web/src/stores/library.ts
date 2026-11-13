@@ -189,6 +189,12 @@ const SEED_UPGRADES: SeedUpgrade[] = [
     added: ['home', 'homeRules', 'healthRules', 'fitStart', 'fitMove', 'fitCheer', 'fitChat', 'fitEnd', 'sceneTask'],
   },
   {
+    // 健身加了连麦：一边练一边说话她就听得到，用她的声音回（fit-call）
+    id: 'feature-exercise:mic',
+    file: 'feature-exercise.json',
+    added: ['fitCall'],
+  },
+  {
     // 总结：家务卡片、运动记录记成习惯和变化（不是每次打卡都记）
     id: 'summary:life',
     file: 'summary.json',
