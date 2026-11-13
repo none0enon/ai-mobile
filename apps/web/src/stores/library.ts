@@ -189,6 +189,17 @@ const SEED_UPGRADES: SeedUpgrade[] = [
     added: ['home', 'homeRules', 'healthRules', 'fitStart', 'fitMove', 'fitCheer', 'fitChat', 'fitEnd', 'sceneTask'],
   },
   {
+    // 一起吃饭重做：共同吃饭（她也在吃饭时，坐在一张桌子两边）/ 各吃各的（隔着屏幕、能碰杯），按计划吃 / 随便吃点；
+    // 开饭、按计划准备、准备好了、你吃的什么、碰杯、边吃边聊、吃完各一块，"识图看饭照"交给识图，加上程序填这一次输入的"场景任务"
+    id: 'feature-meal:together-solo',
+    file: 'feature-meal.json',
+    replaced: {
+      sceneRule: ['【场景：一起吃饭】你们坐在同一张餐桌前，你也在吃。聊吃的、聊今天；记住{{user}}的口味；{{user}}发来饭照时，先具体评价看到的食物。'],
+      jailbreak: ['像坐在对面一起吃饭那样聊：一到三句，口语，可以聊吃的、聊今天。'],
+    },
+    added: ['mealStart', 'mealPrep', 'mealReady', 'mealFood', 'mealCheers', 'mealChat', 'mealEnd', 'sceneTask', 'mealLook'],
+  },
+  {
     // 健身加了连麦：一边练一边说话她就听得到，用她的声音回（fit-call）
     id: 'feature-exercise:mic',
     file: 'feature-exercise.json',

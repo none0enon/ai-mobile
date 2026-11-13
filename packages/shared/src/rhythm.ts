@@ -2,6 +2,7 @@ import { SCENES, type SceneId } from './scenes.ts';
 import type { LocationActivity, LocationArea, MapLocation, MapShape, World } from './locations.ts';
 import type { DayOutfit, OutfitItem, OutfitKind, RhythmDay, RhythmMeals, RhythmPerson, RhythmSettings, RhythmSlot, RhythmTemplate } from './types/rhythm.ts';
 import { shiftDate, zonedDateKey, zonedParts } from './timezone.ts';
+import type { MealSlot } from './types/activity.ts';
 
 /**
  * 节律的算法部分（设计文档 §9 开头）：节律日、作息检查和兜底、读「节律」写回来的 JSON、把"建世界"的结果排成一张小地图。
@@ -40,6 +41,26 @@ export function toHHMM(min: number): string {
 export function slotIn<T extends { from: string; to: string }>(schedule: T[], now: Date): T | undefined {
   const t = now.getHours() * 60 + now.getMinutes();
   return schedule.find((s) => (toMinutes(s.from) ?? 0) <= t && t < (toMinutes(s.to) ?? 0)) ?? schedule.at(-1);
+}
+
+/** 吃饭的说法（"吃午饭""食堂吃饭""吃夜宵""用餐"……）；"做饭""饭后散步"这类不算在吃 */
+const EATING = /吃(?:早|午|中|晚)?(?:饭|餐)|吃东西|吃点东西|(?:早|午|中|晚)(?:饭|餐)|用餐|就餐|进餐|聚餐|夜宵|宵夜|下午茶|早茶|食堂|觅食/;
+const NOT_EATING = /做饭|煮饭|买饭|备餐|饭后|餐后/;
+
+/**
+ * 作息里这一段是不是在吃饭：是的话返回哪一顿，不是返回 null（一起吃饭时，她正在吃饭才能"共同吃饭"）。
+ * 写了哪顿的按写的；只写了"吃饭"的按这一段开始的时间算（10:30 前早饭、15:30 前午饭、21:00 前晚饭，再晚是夜宵）
+ */
+export function mealOfStatus(status: string, from?: string): MealSlot | null {
+  const s = status.trim();
+  if (!s || NOT_EATING.test(s) || !EATING.test(s)) return null;
+  if (/早(?:饭|餐|茶)/.test(s)) return 'breakfast';
+  if (/(?:午|中)(?:饭|餐)/.test(s)) return 'lunch';
+  if (/晚(?:饭|餐)/.test(s)) return 'dinner';
+  if (/夜宵|宵夜|下午茶/.test(s)) return 'snack';
+  const m = from ? toMinutes(from) : null;
+  if (m === null) return 'lunch';
+  return m < 630 ? 'breakfast' : m < 930 ? 'lunch' : m < 1260 ? 'dinner' : 'snack';
 }
 
 /** 这个场景该穿哪一套：运动穿运动的，哄睡、心跳穿睡衣，约会穿约会装（没有就日常），其余日常 */

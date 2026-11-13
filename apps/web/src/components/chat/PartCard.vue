@@ -63,10 +63,27 @@ async function previewWork() {
   else showToast('本机找不到这张画了');
 }
 
-/** 学习卡片里这次画的图：点一张从它开始翻 */
+/** 饭卡里你拍的饭照：点开看大图 */
+async function previewMealPhoto() {
+  const p = props.part;
+  if (p.type !== 'meal' || !p.photo) return;
+  const url = await assetUrl(p.photo);
+  if (url) showImagePreview({ images: [url], closeable: true, showIndex: false });
+  else showToast('本机找不到这张照片了');
+}
+const WAY: Record<string, string> = { cook: '自己做', buy: '去买', bento: '带便当' };
+/** 饭卡上"怎么吃的"：共同吃饭 / 各吃各的，按计划怎么来的 */
+const mealHow = computed(() => {
+  const p = props.part;
+  if (p.type !== 'meal' || !p.how) return '';
+  if (p.how === 'solo') return '各吃各的';
+  return p.plan ? `共同吃饭 · 按计划${WAY[p.plan.way] ?? ''}` : '共同吃饭';
+});
+
+/** 学习卡片、饭卡里这次画的图：点一张从它开始翻 */
 async function previewShots(start: number) {
   const p = props.part;
-  if (p.type !== 'study' || !p.images?.length) return;
+  if ((p.type !== 'study' && p.type !== 'meal') || !p.images?.length) return;
   const urls = await Promise.all(p.images.map(async (i) => (i.assetKey ? await assetUrl(i.assetKey) : (i.url ?? null))));
   const images = urls.filter((u): u is string => !!u);
   if (images.length) showImagePreview({ images, startPosition: Math.min(start, images.length - 1), closeable: true });
@@ -200,12 +217,23 @@ async function playVoice() {
     </div>
   </div>
 
-  <!-- 饭照 -->
+  <!-- 一起吃饭：一顿饭（照片、怎么吃的、这次画的她） -->
   <div v-else-if="part.type === 'meal'" class="pcard meal">
-    <div class="meal-photo"><span class="i-lucide-soup text-[34px]" /></div>
+    <button v-if="part.photo" type="button" class="meal-photo has-photo" aria-label="看大图：这顿饭" @click="previewMealPhoto">
+      <AssetImg :asset-key="part.photo" :alt="part.food" />
+    </button>
+    <div v-else class="meal-photo"><span class="i-lucide-soup text-[34px]" /></div>
     <div class="p-3">
-      <div class="text-[12.5px] text-ink-3">{{ MEAL[part.meal] ?? '一顿饭' }}</div>
+      <div class="text-[12.5px] text-ink-3">{{ MEAL[part.meal] ?? '一顿饭' }}<template v-if="mealHow"> · {{ mealHow }}</template></div>
       <div class="font-600 text-[14.5px]">{{ part.food }}</div>
+      <div v-if="part.herMeal || part.cheers" class="text-[12px] text-ink-3 mt-0.5">
+        <template v-if="part.herMeal">{{ character.pronoun }}吃的{{ part.herMeal }}</template><template v-if="part.herMeal && part.cheers"> · </template><template v-if="part.cheers">碰了 {{ part.cheers }} 次杯</template>
+      </div>
+      <div v-if="part.images?.length" class="shots">
+        <button v-for="(img, i) in part.images" :key="i" type="button" class="shot" :aria-label="`看大图：${img.title}`" @click="previewShots(i)">
+          <AssetImg :asset-key="img.assetKey" :url="img.url" :alt="img.title" />
+        </button>
+      </div>
     </div>
   </div>
 
@@ -501,6 +529,14 @@ async function playVoice() {
   justify-content: center;
   color: #fff;
   background: linear-gradient(135deg, #e8a86c, #b8603f);
+}
+.meal-photo.has-photo {
+  position: relative;
+  width: 100%;
+  height: 140px;
+  padding: 0;
+  overflow: hidden;
+  cursor: zoom-in;
 }
 .shots {
   display: flex;

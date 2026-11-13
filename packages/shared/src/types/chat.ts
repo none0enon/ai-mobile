@@ -78,7 +78,28 @@ export type MessagePart =
       later?: number;
       note?: string;
     }
-  | { type: 'meal'; logId: string; meal: MealSlot; food: string; photo?: string | null }
+  /**
+   * 一起吃饭记的一顿（吃完时发；以前的卡片只有前几项）。
+   * how：共同吃饭（她正好也在吃饭，坐在一张桌子两边）/ 各吃各的（上下分屏，她在她那边）；
+   * mode + plan：共同吃饭时按健康计划吃（自己做、去买、带的便当）还是随便吃点
+   */
+  | {
+      type: 'meal';
+      logId: string;
+      meal: MealSlot;
+      food: string;
+      /** 你拍的饭照：本机素材库的 key（识图看到的在同一时间发进聊天的那张照片上） */
+      photo?: string | null;
+      how?: 'together' | 'solo';
+      mode?: 'plan' | 'free';
+      plan?: { name: string; way: 'cook' | 'buy' | 'bento' };
+      /** 她这顿吃的（共同吃饭、她那边正好在吃饭时） */
+      herMeal?: string;
+      /** 碰了几次杯 */
+      cheers?: number;
+      /** 这次画的她（对面、她那边、碰杯） */
+      images?: { assetKey: string | null; url?: string; title: string; moment: string }[];
+    }
   | {
       type: 'study';
       logId: string;

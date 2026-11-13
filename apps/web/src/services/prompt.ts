@@ -8,6 +8,7 @@ import {
   getLocation,
   getScene,
   isRealPlace,
+  MEAL_LABEL,
   PRESET_CATEGORIES,
   presetUse,
   sceneUse,
@@ -74,8 +75,13 @@ function partToText(p: MessagePart, character: Character, user: string, mapText?
       return p.status === 'done'
         ? `[家务：${p.name} 做完了${p.minutes ? `，做了 ${p.minutes} 分钟` : ''}${p.later ? `（之前拖了 ${p.later} 次）` : ''}${p.note ? `；${p.note}` : ''}]`
         : `[家务：${p.name} 说晚点再做（拖了 ${p.later ?? 1} 次）]`;
-    case 'meal':
-      return `[饭照：${p.food}]`;
+    case 'meal': {
+      const how = p.how === 'together' ? '共同吃饭' : p.how === 'solo' ? '各吃各的' : '';
+      const way = p.plan ? `按计划${{ cook: '自己做', buy: '去买', bento: '带便当' }[p.plan.way]}（计划：${p.plan.name}）` : p.mode === 'free' ? '随便吃点' : '';
+      const extra = [p.photo ? '拍了照片' : '', p.herMeal ? `${character.name}吃的：${p.herMeal}` : '', p.cheers ? `碰杯 ${p.cheers} 次` : ''].filter(Boolean);
+      const meta = [how, way].filter(Boolean).join('，');
+      return `[一起吃饭 · ${MEAL_LABEL[p.meal] ?? '一顿饭'}：${p.food}${meta ? `（${meta}）` : ''}${extra.length ? `；${extra.join('；')}` : ''}]`;
+    }
     case 'study': {
       const done = p.tasks?.filter((t) => t.done).map((t) => t.text) ?? [];
       const extra = [
