@@ -203,7 +203,7 @@ async function playVoice() {
   <div v-else-if="part.type === 'game' && part.game === 'truthdare'" class="pcard row-card" style="--tone: #b9a3e6">
     <span class="icon-wrap" style="color: var(--tone)"><span class="i-lucide-bottle-wine" /></span>
     <div class="flex-1 min-w-0">
-      <div class="text-[14.5px] truncate">真心话大冒险 · {{ part.level }}</div>
+      <div class="text-[14.5px] truncate">真心话大冒险<template v-if="part.level"> · {{ part.level }}</template></div>
       <div class="text-[12px] text-ink-3">玩了 {{ part.rounds }} 轮</div>
       <div class="text-[12.5px] text-ink-2 mt-0.5">
         你：真心话 {{ part.you.truth }} · 大冒险 {{ part.you.dare }}<template v-if="part.you.skipped"> · 认罚 {{ part.you.skipped }}</template>

@@ -177,7 +177,7 @@ export const SCENES: SceneDef[] = [
     promptFragment: '',
     allowedTags: ['expr'],
     proactiveTriggers: [],
-    dataSources: ['海龟汤题库（src/soups/ 里的题库文件，可以增删改）', '现编的题', '真心话大冒险的题：她按尺度、你们的关系和记忆现出'],
+    dataSources: ['海龟汤题库（src/soups/ 里的题库文件，可以增删改）', '现编的题', '真心话大冒险的题：她按预设里的尺度、你们的关系和记忆现出'],
   },
   {
     id: 'read',

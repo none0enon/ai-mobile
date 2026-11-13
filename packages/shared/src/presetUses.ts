@@ -1,5 +1,5 @@
 import { SCENES, type SceneId } from './scenes.ts';
-import type { PresetCategory } from './types/preset.ts';
+import type { Preset, PresetCategory, PromptBlock } from './types/preset.ts';
 
 /**
  * 用预设的地方：每个调用 AI 的功能用哪一类预设。
@@ -50,6 +50,36 @@ export const IMAGE_MOMENTS: Partial<Record<FeatureSceneId, Record<string, string
 export function momentLabel(moment: string): string | undefined {
   for (const m of Object.values(IMAGE_MOMENTS)) if (m?.[moment]) return m[moment];
   return undefined;
+}
+
+/**
+ * 真心话大冒险的尺度不写在代码里：功能预设里触发条件写了 `td-level:名字` 的块就是一个尺度（名字是冒号后面的字）。
+ * 开局时按块的顺序列出来让你选；选了哪个，这一局每一步都把 `td-level:名字` 当作额外的触发条件，只发那一块。
+ * 有几个尺度、叫什么、每个尺度出什么样的题，都在预设里改（预设编辑页里给一块填"真心话大冒险的尺度"）。
+ */
+export const TRUTH_DARE_LEVEL = 'td-level:';
+/** 真心话大冒险各步的触发条件都以它开头（出题 td-ask-truth、她选 td-pick……），尺度也是 */
+const TRUTH_DARE_PREFIX = 'td-';
+
+/** 这一块是真心话大冒险的哪个尺度；不是尺度时为空 */
+export function truthDareLevelOf(block: Pick<PromptBlock, 'triggers'>): string {
+  const t = block.triggers?.find((x) => x.startsWith(TRUTH_DARE_LEVEL));
+  return t ? t.slice(TRUTH_DARE_LEVEL.length).trim() : '';
+}
+
+/** 预设里的尺度：按块的顺序，只算开着的普通块，同名的取前面那块 */
+export function truthDareLevels(preset: Pick<Preset, 'blocks'> | undefined): { name: string; block: PromptBlock }[] {
+  const out: { name: string; block: PromptBlock }[] = [];
+  for (const block of preset?.blocks ?? []) {
+    const name = block.enabled && !block.marker ? truthDareLevelOf(block) : '';
+    if (name && !out.some((l) => l.name === name)) out.push({ name, block });
+  }
+  return out;
+}
+
+/** 是不是真心话大冒险的预设（有触发条件以 td- 开头的块）：换成别的功能预设时出题、选择的格式会不对 */
+export function isTruthDarePreset(preset: Pick<Preset, 'blocks'> | undefined): boolean {
+  return !!preset?.blocks.some((b) => b.triggers?.some((t) => t.startsWith(TRUTH_DARE_PREFIX)));
 }
 
 /** 一起做事的用途里名字、说明和场景名不一样的（一个场景分了好几个用途的） */

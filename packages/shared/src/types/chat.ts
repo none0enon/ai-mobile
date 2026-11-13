@@ -143,7 +143,8 @@ export type MessagePart =
       type: 'game';
       logId: string;
       game: 'truthdare';
-      level: TruthDareLevel;
+      /** 尺度：预设里那一块的名字（TRUTH_DARE_LEVEL）；预设里没有尺度时不写 */
+      level?: string;
       rounds: number;
       you: TruthDareTally;
       her: TruthDareTally;
@@ -178,9 +179,6 @@ export type MessagePart =
       mode?: TogetherMode;
       youAt?: string;
     };
-
-/** 真心话大冒险的尺度：轻松（日常、好回答）/ 心动（恋爱和你们俩）/ 大胆（更私密、更敢） */
-export type TruthDareLevel = '轻松' | '心动' | '大胆';
 
 /** 真心话大冒险里一个人这一局：做了几次真心话、几次大冒险（认罚的不算） */
 export interface TruthDareTally {

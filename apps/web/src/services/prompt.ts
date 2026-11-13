@@ -94,7 +94,7 @@ function partToText(p: MessagePart, character: Character, user: string, mapText?
     case 'game':
       if (p.game === 'truthdare') {
         const tally = (t: TruthDareTally) => `真心话 ${t.truth} 次、大冒险 ${t.dare} 次${t.skipped ? `、认罚 ${t.skipped} 次` : ''}`;
-        return `[真心话大冒险（${p.level}）：玩了 ${p.rounds} 轮；${user}${tally(p.you)}；${character.name}${tally(p.her)}]`;
+        return `[真心话大冒险${p.level ? `（${p.level}）` : ''}：玩了 ${p.rounds} 轮；${user}${tally(p.you)}；${character.name}${tally(p.her)}]`;
       }
       return `[海龟汤《${p.title}》：${{ solved: '猜出来了', partial: '猜对了一半', 'gave-up': '认输了' }[p.result]}，问了 ${p.questions} 个问题${p.truth ? `；汤底：${p.truth}` : ''}]`;
     case 'watch':

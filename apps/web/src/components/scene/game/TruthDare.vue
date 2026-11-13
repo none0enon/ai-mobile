@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { isExpression, parseControlTags, type MessagePart, type PresetUseId, type TruthDareLevel, type TruthDareTally } from '@app/shared';
+import { isExpression, isTruthDarePreset, parseControlTags, TRUTH_DARE_LEVEL, truthDareLevels, type MessagePart, type PresetUseId, type TruthDareTally } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -17,6 +17,7 @@ import { uid } from '@/utils/id';
  * - 轮到你：你选真心话还是大冒险，她按尺度出题（JSON：题目 + 她的一句话）；你写下回答、做完了、换一个（每轮一次）或者认罚，她来反应；
  * - 轮到她：她选真心话还是大冒险，你出题（可以让模型帮你想几个），她回答、照着做。
  * 用"一起游戏 · 真心话大冒险"这个用途的预设（game-truthdare），每一步的规则都写在预设的块里，代码只填这一次的输入。
+ * 尺度也在预设里：触发条件写了 td-level:名字 的块（TRUTH_DARE_LEVEL），开局时按块的顺序列出来，选了哪个每一步就只发那一块。
  * 每一步都存进聊天；"不玩了"时她说说这一局，发一张对局卡片。离开场景页时那一段写"一起玩了真心话大冒险（N 轮）"（GameScene 汇总）。
  */
 type Choice = '真心话' | '大冒险';
@@ -40,12 +41,9 @@ interface Round {
 
 const USE: PresetUseId = 'game-truthdare';
 const CHOICES: Choice[] = ['真心话', '大冒险'];
-const LEVELS: { id: TruthDareLevel; desc: string }[] = [
-  { id: '轻松', desc: '日常、好回答的' },
-  { id: '心动', desc: '恋爱、心动、你们俩之间的事' },
-  { id: '大胆', desc: '更私密、更敢问敢做' },
-];
 const SWAPS = 1;
+/** 上次选的尺度（只记在这台设备上，方便下次直接开始） */
+const LEVEL_KEY = 'ai-mobile:truthdare-level';
 
 const line = defineModel<string>('line', { required: true });
 const phase = defineModel<TruthDarePhase>('phase', { required: true });
@@ -66,7 +64,6 @@ const her = computed(() => chars.byId(app.activeCharacterId) ?? chars.list[0]!);
 const chatId = computed(() => chat.chatOfCharacter(her.value.id)?.id ?? '');
 const userName = computed(() => personaOf(chat.chatById(chatId.value)).name);
 
-const level = ref<TruthDareLevel>('心动');
 const rounds = ref<Round[]>([]);
 const round = computed(() => rounds.value.at(-1));
 /** 她在做什么：出题、选、想题、说话 */
@@ -82,11 +79,41 @@ const presetOpen = ref(false);
 
 const cue = computed(() => `第 ${rounds.value.length} 轮`);
 const finished = computed(() => rounds.value.filter((r) => r.done));
-const levelDesc = computed(() => LEVELS.find((l) => l.id === level.value)?.desc ?? '');
 const preset = computed(() => lib.presetForUse(USE, her.value));
 /** 选的预设里有没有真心话大冒险的块（换成别的功能预设时出题、选择的格式会不对） */
-const presetReady = computed(() => !!preset.value?.blocks.some((b) => b.enabled && b.triggers?.includes('td-ask-truth')));
+const presetReady = computed(() => isTruthDarePreset(preset.value));
 const tdFirst = (p: { name: string }) => p.name.includes('真心话');
+
+/** 预设里的尺度，说明就是那一块的内容（开头的【…】标题不重复显示） */
+const levels = computed(() =>
+  truthDareLevels(preset.value).map(({ name, block }) => ({
+    name,
+    desc: block.content.replaceAll('{{user}}', userName.value).replaceAll('{{char}}', her.value.name).replace(/^【[^】]*】\s*/, '').trim(),
+  })),
+);
+function savedLevel(): string {
+  try {
+    return localStorage.getItem(LEVEL_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+const picked = ref(savedLevel());
+/** 开局前选中的尺度：上次选的还在预设里就用它，不然用预设里的第一个；预设里没有尺度时为空 */
+const level = computed(() => levels.value.find((l) => l.name === picked.value)?.name ?? levels.value[0]?.name ?? '');
+const levelDesc = computed(() => levels.value.find((l) => l.name === level.value)?.desc ?? '');
+function pickLevel(name: string) {
+  picked.value = name;
+  try {
+    localStorage.setItem(LEVEL_KEY, name);
+  } catch {
+    // 浏览器不让存：这次照样用，下次回到预设里的第一个
+  }
+}
+/** 这一局的尺度：开局时定下，玩的时候不变 */
+const gameLevel = ref('');
+/** 这一局每一步都打开选的那个尺度的块 */
+const levelFlags = computed(() => (gameLevel.value ? [`${TRUTH_DARE_LEVEL}${gameLevel.value}`] : []));
 
 const reduceMotion = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -142,16 +169,18 @@ function tally(who: Who): TruthDareTally {
 
 const togetherLine = computed(() => {
   const mode = chat.chatById(chatId.value)?.togetherMode;
-  if (mode === 'visit') return `${userName.value}坐在你旁边`;
-  if (mode === 'bring') return `你在${userName.value}这边，你们在一起`;
-  return `连线：${userName.value}在自己那边，你们开着视频，碰不到对方`;
+  if (mode === 'visit') return `${userName.value}来你这边了，坐在你旁边`;
+  if (mode === 'bring') return `你在${userName.value}这边`;
+  return `连线（${userName.value}在自己那边，你在你那边）`;
 });
 
-/** 这一次的输入：尺度、怎么在一起、这一局出过的题（谁选了什么、怎么答的），加上这一步要做的事 */
+/**
+ * 这一次的输入，只放数据：怎么在一起、这一局出过的题（谁选了什么、怎么答的），加上这一步的情况。
+ * 尺度不在这里：选的那个尺度的块按触发条件发送；每一步要她做什么写在预设那一步的块里
+ */
 function tdInput(extra: (string | false)[]): string {
   const past = rounds.value.filter((r) => r.card);
   return [
-    `尺度：${level.value}（${levelDesc.value}）`,
     `你们怎么在一起：${togetherLine.value}`,
     past.length
       ? `这一局出过的题：\n${past.map((r, i) => `${i + 1}. ${nameOf(r.who)}选了${r.choice}：${r.card}${r.skipped ? '（认罚了）' : r.answer ? ` → ${r.answer}` : ''}`).join('\n')}`
@@ -189,6 +218,7 @@ async function herReply(task: string, userText: string | undefined, extra: (stri
       userText,
       cue: replyCue ?? cue.value,
       use: USE,
+      flags: levelFlags.value,
       allowedTags: ['expr'],
       onText: (t) => {
         if (alive) line.value = t;
@@ -213,6 +243,7 @@ async function start() {
   input.value = '';
   talkText.value = '';
   line.value = '';
+  gameLevel.value = level.value;
   report();
   const who: Who = Math.random() < 0.5 ? 'you' : 'her';
   firstWho.value = null;
@@ -232,7 +263,7 @@ async function start() {
   firstWho.value = who;
   await sleep(reduceMotion ? 400 : 900);
   if (!alive || phase.value !== 'spin') return;
-  chat.push(chatId.value, 'narrator', [{ type: 'text', text: `真心话大冒险（${level.value}）开始了，瓶子转到了${nameOf(who)}。` }], { meta: { scene: 'game', cue: '开局' } });
+  chat.push(chatId.value, 'narrator', [{ type: 'text', text: `真心话大冒险${gameLevel.value ? `（${gameLevel.value}）` : ''}开始了，瓶子转到了${nameOf(who)}。` }], { meta: { scene: 'game', cue: '开局' } });
   nextRound(who);
 }
 
@@ -268,11 +299,11 @@ async function herCard(swap = false) {
       chatId.value,
       {
         name: r.choice === '真心话' ? 'td-ask-truth' : 'td-ask-dare',
-        input: tdInput([`这一轮：${userName.value}选了${r.choice}，你来出题`, swap && `${userName.value}想换一个，刚才那题是：${r.card}；换一道不一样的`]),
+        input: tdInput([`这一轮：${userName.value}选了${r.choice}`, swap && `${userName.value}要换一题，换掉的是：${r.card}`]),
       },
       parseCard,
       abort.signal,
-      { use: USE },
+      { use: USE, flags: levelFlags.value },
     );
     if (!alive) return;
     if (!res.ok) return fail(res);
@@ -313,10 +344,10 @@ async function herPick() {
     const t = tally('her');
     const res = await chat.sceneJson(
       chatId.value,
-      { name: 'td-pick', input: tdInput(['这一轮：轮到你，你来选真心话还是大冒险', `你这一局选过：真心话 ${t.truth} 次、大冒险 ${t.dare} 次`]) },
+      { name: 'td-pick', input: tdInput(['这一轮：轮到你', `你这一局选过：真心话 ${t.truth} 次、大冒险 ${t.dare} 次`]) },
       parsePick,
       abort.signal,
-      { use: USE, quick: true },
+      { use: USE, flags: levelFlags.value, quick: true },
     );
     if (!alive) return;
     if (!res.ok) return fail(res);
@@ -336,10 +367,10 @@ async function suggest() {
   try {
     const res = await chat.sceneJson(
       chatId.value,
-      { name: 'td-suggest', input: tdInput([`这一轮：${her.value.name}选了${r.choice}，${userName.value}要给${her.value.name}出题`]) },
+      { name: 'td-suggest', input: tdInput([`这一轮：${her.value.name}选了${r.choice}`]) },
       parseOptions,
       abort.signal,
-      { use: USE, quick: true },
+      { use: USE, flags: levelFlags.value, quick: true },
     );
     if (!alive) return;
     if (!res.ok) return fail(res);
@@ -396,7 +427,7 @@ async function end() {
   }
   phase.value = 'end';
   // 先发卡片、记下这一局，再让她说：她说的时候你回聊天（离开了这件事），卡片也在"结束"那条前面
-  const card: MessagePart = { type: 'game', logId: uid('game'), game: 'truthdare', level: level.value, rounds: n, you: tally('you'), her: tally('her') };
+  const card: MessagePart = { type: 'game', logId: uid('game'), game: 'truthdare', ...(gameLevel.value ? { level: gameLevel.value } : {}), rounds: n, you: tally('you'), her: tally('her') };
   chat.postCard(chatId.value, 'user', card);
   emit('done', `真心话大冒险（${n} 轮）`);
   emit('progress', null);
@@ -413,12 +444,15 @@ function again() {
 <template>
   <!-- 开局前：尺度、预设 -->
   <template v-if="phase === 'menu'">
-    <div class="label !mt-0">尺度</div>
-    <div class="flex gap-2">
-      <button v-for="l in LEVELS" :key="l.id" type="button" class="chip" :class="{ on: level === l.id }" :aria-pressed="level === l.id" @click="level = l.id">{{ l.id }}</button>
-    </div>
-    <div class="text-[12.5px] text-ink-3 mt-1.5">{{ levelDesc }}</div>
-    <p class="rules">先转瓶子定谁先，之后轮流：轮到谁，谁选真心话还是大冒险，另一个人出题。不敢答、不敢做可以认罚，{{ her.pronoun }}会罚你一件小事。</p>
+    <template v-if="levels.length">
+      <div class="label !mt-0">尺度</div>
+      <div class="flex flex-wrap gap-2">
+        <button v-for="l in levels" :key="l.name" type="button" class="chip" :class="{ on: level === l.name }" :aria-pressed="level === l.name" @click="pickLevel(l.name)">{{ l.name }}</button>
+      </div>
+      <div class="level-desc">{{ levelDesc }}</div>
+    </template>
+    <p v-else-if="presetReady" class="warn !mt-0">这个预设里没有尺度：在预设里给一块填上"真心话大冒险的尺度"，开局时就能选。</p>
+    <p class="rules">先转瓶子定谁先，之后轮流：轮到谁，谁选真心话还是大冒险，另一个人出题。不敢答、不敢做可以认罚。</p>
     <button type="button" class="preset-row press" @click="presetOpen = true">
       <span class="i-lucide-sliders-horizontal shrink-0 text-ink-3" />
       <span class="flex-1 min-w-0 text-left truncate">预设：{{ preset?.name ?? '没有功能预设' }}</span>
@@ -440,7 +474,7 @@ function again() {
   <template v-else-if="phase === 'playing' && round">
     <div class="flex items-center gap-2">
       <span class="text-[15px] font-600">{{ round.who === 'you' ? '轮到你' : `轮到${her.name}` }}</span>
-      <span class="text-[12.5px] text-ink-3">第 {{ rounds.length }} 轮 · {{ level }}</span>
+      <span class="text-[12.5px] text-ink-3">第 {{ rounds.length }} 轮<template v-if="gameLevel"> · {{ gameLevel }}</template></span>
       <span class="flex-1" />
       <button type="button" class="quit" :disabled="!!busy" @click="end">不玩了</button>
     </div>
@@ -536,7 +570,9 @@ function again() {
   <van-popup v-model:show="presetOpen" position="bottom" round teleport="body" :style="{ maxHeight: '80%' }">
     <div class="p-4">
       <div class="text-[15px] font-600">真心话大冒险用哪个预设</div>
-      <p class="text-[12.5px] text-ink-3 mt-1 mb-3 leading-relaxed">出题、选真心话还是大冒险、回答、反应，每一步一块（「陪伴 · 快速」的模型）。自带"一起游戏 · 真心话大冒险"，可以复制一份改。</p>
+      <p class="text-[12.5px] text-ink-3 mt-1 mb-3 leading-relaxed">
+        出题、选真心话还是大冒险、回答、反应，每一步一块（「陪伴 · 快速」的模型）。尺度也是预设里的块：填了"真心话大冒险的尺度"的那几块按顺序列在开局前，改内容就改了这个尺度出什么样的题，加一块就多一个尺度。自带"一起游戏 · 真心话大冒险"，可以复制一份改。
+      </p>
       <PresetPicker :model-value="lib.useChoice(USE)" category="feature" :first="tdFirst" @update:model-value="(id) => id && lib.setUse(USE, id)" />
     </div>
   </van-popup>
@@ -561,6 +597,16 @@ function again() {
   background: var(--accent-soft);
   color: var(--accent-ink);
   outline: 1px solid var(--accent-line);
+}
+.level-desc {
+  display: -webkit-box;
+  margin-top: 6px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-3);
 }
 .rules {
   margin: 10px 0 0;
