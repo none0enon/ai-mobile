@@ -44,30 +44,46 @@ interface AudioSessionLike {
   type: SessionType;
 }
 
+/** 现在谁在用音频会话：开着麦克风的（通话、哄睡连麦）、在放声音的（音乐、白噪音） */
+const sessionHolds = { record: 0, playback: 0 };
+/** 第一个人用之前是什么类型（都用完了恢复成它） */
+let sessionBefore: SessionType | null = null;
+
+function applySession(s: AudioSessionLike) {
+  const idle = !sessionHolds.record && !sessionHolds.playback;
+  const before = sessionBefore === 'playback' || sessionBefore === 'play-and-record' ? 'auto' : (sessionBefore ?? 'auto');
+  const want: SessionType = sessionHolds.record ? 'play-and-record' : sessionHolds.playback ? 'playback' : before;
+  try {
+    if (s.type !== want) s.type = want;
+  } catch {
+    // 忽略
+  }
+  if (idle) sessionBefore = null;
+}
+
 /**
  * iPhone（Safari 17 起的 navigator.audioSession）：网页音频默认受静音键控制，设成 playback 后静音键打开也听得到；
- * 通话时开着麦克风用 play-and-record。返回一个"用完了"的函数，恢复成原来的类型。其他浏览器什么都不做
+ * 开着麦克风（通话、哄睡连麦）用 play-and-record。按人数算：有人开着麦克风就一直是 play-and-record，
+ * 连麦时再放音乐、白噪音也不会改回 playback（改了 iPhone 上麦克风会停）；都用完了恢复成原来的类型。
+ * 返回一个"用完了"的函数（调多次只算一次）。其他浏览器什么都不做
  */
-function audioSession(type: SessionType): () => void {
+function audioSession(kind: 'record' | 'playback'): () => void {
   const s = (navigator as Navigator & { audioSession?: AudioSessionLike }).audioSession;
   if (!s) return () => undefined;
-  const before = s.type;
-  try {
-    s.type = type;
-  } catch {
-    return () => undefined;
-  }
+  if (!sessionHolds.record && !sessionHolds.playback) sessionBefore = s.type;
+  sessionHolds[kind] += 1;
+  applySession(s);
+  let released = false;
   return () => {
-    try {
-      if (s.type === type) s.type = before === type ? 'auto' : before;
-    } catch {
-      // 忽略
-    }
+    if (released) return;
+    released = true;
+    sessionHolds[kind] = Math.max(0, sessionHolds[kind] - 1);
+    applySession(s);
   };
 }
 
 export const playbackSession = () => audioSession('playback');
-export const recordSession = () => audioSession('play-and-record');
+export const recordSession = () => audioSession('record');
 
 /** 1 个采样的静音 WAV */
 function silentWavUrl(): string {

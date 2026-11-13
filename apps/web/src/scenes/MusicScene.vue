@@ -9,6 +9,7 @@ import ErrorDetails from '@/components/common/ErrorDetails.vue';
 import { danmaku as demoDanmaku, songs as demoSongs } from '@/mock/music';
 import { services, type SongInfo, type SongList } from '@/services';
 import { extractId } from '@/services/music';
+import { isLiked as likedSong, musicLibrary, removeList as dropList, saveList, toggleLike as flipLike } from '@/services/musicLibrary';
 import {
   clearQueue,
   current,
@@ -352,43 +353,22 @@ async function doImport() {
   }
 }
 
-// —— 我们的歌单：喜欢的歌、导入过的歌单 ——
-const LIKED_KEY = 'ai-mobile:music:liked:v1';
-const LISTS_KEY = 'ai-mobile:music:lists:v1';
-function readJson<T>(key: string, fallback: T): T {
-  try {
-    const v = localStorage.getItem(key);
-    return v ? (JSON.parse(v) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-function writeJson(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    showToast('存不下了（浏览器存储满了或者被禁用了）');
-  }
-}
-const liked = ref<SongInfo[]>(readJson(LIKED_KEY, []));
-const lists = ref<(SongList & { key: string; type: 'playlist' | 'album'; savedAt: number })[]>(readJson(LISTS_KEY, []));
-const isLiked = computed(() => !!song.value && liked.value.some((s) => s.id === song.value!.id));
+// —— 我们的歌单：喜欢的歌、导入过的歌单（和哄睡的音乐共用一份，services/musicLibrary.ts） ——
+const liked = computed(() => musicLibrary.liked);
+const lists = computed(() => musicLibrary.lists);
+const isLiked = computed(() => !!song.value && likedSong(song.value.id));
+const STORAGE_FULL = '存不下了（浏览器存储满了或者被禁用了）';
 function toggleLike() {
   const s = song.value;
-  if (!s) return;
-  liked.value = isLiked.value ? liked.value.filter((x) => x.id !== s.id) : [s, ...liked.value].slice(0, 500);
-  writeJson(LIKED_KEY, liked.value);
+  if (s && !flipLike(s)) showToast(STORAGE_FULL);
 }
 function saveImported() {
   const l = imported.value;
   if (!l) return;
-  lists.value = [{ ...l, savedAt: Date.now() }, ...lists.value.filter((x) => x.key !== l.key)].slice(0, 30);
-  writeJson(LISTS_KEY, lists.value);
-  showToast(`存进我们的歌单了：${l.name}`);
+  showToast(saveList(l) ? `存进我们的歌单了：${l.name}` : STORAGE_FULL);
 }
 function removeList(key: string) {
-  lists.value = lists.value.filter((x) => x.key !== key);
-  writeJson(LISTS_KEY, lists.value);
+  if (!dropList(key)) showToast(STORAGE_FULL);
 }
 function playAll(songs: SongInfo[], start = 0) {
   if (!songs.length) return;

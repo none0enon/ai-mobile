@@ -87,7 +87,7 @@ export const SCENES: SceneDef[] = [
     id: 'sleep',
     name: '哄睡',
     icon: 'i-lucide-moon-star',
-    tagline: '低语、讲故事、白噪音，明早来电叫醒你',
+    tagline: '连麦、讲故事、白噪音和音乐，明早来电叫醒你',
     backdrop: 'bedroom',
     ambient: ['rain', 'fire', 'waves'],
     outfit: 'pajama',
