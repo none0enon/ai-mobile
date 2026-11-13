@@ -1326,21 +1326,6 @@ const figureLayout = computed(() => (view.value === 'split' ? { left: 50, bottom
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-/* 练的时候的步骤说明：字小一点、行挨紧一点（健康计划页里的照旧） */
-.move-card .how-box {
-  font-size: 12.5px;
-  line-height: 1.45;
-}
-.how-box :deep(.steps li + li) {
-  margin-top: 1px;
-}
-.how-box :deep(.line) {
-  gap: 5px;
-  margin-top: 3px;
-}
-.how-box :deep(.line > span:first-child) {
-  margin-top: 2px;
-}
 .act {
   display: inline-flex;
   align-items: center;
