@@ -51,6 +51,7 @@ export interface PresetUse {
  */
 export const IMAGE_MOMENTS: Partial<Record<FeatureSceneId, Record<string, string>>> = {
   study: { seat: '入座', peek: '偷拍', reward: '奖励', mine: '你这边' },
+  meal: { table: '对面', side: '她那边', cheers: '碰杯' },
   heart: { open: '开场', now: '这一刻' },
 };
 

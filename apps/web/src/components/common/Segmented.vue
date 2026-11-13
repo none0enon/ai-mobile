@@ -1,6 +1,6 @@
 <script setup lang="ts" generic="T extends string">
-/** 分段选择器（标签页切换、主题选择等） */
-defineProps<{ options: { value: T; label: string; icon?: string }[]; sticky?: boolean }>();
+/** 分段选择器（标签页切换、主题选择等）；disabled 的一项点不了（一起吃饭：她不在吃饭时不能"共同吃饭"） */
+defineProps<{ options: { value: T; label: string; icon?: string; disabled?: boolean }[]; sticky?: boolean }>();
 const model = defineModel<T>({ required: true });
 </script>
 
@@ -14,6 +14,8 @@ const model = defineModel<T>({ required: true });
         :aria-selected="model === o.value"
         class="seg-item"
         :class="{ on: model === o.value }"
+        :disabled="o.disabled"
+        :aria-disabled="o.disabled || undefined"
         @click="model = o.value"
       >
         <span v-if="o.icon" :class="o.icon" class="seg-icon" /><span class="seg-label">{{ o.label }}</span>
@@ -68,6 +70,9 @@ const model = defineModel<T>({ required: true });
   .seg-icon {
     display: none;
   }
+}
+.seg-item:disabled {
+  opacity: 0.45;
 }
 .seg-item.on {
   background: var(--surface);

@@ -27,6 +27,14 @@ export function photoInstruction(character: Character | undefined): string {
 
 /** 识图看这张照片（本机素材库里的），返回描述和模型 */
 export async function describePhoto(assetKey: string, character: Character | undefined, signal?: AbortSignal): Promise<{ text: string; model: string }> {
+  return lookWith(assetKey, photoInstruction(character), signal);
+}
+
+/**
+ * 识图按给定的说明看这张照片（本机素材库里的），返回原文和模型。
+ * 一起吃饭看饭照时说明在"一起吃饭"功能预设的"识图看饭照"那一块里（services/photos.ts 只管调用）
+ */
+export async function lookWith(assetKey: string, instruction: string, signal?: AbortSignal): Promise<{ text: string; model: string }> {
   const ai = useAiStore();
   const st = ai.status('vision');
   if (!st.live) throw new PhotoNotConnected(st.reason);
@@ -36,7 +44,7 @@ export async function describePhoto(assetKey: string, character: Character | und
   const data = toBase64(new Uint8Array(await blob.arrayBuffer()));
   const r = await ai.system.chat(
     'vision',
-    { messages: [{ role: 'user', content: [{ type: 'image', mime: blob.type || 'image/jpeg', data }, { type: 'text', text: photoInstruction(character) }] }], maxTokens: 800 },
+    { messages: [{ role: 'user', content: [{ type: 'image', mime: blob.type || 'image/jpeg', data }, { type: 'text', text: instruction }] }], maxTokens: 800 },
     { signal },
   );
   const text = r.text.trim();
