@@ -46,6 +46,7 @@ const time = (value: number | null | undefined) => value ? new Date(value).toLoc
         <van-cell-group inset>
           <van-cell title="云端主动消息" :value="state.config.active ? '已开启' : '未开启'" :label="state.config.url" />
           <van-cell title="云端每日节律" :value="state.status?.rhythmConfigured ? 'API 已接通' : '尚未配置'" label="每天变化的角色在凌晨 4 点生成，不受主动消息开关影响" is-link to="/me/rhythm" />
+          <van-cell title="云端记忆整理" :value="state.status?.memoryConfigured ? 'API 已接通' : '尚未配置'" label="每天凌晨 4 点合并重复的记忆、合并时间线、改时态、修改画像卡；用「记忆整理」的 API" is-link to="/memories?tab=book" />
           <van-cell title="上次云端检测" :value="time(state.status?.lastCronAt)" />
           <van-cell title="上次同步" :value="time(state.lastSyncAt)" />
         </van-cell-group>
@@ -59,7 +60,7 @@ const time = (value: number | null | undefined) => value ? new Date(value).toLoc
         <p class="note">每日节律在连接后自动同步角色设置、世界、模板、预设和节律 API，Key 加密保存。按「我的环境」里的时区在凌晨 4 点生成，失败会自动重试；打开 App 时同步结果。固定模式的角色不会调用节律 API。</p>
         <p class="note">同步包括主动消息上下文、收件箱和每日节律；素材备份和完整设备间同步尚未接入。多个设备修改同一角色时会提示版本冲突，重新连接会采用这台设备的上下文。</p>
       </template>
-      <p v-if="failure || state.error || state.status?.lastError || state.status?.lastRhythmError" class="note text-danger" role="alert">{{ failure || state.error || state.status?.lastError || state.status?.lastRhythmError }}</p>
+      <p v-if="failure || state.error || state.status?.lastError || state.status?.lastRhythmError || state.status?.lastMemoryError" class="note text-danger" role="alert">{{ failure || state.error || state.status?.lastError || state.status?.lastRhythmError || state.status?.lastMemoryError }}</p>
     </div>
   </div>
 </template>

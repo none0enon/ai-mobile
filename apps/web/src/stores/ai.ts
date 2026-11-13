@@ -299,6 +299,15 @@ export const useAiStore = defineStore('ai', () => {
           { key: 'proactiveBudgetCleared', value: true },
         ]);
       }
+      // 总结以前默认每天 20 万 token 上限：记忆不设每日上限，还是这个默认值的去掉，只做一次
+      if (!(await getOne<boolean>('settings', 'summaryBudgetCleared'))) {
+        const s = routeOf('summary');
+        if (s.dailyTokenBudget === 200_000) delete s.dailyTokenBudget;
+        await write('settings', [
+          { key: 'apiFeatures', value: clone(routes.value) },
+          { key: 'summaryBudgetCleared', value: true },
+        ]);
+      }
     } else if (Array.isArray(legacyConns)) {
       // 以前按连接分的设置：转成按功能分，Key 跟着搬过来；旧的连接、分配和 Key 删掉
       const m = legacyMigrate(legacyConns, Array.isArray(legacyRoutes) ? legacyRoutes : [], legacySlots, stored);

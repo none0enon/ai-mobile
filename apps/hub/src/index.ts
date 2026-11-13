@@ -1,10 +1,11 @@
 import { AgentSystem } from '@app/ai';
-import { zonedParts, type ProactiveContext, type ProactiveCredentials, type RhythmContext, type Touchpoint } from '@app/shared';
+import { zonedParts, type MemoryConsolidationContext, type MemoryJobResult, type ProactiveContext, type ProactiveCredentials, type RhythmContext, type Touchpoint } from '@app/shared';
 import { digest, equalSecret, seal } from './crypto.ts';
 import type { Env } from './env.ts';
 import { PushDeliveryError, sendChannel, type Channel, type Webhook } from './push.ts';
 import { getMeta, runScheduled, setMeta } from './scheduler.ts';
 import { runRhythmScheduled } from './rhythm.ts';
+import { runMemoryScheduled } from './memory.ts';
 
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
 function assert(ok: unknown, message: string): asserts ok {
@@ -69,13 +70,15 @@ async function api(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === '/v1/status' && request.method === 'GET') {
-    const [enabled, lastCronAt, lastError, configured, channels, rhythmConfigured, lastRhythmError] = await Promise.all([
+    const [enabled, lastCronAt, lastError, configured, channels, rhythmConfigured, lastRhythmError, memoryConfigured, lastMemoryError] = await Promise.all([
       getMeta(env, 'enabled', false), getMeta<number | null>(env, 'lastCronAt', null), getMeta<string | null>(env, 'lastError', null),
       env.DB.prepare("SELECT id FROM secrets WHERE id = 'proactive'").first(),
       env.DB.prepare('SELECT id, kind, label, last_ok_at AS lastOkAt FROM push_channels').all(),
       env.DB.prepare("SELECT id FROM secrets WHERE id = 'rhythm'").first(), getMeta<string | null>(env, 'lastRhythmError', null),
+      env.DB.prepare("SELECT id FROM secrets WHERE id = 'consolidate'").first(), getMeta<string | null>(env, 'lastMemoryError', null),
     ]);
-    return json({ enabled, lastCronAt, lastError, configured: !!configured, rhythmConfigured: !!rhythmConfigured, lastRhythmError, vapidPublicKey: env.VAPID_PUBLIC_KEY ?? null, channels: channels.results });
+    return json({ enabled, lastCronAt, lastError, configured: !!configured, rhythmConfigured: !!rhythmConfigured, lastRhythmError,
+      memoryConfigured: !!memoryConfigured, lastMemoryError, vapidPublicKey: env.VAPID_PUBLIC_KEY ?? null, channels: channels.results });
   }
   if (path === '/v1/proactive/enabled' && request.method === 'PUT') {
     const { enabled } = await body<{ enabled: boolean }>(request);
@@ -147,8 +150,47 @@ async function api(request: Request, env: Env): Promise<Response> {
     return json({ days: rows.results.filter((d) => d.data).map((d) => JSON.parse(d.data!)),
       errors: rows.results.filter((d) => d.last_error).map((d) => ({ characterId: d.character_id, date: d.date, reason: d.last_error })) });
   }
-  if (['/v1/secrets/proactive', '/v1/secrets/rhythm'].includes(path) && request.method === 'PUT') {
-    const role = path === '/v1/secrets/rhythm' ? 'rhythm' : 'proactive';
+  if (path === '/v1/memory/contexts' && request.method === 'GET') {
+    return json({ contexts: (await env.DB.prepare('SELECT character_id AS id, revision FROM memory_contexts').all()).results });
+  }
+  if (path.startsWith('/v1/memory/contexts/')) {
+    const id = decodeURIComponent(path.slice('/v1/memory/contexts/'.length));
+    if (request.method === 'DELETE') {
+      await env.DB.prepare('DELETE FROM memory_contexts WHERE character_id = ?').bind(id).run();
+      return json({ ok: true });
+    }
+    if (request.method === 'PUT') {
+      const { context: c, revision } = await body<{ context: MemoryConsolidationContext; revision: number }>(request);
+      assert(c?.characterId === id && c.character?.name && typeof c.userName === 'string', '记忆整理的角色无效');
+      assert(typeof c.timezone === 'string' && c.timezone, '缺少时区');
+      try { zonedParts(Date.now(), c.timezone); } catch { throw new HttpError(400, '无效的 IANA 时区'); }
+      assert(Array.isArray(c.mergeGroups) && c.mergeGroups.length <= 50 && Array.isArray(c.rollups) && c.rollups.length <= 50
+        && Array.isArray(c.followups) && c.followups.length <= 200 && Array.isArray(c.newMemories) && c.newMemories.length <= 200
+        && Array.isArray(c.profile?.lines), '记忆整理的内容无效');
+      assert(c.preset && Array.isArray(c.preset.blocks), '缺少"整理"预设');
+      assert(Number.isSafeInteger(revision) && revision >= 0, 'revision 无效');
+      const updated = await env.DB.prepare(`INSERT INTO memory_contexts(character_id, revision, data, updated_at)
+        SELECT ?, 1, ?, ? WHERE ? = 0 OR EXISTS (SELECT 1 FROM memory_contexts WHERE character_id = ?)
+        ON CONFLICT(character_id) DO UPDATE SET revision = memory_contexts.revision + 1, data = excluded.data, updated_at = excluded.updated_at
+        WHERE memory_contexts.revision = ? RETURNING revision`)
+        .bind(id, JSON.stringify(c), Date.now(), revision, id, revision).first<{ revision: number }>();
+      if (!updated) throw new HttpError(409, '另一台设备更新了记忆整理的内容，请重新连接后同步');
+      return json(updated);
+    }
+  }
+  if (path === '/v1/memory/results' && request.method === 'GET') {
+    const since = Number(url.searchParams.get('since') ?? 0);
+    assert(Number.isSafeInteger(since) && since >= 0, 'since 无效');
+    const rows = await env.DB.prepare('SELECT result, done_at FROM memory_jobs WHERE done_at > ? AND result IS NOT NULL ORDER BY done_at LIMIT 50')
+      .bind(since).all<{ result: string; done_at: number }>();
+    const errors = await env.DB.prepare('SELECT character_id, date, last_error FROM memory_jobs WHERE result IS NULL AND last_error IS NOT NULL').all<{ character_id: string; date: string; last_error: string }>();
+    return json({
+      results: rows.results.map((r) => ({ doneAt: r.done_at, result: JSON.parse(r.result) as MemoryJobResult })),
+      errors: errors.results.map((e) => ({ characterId: e.character_id, date: e.date, reason: e.last_error })),
+    });
+  }
+  if (['/v1/secrets/proactive', '/v1/secrets/rhythm', '/v1/secrets/consolidate'].includes(path) && request.method === 'PUT') {
+    const role = path === '/v1/secrets/rhythm' ? 'rhythm' : path === '/v1/secrets/consolidate' ? 'consolidate' : 'proactive';
     const credentials = await body<ProactiveCredentials>(request);
     assert(Array.isArray(credentials.routes) && credentials.keys && Array.isArray(credentials.outputFilters), 'API 配置无效');
     const system = new AgentSystem({ config: { routes: () => credentials.routes, keyOf: (id) => credentials.keys[id] || null } });
@@ -225,7 +267,7 @@ export default {
   },
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     // Scheduled execution is independent of HTTP requests and browser/service-worker lifetime.
-    const jobs = await Promise.allSettled([runScheduled(env, controller.scheduledTime), runRhythmScheduled(env, controller.scheduledTime)]);
+    const jobs = await Promise.allSettled([runScheduled(env, controller.scheduledTime), runRhythmScheduled(env, controller.scheduledTime), runMemoryScheduled(env, controller.scheduledTime)]);
     const failure = jobs.find((r) => r.status === 'rejected');
     if (failure?.status === 'rejected') throw failure.reason;
   },

@@ -34,7 +34,10 @@ export interface ProactiveContext {
   preset: Preset | null;
   lorebooks: Lorebook[];
   history: Message[];
+  /** 待跟进（排期用）、置顶的和最重要的几十条；不传全部记忆 */
   memories: { id: string; content: string; dueAt?: number; type: string }[];
+  /** 手机拼好的两块记忆：画像卡 + 时间线、每次都带的 + 最重要的 30 条（主动消息不搜） */
+  memoryBlocks?: { summary: string; memory: string };
   environment: EnvironmentSettings;
   rules: ProactiveRule[];
   /** An active study/sleep session is refreshed by the client and expires if it disappears. */
@@ -68,6 +71,9 @@ export interface HubStatus {
   configured: boolean;
   rhythmConfigured: boolean;
   lastRhythmError: string | null;
+  /** 云端记忆整理的 API 已上传 */
+  memoryConfigured?: boolean;
+  lastMemoryError?: string | null;
   vapidPublicKey: string | null;
   channels: { id: string; kind: 'webpush' | 'webhook'; label: string; lastOkAt: number | null }[];
 }
@@ -77,4 +83,10 @@ export interface HubNotification {
   body: string;
   tag: string;
   route: string;
+}
+
+/** 云端记忆整理的结果（/v1/memory/results） */
+export interface HubMemoryResults {
+  results: { doneAt: number; result: import('./memory.ts').MemoryJobResult }[];
+  errors: { characterId: string; date: string; reason: string }[];
 }

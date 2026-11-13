@@ -90,7 +90,8 @@ export interface AgentCallOptions {
 const DEFAULT_MAX_TOKENS: Partial<Record<AgentRole, number>> = {
   sidestory: 2000,
   imagePrompt: 800,
-  summary: 2000,
+  summary: 4000,
+  consolidate: 3000,
   proactive: 600,
   vision: 800,
 };

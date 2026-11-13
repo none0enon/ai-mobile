@@ -57,5 +57,7 @@ export * from './agents/imagePrompt.ts';
 export * from './agents/sidestory.ts';
 export * from './agents/summary.ts';
 export * from './agents/retrieval.ts';
+export * from './agents/recall.ts';
+export * from './agents/consolidate.ts';
 export * from './agents/illustrate.ts';
 export * from './agents/rhythm.ts';

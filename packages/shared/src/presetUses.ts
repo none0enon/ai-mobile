@@ -10,7 +10,7 @@ import type { PresetCategory } from './types/preset.ts';
  * - 一起做事时画的图（image:study 等）：选一个生图预设，或者"跟随配图"（用配图选的那个）。
  */
 export type FeatureSceneId = Exclude<SceneId, 'free'>;
-export type PresetUseId = 'call' | 'proactive' | 'theater' | 'summary' | 'image' | 'rhythm' | `scene:${FeatureSceneId}` | `image:${FeatureSceneId}`;
+export type PresetUseId = 'call' | 'proactive' | 'theater' | 'summary' | 'consolidate' | 'image' | 'rhythm' | `scene:${FeatureSceneId}` | `image:${FeatureSceneId}`;
 
 export interface PresetUse {
   id: PresetUseId;
@@ -41,7 +41,8 @@ export const PRESET_USES: PresetUse[] = [
   ...SCENES.map((s): PresetUse => ({ id: `scene:${s.id as FeatureSceneId}`, category: 'feature', label: s.name, desc: `${s.name}时的对话`, icon: s.icon, follow: 'chat' })),
   { id: 'proactive', category: 'proactive', label: '主动消息', desc: '到点时角色先发来的那条', icon: 'i-lucide-bell-ring', follow: 'chat' },
   { id: 'theater', category: 'theater', label: '番外', desc: '"我的 → 试一试 → 写一段番外"', icon: 'i-lucide-book-heart', follow: null },
-  { id: 'summary', category: 'summary', label: '总结聊天', desc: '攒够 30 条自动整理，聊天 ⋯ 里也能手动整理', icon: 'i-lucide-notebook-pen', follow: null },
+  { id: 'summary', category: 'summary', label: '总结聊天', desc: '每攒够几条（"我的 → 消息设置"里改）自动写梗概、故事片段和记忆，聊天 ⋯ 里也能手动整理', icon: 'i-lucide-notebook-pen', follow: null },
+  { id: 'consolidate', category: 'summary', label: '记忆整理', desc: '每天凌晨 4 点在云端合并重复的记忆、合并时间线、过期的事改时态、修改画像卡；记忆本里也能"立即整理"', icon: 'i-lucide-sparkles', follow: null },
   { id: 'image', category: 'image', label: '配图', desc: '聊天 ＋ → 生成配图、聊天里的 [cg:]、番外的那一幕：先写成 NovelAI tags 再调生图 API', icon: 'i-lucide-image', follow: null },
   ...SCENES.map((s): PresetUse => {
     const moments = IMAGE_MOMENTS[s.id as FeatureSceneId];

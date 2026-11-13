@@ -7,7 +7,7 @@
   "defaultFor": [
     "summary"
   ],
-  "description": "把一段聊天写成摘要（进\"过往摘要\"），记下以后用得上的事，更新好感、心情和称呼。",
+  "description": "把一段聊天写成梗概（进时间线）、按话题切成故事片段（带标签）、记下以后用得上的事（注明来自第几行），更新好感、心情和称呼。",
   "blocks": [
     {
       "identifier": "main",
@@ -25,7 +25,7 @@
       "identifier": "format",
       "name": "输出格式（JSON，字段名别改）",
       "role": "system",
-      "content": "输出一个 JSON 对象，不要任何其他文字：\n{\"summary\": \"这一段发生了什么（第三人称，100–200 字）\", \"memories\": [{\"type\": \"fact|preference|event|promise|followup|emotion|relationship\", \"content\": \"一句话，具体到人和事\", \"importance\": 1-10, \"dueAt\": \"需要之后跟进时写 ISO 时间（带时区），否则 null\", \"supersedes\": [\"被这条更新掉的旧记忆 id\"]}], \"relationship\": {\"affectionDelta\": -3 到 3 的整数, \"mood\": \"{{char}}现在的心情，没变化写 null\", \"nicknames\": {\"user\": \"{{char}}对{{user}}的新称呼，没有就省略\", \"char\": \"{{user}}对{{char}}的新称呼，没有就省略\"}}}",
+      "content": "输出一个 JSON 对象，不要任何其他文字：\n{\"summary\": \"这一段的梗概（第三人称，100–200 字，写清日期）\", \"slices\": [{\"title\": \"一句话标题，30 字以内\", \"text\": \"这件事的经过：谁、在哪、做了什么、说了哪句关键的话（60–200 字）\", \"from\": 起始行号, \"to\": 结束行号, \"mood\": [\"氛围，1–2 个：日常 / 温馨 / 甜蜜 / 浪漫 / 搞笑 / 冲突 / 难过 / 紧张\"], \"special\": [\"特殊日子或状态，没有就写空数组：生日 / 纪念日 / 节日名 / 生病 / 出差 / 考试 / 加班 / 失眠 / 难过 / 生理期\"], \"important\": 是不是重要的转折或里程碑（true / false）}], \"memories\": [{\"type\": \"fact|preference|event|promise|followup|emotion|relationship\", \"content\": \"一句话，具体到人和事\", \"importance\": 1-10, \"dueAt\": \"需要之后跟进时写 ISO 时间（带时区），否则 null\", \"supersedes\": [\"被这条更新掉的旧记忆 id\"], \"lines\": [来自第几行], \"entities\": [\"涉及的人、地点、物品\"]}], \"relationship\": {\"affectionDelta\": -3 到 3 的整数, \"mood\": \"{{char}}现在的心情，没变化写 null\", \"nicknames\": {\"user\": \"{{char}}对{{user}}的新称呼，没有就省略\", \"char\": \"{{user}}对{{char}}的新称呼，没有就省略\"}}}",
       "marker": false,
       "enabled": true,
       "injection": {
@@ -37,7 +37,7 @@
       "identifier": "rules",
       "name": "规则",
       "role": "system",
-      "content": "规则：\n- 记忆只写以后用得上的：{{user}}的事实、偏好、约定、要跟进的事、情绪变化、关系里程碑；闲聊不记。\n- 和已有记忆重复的不再写；有变化的写新的一条，并在 supersedes 里写旧的 id。\n- \"周三下午两点面试\"这类带时间的事写成 followup，dueAt 写事情结束后适合问结果的时间。\n- 好感变化克制：普通聊天 0，明显的感动或冲突才 ±1～3。",
+      "content": "规则：\n- 片段按话题切，一件事一段，通常 1–5 段；零碎的闲聊合成一段\"日常\"。from / to 写聊天记录里的 # 行号。\n- 记忆只写以后用得上的：{{user}}的事实、偏好、约定、要跟进的事、情绪变化、关系里程碑；闲聊不记。\n- 一条只写一件事；写名字，不写\"他\"\"她\"；时间写具体日期（按聊天记录里的时间换算，\"明天\"写成几月几号）。\n- 和已有记忆重复的不再写；有变化的写新的一条，并在 supersedes 里写旧的 id。\n- \"周三下午两点面试\"这类带时间的事写成 followup，dueAt 写事情结束后适合问结果的时间。\n- 好感变化克制：普通聊天 0，明显的感动或冲突才 ±1～3。",
       "marker": false,
       "enabled": true,
       "injection": {
@@ -59,7 +59,7 @@
     },
     {
       "identifier": "summaryPrevious",
-      "name": "上一段摘要",
+      "name": "上一段梗概",
       "role": "user",
       "content": "",
       "marker": true,
@@ -71,7 +71,7 @@
     },
     {
       "identifier": "summaryMemories",
-      "name": "已有记忆",
+      "name": "相关的已有记忆",
       "role": "user",
       "content": "",
       "marker": true,
@@ -97,7 +97,7 @@
   "sampler": {
     "temperature": 0.7,
     "topP": 1,
-    "maxTokens": 2000,
+    "maxTokens": 4000,
     "contextTokens": 32000,
     "frequencyPenalty": 0,
     "presencePenalty": 0,

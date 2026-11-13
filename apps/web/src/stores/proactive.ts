@@ -20,7 +20,7 @@ import { useAiStore } from './ai';
 import { useAppStore } from './app';
 import { useCharacterStore } from './characters';
 import { useChatStore } from './chat';
-import { memories } from '@/mock/memories';
+import { useMemoryStore } from './memory';
 import { DEMO_PROACTIVE, GENERIC_PROACTIVE } from '@/mock/proactive';
 import { useEnvironmentStore } from './environment';
 import { useHubStore } from './hub';
@@ -52,8 +52,9 @@ export const useProactiveStore = defineStore('proactive', () => {
 
   /** 她记着的待跟进的事（到期那天会来问） */
   function followupsOf(characterId: string) {
-    return memories
-      .filter((m) => m.characterId === characterId && m.type === 'followup' && m.status === 'active' && m.dueAt)
+    return useMemoryStore()
+      .activeOf(characterId)
+      .filter((m) => m.type === 'followup' && m.dueAt)
       .map((m) => ({ id: m.id, content: m.content, dueAt: m.dueAt as number }));
   }
 

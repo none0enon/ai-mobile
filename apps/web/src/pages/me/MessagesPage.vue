@@ -3,7 +3,7 @@ import PageHeader from '@/layouts/PageHeader.vue';
 import { MESSAGE_RANGES, useMessageSettingsStore } from '@/stores/messageSettings';
 
 /**
- * 我的 → 消息设置（stores/messageSettings.ts）：发送给 AI 的条数、显示条数、HTML 渲染。
+ * 我的 → 消息设置（stores/messageSettings.ts）：发送给 AI 的条数、显示条数、HTML 渲染、总结。
  * 改动即时保存在本机；发送设置从下一次调用起生效，显示设置立即生效。
  */
 const s = useMessageSettingsStore().settings;
@@ -52,6 +52,24 @@ const R = MESSAGE_RANGES;
         </van-cell>
       </van-cell-group>
       <p class="note">范围 {{ R.frameLast.min }}–{{ R.frameLast.max }}。代码块中的完整 HTML 页面仅在最近的消息中渲染，运行于沙盒，无法访问应用数据。</p>
+
+      <div class="group-title">总结</div>
+      <van-cell-group inset>
+        <van-cell title="每多少条整理一次" center>
+          <template #right-icon>
+            <van-stepper v-model="s.summaryEvery" :min="R.summaryEvery.min" :max="R.summaryEvery.max" integer input-width="44px" class="shrink-0" data-testid="summary-every" />
+          </template>
+        </van-cell>
+        <van-cell title="自动隐藏已总结的消息" center>
+          <template #right-icon><van-switch v-model="s.hideSummarized" size="22px" class="shrink-0" aria-label="自动隐藏已总结的消息" data-testid="hide-summarized" /></template>
+        </van-cell>
+        <van-cell title="已总结的消息不发送给 AI" center>
+          <template #right-icon><van-switch v-model="s.dropSummarized" size="22px" class="shrink-0" aria-label="已总结的消息不发送给 AI" data-testid="drop-summarized" /></template>
+        </van-cell>
+      </van-cell-group>
+      <p class="note">
+        范围 {{ R.summaryEvery.min }}–{{ R.summaryEvery.max }}。攒够这么多条已定稿的消息，就用"总结 / 记忆"的 API 写一段梗概、故事片段和记忆（最后 4 条先不整理）。隐藏的消息在聊天顶部可以展开；不发送时，提示词里用时间线和取到的记忆代替。聊天、场景、通话、主动消息都适用。
+      </p>
     </div>
   </div>
 </template>
