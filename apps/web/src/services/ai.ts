@@ -30,11 +30,11 @@ import type {
   STTClient,
   TTSClient,
 } from './types';
-import { memories as demoMemories } from '@/mock/memories';
 import { DEMO_SIDESTORIES, genericSidestory } from '@/mock/sidestories';
 import { useAiStore } from '@/stores/ai';
 import { useCharacterStore } from '@/stores/characters';
 import { useLibraryStore } from '@/stores/library';
+import { useMemoryStore } from '@/stores/memory';
 import { useRhythmStore } from '@/stores/rhythm';
 import { useWeatherStore } from '@/stores/weather';
 import { sleep } from '@/utils/id';
@@ -327,8 +327,9 @@ export async function writeSidestory(characterId: string, opts: { recentChat?: s
   const world = own ? worldOf(c.id) : null;
   const slot = world ? slotAt(world, now) : undefined;
   const place = getLocation(slot?.locationId ?? c.locationId)?.name;
-  const memories = demoMemories
-    .filter((m) => m.characterId === c.id && m.status === 'active')
+  // 她记得的关于你的事：置顶的在前，再按重要度
+  const memories = useMemoryStore()
+    .activeOf(c.id)
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.importance - a.importance)
     .slice(0, 8)
     .map((m) => m.content);

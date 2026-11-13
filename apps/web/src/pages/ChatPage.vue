@@ -25,12 +25,13 @@ import { services } from '@/services';
 import { assetUrl, putAsset } from '@/services/assets';
 import type { VoiceRecording } from '@/services/recorder';
 import { personaOf, presetFor } from '@/services/prompt';
-import { pendingForSummary, SUMMARY_EVERY, type SummaryOutcome } from '@/services/summary';
+import { pendingForSummary, type SummaryOutcome } from '@/services/summary';
 import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { useMemoryStore } from '@/stores/memory';
 import { useMessageSettingsStore } from '@/stores/messageSettings';
 import { useWeatherStore } from '@/stores/weather';
 import { dividerTime, hhmm } from '@/utils/time';
@@ -68,10 +69,21 @@ function setMode(m: 'im' | 'stage') {
 const msgSettings = useMessageSettingsStore();
 const earlier = ref(0);
 watch(chatId, () => (earlier.value = 0));
-/** 从第几条开始显示 */
+// 打开聊天时还没有取过记忆就在后台取一次（之后每次她回复完都会取下一轮的）
+const memoryStore = useMemoryStore();
+watch(
+  [chatId, () => memoryStore.ready],
+  ([id, ready]) => {
+    if (id && ready) chatStore.ensureRecall(id);
+  },
+  { immediate: true },
+);
+/** 从第几条开始显示：显示条数的限制，和"自动隐藏已总结的消息"（总结覆盖到的那条之后才显示） */
 const shownFrom = computed(() => {
   const s = msgSettings.settings;
-  return s.showLimit ? Math.max(0, messages.value.length - s.showLast - earlier.value) : 0;
+  const limitFrom = s.showLimit ? messages.value.length - s.showLast : 0;
+  const summarized = s.hideSummarized && chat.value?.summaryUntilMessageId ? messages.value.findIndex((m) => m.id === chat.value?.summaryUntilMessageId) + 1 : 0;
+  return Math.max(0, Math.max(limitFrom, summarized) - earlier.value);
 });
 async function showEarlier() {
   const el = scroller.value;
@@ -109,8 +121,30 @@ async function scrollToBottom(smooth = false) {
 
 onMounted(() => {
   chatStore.markRead(chatId.value);
-  void scrollToBottom();
+  if (route.query.at) void focusMessage(route.query.at as string);
+  else void scrollToBottom();
 });
+
+/** 从记忆本"回到原话"：展开到那条消息、滚过去、闪一下 */
+async function focusMessage(id: string) {
+  const idx = messages.value.findIndex((m) => m.id === id);
+  if (idx < 0) return void scrollToBottom();
+  if (idx < shownFrom.value) earlier.value += shownFrom.value - idx + 3;
+  await nextTick();
+  setTimeout(() => {
+    const el = scroller.value?.querySelector<HTMLElement>(`[data-mid="${CSS.escape(id)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center' });
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 1700);
+  }, 60);
+}
+watch(
+  () => route.query.at,
+  (id) => {
+    if (typeof id === 'string' && id) void focusMessage(id);
+  },
+);
 // 正在看这条聊天：她这时发来的主动消息直接算已读、不弹横幅；"一起""回忆"也跟着换成她
 watch(
   chatId,
@@ -411,7 +445,7 @@ const moreActions = computed(() => [
   { name: '预设', subname: presetLine.value, key: 'preset' },
   {
     name: '整理这段聊天',
-    subname: chatStore.summarizing[chatId.value] ? '正在整理…' : `用"总结"预设写摘要、记下要记住的事 · 还有 ${pendingSummary.value} 条没整理（攒够 ${SUMMARY_EVERY} 条会自动整理）`,
+    subname: chatStore.summarizing[chatId.value] ? '正在整理…' : `用"总结"预设写梗概、故事片段和记忆 · 还有 ${pendingSummary.value} 条没整理（攒够 ${msgSettings.summaryEvery()} 条会自动整理）`,
     key: 'summary',
   },
   { name: '导出聊天', subname: 'SillyTavern .jsonl（M1）', key: 'export' },
@@ -533,6 +567,7 @@ const stageRain = computed(() => isRainy(stageWeather.value?.text) && (!stageLoc
             <div v-if="r.kind === 'divider'" class="divider num">{{ dividerTime(r.ts) }}</div>
             <MessageItem
               v-else-if="byId.get(r.id)"
+              :data-mid="r.id"
               :message="byId.get(r.id)!"
               :character="character"
               :is-last="r.id === messages.at(-1)?.id"
@@ -639,7 +674,7 @@ const stageRain = computed(() => isRainy(stageWeather.value?.text) && (!stageLoc
 
     <van-popup v-model:show="summaryOpen" position="bottom" round :style="{ maxHeight: '80%' }">
       <div v-if="summaryResult" class="sheet" data-testid="summary-sheet">
-        <div class="sheet-title">整理好了 · {{ summaryResult.covered }} 条</div>
+        <div class="sheet-title">整理好了 · {{ summaryResult.covered }} 条 · {{ summaryResult.slices }} 个故事片段</div>
         <p class="story">{{ summaryResult.text }}</p>
         <div v-if="summaryResult.memories.length" class="text-[13px] text-ink-2 leading-relaxed">
           <div class="font-600 mb-1">{{ character.pronoun }}记下了：</div>
@@ -732,6 +767,19 @@ const stageRain = computed(() => isRainy(stageWeather.value?.text) && (!stageLoc
   color: var(--ink-2);
   font-size: 13.5px;
   text-decoration: none;
+}
+.flash {
+  animation: flash 1.6s ease-out;
+  border-radius: 14px;
+}
+@keyframes flash {
+  0%,
+  40% {
+    background: var(--accent-soft);
+  }
+  100% {
+    background: transparent;
+  }
 }
 .earlier {
   display: flex;

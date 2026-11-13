@@ -8,7 +8,8 @@ import PersonTabs from '@/components/common/PersonTabs.vue';
 import { personas } from '@/mock/characters';
 import { pwa } from '@/pwa';
 import { useLibraryStore } from '@/stores/library';
-import { memories, album } from '@/mock/memories';
+import { album } from '@/mock/memories';
+import { useMemoryStore } from '@/stores/memory';
 import { services, writeSidestory, type SidestoryOutcome } from '@/services';
 import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
@@ -164,6 +165,9 @@ function drawStory() {
   story.value = null;
   void router.push(`/chat/${id}`);
 }
+const memoryStore = useMemoryStore();
+/** 在用的记忆（不含忘掉的、被取代的） */
+const memoryCount = computed(() => memoryStore.memories.filter((m) => !m.deleted && m.status === 'active').length);
 </script>
 
 <template>
@@ -181,7 +185,7 @@ function drawStory() {
       <div class="stats mx-4">
         <div><b class="num">30</b><span>相识天数</span></div>
         <div><b class="num">{{ totalMessages.toLocaleString('zh-CN') }}</b><span>条对话</span></div>
-        <div><b class="num">{{ memories.length }}</b><span>条记忆</span></div>
+        <div><b class="num">{{ memoryCount }}</b><span>条记忆</span></div>
         <div><b class="num">{{ album.length }}</b><span>张 CG</span></div>
       </div>
 

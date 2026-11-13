@@ -28,6 +28,8 @@ import { useGalleryStore } from './stores/gallery';
 import { useRhythmStore } from './stores/rhythm';
 import { useVoiceStore } from './stores/voice';
 import { useMessageSettingsStore } from './stores/messageSettings';
+import { useMemoryStore } from './stores/memory';
+import { maybeAutoConsolidate } from './services/consolidate';
 import { useServicesStore } from './stores/services';
 import { useRealWorldStore } from './stores/realworld';
 import { useWeatherStore } from './stores/weather';
@@ -66,12 +68,19 @@ const hydrated = Promise.allSettled([
   useRhythmStore().hydrate(),
   useGalleryStore().hydrate(),
   useVoiceStore().hydrate(),
-  // 消息设置：发送条数、显示条数、HTML 渲染
+  // 消息设置：发送条数、显示条数、HTML 渲染、总结
   useMessageSettingsStore().hydrate(),
+  // 记忆：事实记忆、故事片段、时间线、画像卡
+  useMemoryStore().hydrate(),
 ]);
 // 上次在场景页里直接关了 App 的，那件事算结束（等角色也读出来，她才能回到原来的地方）。
 // 排在挂载前面：打开的正好是场景页时，场景页挂载后照常再进入
-void hydrated.then(() => useChatStore().endLeftoverScenes());
+void hydrated.then(() => {
+  useChatStore().endLeftoverScenes();
+  // 以前写在聊天上的摘要搬进时间线
+  const chats = useChatStore();
+  useMemoryStore().migrateChatSummaries(chats.chats, chats.list);
+});
 
 // iPhone 上只有用户点过屏幕后"解锁"的 <audio> 才能在网络请求之后播放语音：第一次点屏幕时解锁
 const unlock = () => {
@@ -106,6 +115,8 @@ Promise.race([hydrated, new Promise((r) => setTimeout(r, 1500))]).finally(() => 
     void hydrated.then((results) => {
       if (results.every((r) => r.status === 'fulfilled')) useHubStore().start();
       else useHubStore().error = '本机数据未读完整，云端同步未启动；请重新打开 App';
+      // 没连云端时，距上次整理超过 20 小时的角色在本机补一次记忆整理（连了云端由凌晨 4 点的云端整理）
+      void maybeAutoConsolidate(useHubStore().connected);
     });
   });
 });

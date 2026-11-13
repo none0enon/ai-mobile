@@ -141,6 +141,15 @@ const SEED_UPGRADES: SeedUpgrade[] = [
       ],
     },
   },
+  {
+    // 记忆：聊天记录带行号和时间，总结时按话题切故事片段（带标签），每条记忆注明来自第几行
+    id: 'summary:slices',
+    file: 'summary.json',
+    replaced: {
+      format: ["输出一个 JSON 对象，不要任何其他文字：\n{\"summary\": \"这一段发生了什么（第三人称，100–200 字）\", \"memories\": [{\"type\": \"fact|preference|event|promise|followup|emotion|relationship\", \"content\": \"一句话，具体到人和事\", \"importance\": 1-10, \"dueAt\": \"需要之后跟进时写 ISO 时间（带时区），否则 null\", \"supersedes\": [\"被这条更新掉的旧记忆 id\"]}], \"relationship\": {\"affectionDelta\": -3 到 3 的整数, \"mood\": \"{{char}}现在的心情，没变化写 null\", \"nicknames\": {\"user\": \"{{char}}对{{user}}的新称呼，没有就省略\", \"char\": \"{{user}}对{{char}}的新称呼，没有就省略\"}}}"],
+      rules: ["规则：\n- 记忆只写以后用得上的：{{user}}的事实、偏好、约定、要跟进的事、情绪变化、关系里程碑；闲聊不记。\n- 和已有记忆重复的不再写；有变化的写新的一条，并在 supersedes 里写旧的 id。\n- \"周三下午两点面试\"这类带时间的事写成 followup，dueAt 写事情结束后适合问结果的时间。\n- 好感变化克制：普通聊天 0，明显的感动或冲突才 ±1～3。"],
+    },
+  },
 ];
 
 /** 按 SEED_UPGRADES 更新本机的自带预设，返回改了的那些 */

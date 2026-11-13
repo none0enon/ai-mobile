@@ -8,7 +8,7 @@ import ErrorDetails from '@/components/common/ErrorDetails.vue';
 import Segmented from '@/components/common/Segmented.vue';
 import ApiForm from '@/components/settings/ApiForm.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
-import { memories } from '@/mock/memories';
+import { sliceText, useMemoryStore } from '@/stores/memory';
 import { cosine, services } from '@/services';
 import { voiceSpec } from '@/services/ai';
 import { useAiStore } from '@/stores/ai';
@@ -31,7 +31,7 @@ const chars = useCharacterStore();
 const GROUPS: { title: string; roles: AgentRole[]; note: string }[] = [
   {
     title: '文字',
-    roles: ['main', 'companion', 'sidestory', 'summary', 'imagePrompt', 'rhythm', 'proactive', 'vision'],
+    roles: ['main', 'companion', 'sidestory', 'summary', 'consolidate', 'imagePrompt', 'rhythm', 'proactive', 'vision'],
     note: '渠道可选自定义、Claude、OpenAI 兼容、Gemini、Vertex Agent、DeepSeek。「陪伴 · 快速」写一起做事时的短句，选便宜、快的模型；生图提示词和节律默认跟随它。其余功能可以跟随主对话或「陪伴 · 快速」，也可以单独设置。',
   },
   { title: '语音', roles: ['tts', 'stt'], note: '语音合成可选自定义（OpenAI 格式 /audio/speech）、硅基流动、MiniMax、火山引擎、Fish Audio、GPT-SoVITS；音色在"我的 → 语音"里按角色设置。' },
@@ -39,9 +39,9 @@ const GROUPS: { title: string; roles: AgentRole[]; note: string }[] = [
   { title: '记忆', roles: ['embedding'], note: '向量化可选自定义（OpenAI 格式 /embeddings）、硅基流动、Gemini。备用 API 只在模型相同时才会用：不同模型的向量不能互相比较，换了模型要重算向量。' },
 ];
 /** 提示词和采样参数在预设里的功能（温度不在这里调） */
-const PRESET_DRIVEN: Partial<Record<AgentRole, string>> = { companion: '"功能"', sidestory: '"小剧场"', summary: '"总结"', imagePrompt: '"生图"', proactive: '"主动消息"' };
-/** 后台跑的功能可以设每日上限 */
-const BUDGETED = new Set<AgentRole>(['sidestory', 'summary', 'imagePrompt', 'proactive', 'embedding']);
+const PRESET_DRIVEN: Partial<Record<AgentRole, string>> = { companion: '"功能"', sidestory: '"小剧场"', summary: '"总结"', consolidate: '"总结"', imagePrompt: '"生图"', proactive: '"主动消息"' };
+/** 后台跑的功能可以设每日上限（总结、记忆整理不设上限） */
+const BUDGETED = new Set<AgentRole>(['sidestory', 'imagePrompt', 'proactive', 'embedding']);
 /** 推理强度：OpenAI 的 reasoning_effort、Claude 的思考预算 / effort、Gemini 的 thinkingBudget / thinkingLevel */
 const EFFORTS: { value: ReasoningEffort; label: string }[] = [
   { value: 'auto', label: '自动' },
@@ -252,23 +252,32 @@ async function runSim() {
   }
 }
 const reindex = ref<{ done: number; total: number } | null>(null);
+const memoryStore = useMemoryStore();
+/** 在用的记忆和故事片段（重算向量、显示条数用） */
+const embedCount = computed(() => ({
+  memories: memoryStore.memories.filter((m) => !m.deleted && m.status !== 'superseded').length,
+  slices: memoryStore.slices.filter((s) => !s.deleted).length,
+}));
 async function runReindex() {
-  const list = memories.filter((m) => m.status !== 'superseded');
+  const list = [
+    ...memoryStore.memories.filter((m) => !m.deleted && m.status !== 'superseded').map((m) => ({ kind: 'memory' as const, id: m.id, text: m.content })),
+    ...memoryStore.slices.filter((x) => !x.deleted).map((x) => ({ kind: 'slice' as const, id: x.id, text: sliceText(x) })),
+  ];
   const total = list.length;
   reindex.value = { done: 0, total };
   try {
     for (let i = 0; i < total; i += 16) {
       const batch = list.slice(i, i + 16);
-      const vectors = await services.embedding.embed(batch.map((m) => m.content));
+      const vectors = await services.embedding.embed(batch.map((m) => m.text));
       if (services.embedding.live) {
         batch.forEach((m, j) => {
           const v = vectors[j];
-          if (v) m.vector = { model: services.embedding.model, dims: v.length, data: encodeVector(v) };
+          if (v) memoryStore.setVector(m.kind, m.id, v, services.embedding.model);
         });
       }
       reindex.value = { done: Math.min(total, i + batch.length), total };
     }
-    showToast(services.embedding.live ? `已用 ${services.embedding.model} 重算 ${total} 条记忆` : `演示：重算了 ${total} 条记忆（假向量）`);
+    showToast(services.embedding.live ? `已用 ${services.embedding.model} 重算 ${total} 条记忆和片段` : `演示：重算了 ${total} 条（假向量）`);
   } catch (e) {
     showErrorDialog('重算向量失败', e);
   } finally {
@@ -310,7 +319,7 @@ async function runReindex() {
             </button>
             <div v-if="role === 'embedding'" class="embed-tools">
               <span class="text-[12px] text-ink-3 num">
-                {{ services.embedding.live ? `${services.embedding.model} · ${services.embedding.dims || '—'} 维` : '演示用假向量' }} · {{ memories.length }} 条记忆 · 检索在本机
+                {{ services.embedding.live ? `${services.embedding.model} · ${services.embedding.dims || '—'} 维` : '演示用假向量' }} · {{ embedCount.memories }} 条记忆 · {{ embedCount.slices }} 个片段 · 检索在本机
               </span>
               <div class="flex gap-2 mt-2">
                 <van-button size="small" round @click="simOpen = true">测试相似度</van-button>

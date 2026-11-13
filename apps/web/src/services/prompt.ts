@@ -28,14 +28,15 @@ import {
 import type { LLMChatMessage } from './types';
 import { mockToday, todayLine } from '@/mock/activity';
 import { personas } from '@/mock/characters';
-import { memories } from '@/mock/memories';
 import { useAiStore } from '@/stores/ai';
 import { useEnvironmentStore } from '@/stores/environment';
 import { useLibraryStore } from '@/stores/library';
-import { lastN, useMessageSettingsStore } from '@/stores/messageSettings';
+import { afterSummarized, lastN, useMessageSettingsStore } from '@/stores/messageSettings';
 import { useRealWorldStore } from '@/stores/realworld';
 import { useRhythmStore } from '@/stores/rhythm';
 import { useWeatherStore } from '@/stores/weather';
+import { memoryBlock, summaryBlock } from './memoryBlocks';
+import { recallForTurn, type RecallForTurn } from './recall';
 
 /**
  * 每一轮的提示词：把这条聊天、角色卡、绑定的世界书、预设交给共享的拼装器（packages/shared/src/st/assemble.ts，
@@ -148,14 +149,8 @@ export function storeRegex(chat: Chat, character: Character, text: string, role:
   });
 }
 
-/** 演示角色还没总结过时的摘要；总结过（总结智能体写进 chat.summaries）就用写的 */
-const SUMMARIES: Record<string, string> = {
-  suwan: '上周两人一起看了电影；他最近在赶论文、经常熬夜，她很担心；约好周六去水族馆。',
-  jiangyu: '他最近每天早上跟江屿在操场晨跑；昨天下雨跑了 3.1 公里，比第一天快了一分钟；约好每天六点见，迟到一分钟加一圈。',
-};
-
 /** App 自己的四块：摘要、记忆 + 关系、【当前环境】、场景规则 */
-function appFills(chat: Chat, character: Character, history: Message[], now: Date, timeZone: string): Record<string, AppBlockFill> {
+function appFills(chat: Chat, character: Character, history: Message[], now: Date, timeZone: string, recall: RecallForTurn, proactive: boolean): Record<string, AppBlockFill> {
   const scene = getScene(chat.currentScene ?? 'free');
   const loc = getLocation(chat.togetherAt ?? character.locationId);
   const place = !loc
@@ -166,18 +161,6 @@ function appFills(chat: Chat, character: Character, history: Message[], now: Dat
         : `你在${character.name}的小世界里陪${character.pronoun}，你们一起在${loc.name}`
       : `${character.name}在${character.pronoun}的小世界里的${loc.name}${character.status ? `（${character.status}）` : ''}；${useRealWorldStore().whereLine}`;
 
-  const mems = memories
-    .filter((m) => m.characterId === character.id && m.status === 'active')
-    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.importance - a.importance)
-    .slice(0, 6);
-  const rel = character.relationship;
-  const relParts = [
-    rel.affection !== 50 ? `好感 ${rel.affection}` : '',
-    rel.mood ? `心情"${rel.mood}"` : '',
-    rel.userNickname ? `${character.pronoun}叫你"${rel.userNickname}"` : '',
-  ].filter(Boolean);
-  const memoryLines = [...mems.map((m) => `- ${m.content}`), ...(relParts.length ? [`- 关系：${relParts.join('，')}`] : [])];
-
   // 距上次聊天：最后一条之前那条消息到现在
   const before = history.at(-2)?.createdAt;
   const sinceLastChatMin = before ? Math.max(0, (now.getTime() - before) / 60_000) : null;
@@ -187,14 +170,19 @@ function appFills(chat: Chat, character: Character, history: Message[], now: Dat
   // 真实天气：你那边；她住在别的城市（例如国内）时再加她那边的。取不到就不写，不编
   const { weather, herWeather } = useWeatherStore().envInput(character);
 
-  const written = chat.summaries ?? [];
-  const summary: AppBlockFill = written.length
-    ? { content: written.slice(-6).map((s) => s.text).join('\n'), source: `总结智能体写的摘要（最近 ${Math.min(6, written.length)} 段，共 ${written.length} 段）` }
-    : { content: SUMMARIES[character.id] ?? '', source: SUMMARIES[character.id] ? '演示摘要（这条聊天还没总结过）' : '这条聊天还没总结过' };
+  const summary = summaryBlock(chat, character, timeZone);
+  const memory = memoryBlock(character, recall.lines, now.getTime(), timeZone, { proactive });
+  if (!proactive) {
+    const notes = [
+      recall.reused ? '重新生成：沿用这条回复原来用的记忆' : recall.snapshot ? `上一轮回复后搜好的 ${recall.snapshot.lines.length} 条${recall.snapshot.dense ? '（按意思 + 字面）' : `（${recall.snapshot.denseNote || '只按字面'}）`}` : '还没有搜过',
+      recall.added ? `发送时按本轮消息补了 ${recall.added} 条` : '',
+    ].filter(Boolean);
+    memory.source = `${memory.source} · ${notes.join(' · ')}`;
+  }
 
   return {
     summary,
-    memory: { content: memoryLines.join('\n'), source: `记忆检索 Top ${mems.length}（置顶必带）+ 关系状态` },
+    memory,
     environment: {
       content: formatEnvironmentBlock({
         now,
@@ -278,8 +266,10 @@ export interface ChatPrompt extends AssembleResult {
   use: ChatPresetUse;
   persona: Persona;
   request: Record<string, unknown>;
-  /** 交给拼装器之前的聊天记录：有内容的总条数、按发送条数截掉的条数、正则修改的条数 */
-  turnStats: { total: number; dropped: number; regexed: number; last?: number };
+  /** 交给拼装器之前的聊天记录：有内容的总条数、按发送条数截掉的条数、正则修改的条数、去掉的已总结消息条数 */
+  turnStats: { total: number; dropped: number; regexed: number; last?: number; summarized?: number };
+  /** 这一轮带上的记忆（取到的和为什么） */
+  recall: RecallForTurn;
 }
 
 export interface ChatAssembleOptions {
@@ -302,6 +292,8 @@ export interface ChatAssembleOptions {
   task?: { name: string; input: string };
   /** 指定按哪个用途选预设（语音通话用 call）；不给时按主动消息 / 场景 / 对话预设 */
   use?: PresetUseId;
+  /** 重新生成的那条回复：沿用它原来用的记忆 */
+  targetId?: string;
 }
 
 /**
@@ -319,15 +311,21 @@ export function assembleForChat(chat: Chat, character: Character, history: Messa
   const prevUser = [...history].reverse().filter((m) => m.role === 'user')[1];
   const now = opts.now ?? new Date();
   const timeZone = useEnvironmentStore().settings.timezone;
-  const app = appFills(chat, character, history, now, timeZone);
+  const proactive = opts.agent === 'proactive' || opts.type === 'quiet';
+  const userText = lastUser ? messageToText(lastUser, character, persona.name) : '';
+  const recall: RecallForTurn = proactive ? { lines: [], snapshot: undefined, added: 0, reused: false } : recallForTurn(chat, character, userText, opts.targetId);
+  const app = appFills(chat, character, history, now, timeZone, recall, proactive);
   if (opts.quiet) app.proactive = { content: opts.quiet, source: '主动消息：这一次要她做的事' };
   if (opts.task) app.sceneTask = { content: opts.task.input, source: `场景任务：${opts.task.name}` };
   // 功能预设里写了自己的"场景规则"：程序那块只填能用的标签和表情，不再重复场景规则
   if (preset.blocks.some((b) => b.identifier === 'sceneRule' && !b.marker && b.enabled) && app.sceneRules) app.sceneRules = sceneTagsOnly(chat);
   // 聊天记录：按消息设置的发送条数截取；预设中"仅格式提示词"的正则按深度执行（世界书扫描修改后的文本）
-  const last = useMessageSettingsStore().sendCount();
+  // "已总结的消息不发送给 AI"：总结覆盖到的那条之前的不发（提示词里用时间线和取到的记忆代替）
+  const msgSettings = useMessageSettingsStore();
+  const last = msgSettings.sendCount();
+  const sendable = msgSettings.settings.dropSummarized ? afterSummarized(history, chat.summaryUntilMessageId) : history;
   const turnStats = { total: 0, dropped: 0, regexed: 0 };
-  const turns = toTurns(history, character, persona.name, { last, regex: preset.regex, stats: turnStats });
+  const turns = toTurns(sendable, character, persona.name, { last, regex: preset.regex, stats: turnStats });
   const result = assemblePrompt({
     preset,
     character,
@@ -353,7 +351,7 @@ export function assembleForChat(chat: Chat, character: Character, history: Messa
     result.messages.push({ role: 'system', content: opts.task.input, source: 'sceneTask', label: '场景任务：这一次的输入（预设里没有这一块，接在最后）' });
     result.tokens += estimateTokens(opts.task.input);
   }
-  return { ...result, preset, use, persona, request: buildChatRequest(result, preset, model), turnStats: { ...turnStats, last } };
+  return { ...result, preset, use, persona, request: buildChatRequest(result, preset, model), turnStats: { ...turnStats, last, summarized: history.length - sendable.length }, recall };
 }
 
 /** 发给模型的消息（去掉来源说明） */

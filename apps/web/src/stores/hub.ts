@@ -1,9 +1,10 @@
-import { apiKeyId, DEFAULT_PROACTIVE_RULES, type HubInbox, type HubStatus, type HubTouchpoint,
+import { apiKeyId, DEFAULT_PROACTIVE_RULES, type HubInbox, type HubMemoryResults, type HubStatus, type HubTouchpoint,
   type HubRhythms, type Message, type NotificationPreview, type ProactiveContext, type ProactiveCredentials } from '@app/shared';
 import { defineStore } from 'pinia';
 import { computed, reactive, ref, watch } from 'vue';
 import { getOne, write } from '@/db/idb';
-import { memories } from '@/mock/memories';
+import { applyMemoryOps, packConsolidation } from '@/services/consolidate';
+import { alwaysOn, memoryBlock, summaryBlock } from '@/services/memoryBlocks';
 import { personaOf } from '@/services/prompt';
 import { useAiStore } from './ai';
 import { useAppStore } from './app';
@@ -11,7 +12,8 @@ import { useCharacterStore } from './characters';
 import { useChatStore } from './chat';
 import { useEnvironmentStore } from './environment';
 import { useLibraryStore } from './library';
-import { lastN, useMessageSettingsStore } from './messageSettings';
+import { useMemoryStore } from './memory';
+import { afterSummarized, lastN, useMessageSettingsStore } from './messageSettings';
 import { useRhythmStore } from './rhythm';
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -19,9 +21,14 @@ interface SavedHub {
   url: string; cursor: number; deviceId: string; active: boolean; preview: NotificationPreview;
   revisions: Record<string, number>; hashes: Record<string, string>; apiHash: string;
   rhythmRevisions: Record<string, number>; rhythmHashes: Record<string, string>; rhythmApiHash: string;
+  /** 记忆整理：每个角色上传过的版本和内容指纹、API 指纹、已经应用到哪一次云端结果 */
+  memoryRevisions?: Record<string, number>; memoryHashes?: Record<string, string>; memoryApiHash?: string; memoryAppliedAt?: number;
 }
 export const useHubStore = defineStore('hub', () => {
-  const config = reactive<SavedHub>({ url: '', cursor: 0, deviceId: '', active: false, preview: 'name-only', revisions: {}, hashes: {}, apiHash: '', rhythmRevisions: {}, rhythmHashes: {}, rhythmApiHash: '' });
+  const config = reactive<SavedHub>({ url: '', cursor: 0, deviceId: '', active: false, preview: 'name-only', revisions: {}, hashes: {}, apiHash: '', rhythmRevisions: {}, rhythmHashes: {}, rhythmApiHash: '',
+    memoryRevisions: {}, memoryHashes: {}, memoryApiHash: '', memoryAppliedAt: 0 });
+  /** 云端记忆整理失败的角色（"云端与同步"里显示） */
+  const memoryErrors = ref<HubMemoryResults['errors']>([]);
   const token = ref('');
   const savedPassword = ref('');
   const connected = computed(() => !!config.url && !!token.value);
@@ -64,16 +71,20 @@ export const useHubStore = defineStore('hub', () => {
     connectionVersion++;
     syncing.value = false;
     error.value = '';
-    if (config.url !== base) Object.assign(config, { cursor: 0, active: false, revisions: {}, hashes: {}, apiHash: '', rhythmRevisions: {}, rhythmHashes: {}, rhythmApiHash: '' });
+    if (config.url !== base) Object.assign(config, { cursor: 0, active: false, revisions: {}, hashes: {}, apiHash: '', rhythmRevisions: {}, rhythmHashes: {}, rhythmApiHash: '',
+      memoryRevisions: {}, memoryHashes: {}, memoryApiHash: '', memoryAppliedAt: 0 });
     config.url = base;
     config.deviceId = result.deviceId;
     token.value = result.token;
     if (!await write('secrets', [{ key: 'hub:token', value: result.token }, { key: 'hub:password', value: password }])) throw new Error('无法保存登录信息，请允许浏览器存储');
     savedPassword.value = password;
-    const [remote, rhythms] = await Promise.all([
+    const [remote, rhythms, memoryContexts] = await Promise.all([
       request<{ contexts: { id: string; revision: number }[] }>('/v1/proactive/contexts'),
       request<{ contexts: { id: string; revision: number }[] }>('/v1/rhythm/contexts'),
+      request<{ contexts: { id: string; revision: number }[] }>('/v1/memory/contexts').catch(() => ({ contexts: [] })),
     ]);
+    config.memoryRevisions = Object.fromEntries(memoryContexts.contexts.map((c) => [c.id, c.revision]));
+    config.memoryHashes = {};
     // Reconnect is an explicit choice of this device as the source of context updates.
     config.revisions = Object.fromEntries(remote.contexts.map((c) => [c.id, c.revision]));
     config.hashes = {};
@@ -104,10 +115,23 @@ export const useHubStore = defineStore('hub', () => {
     return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
   }
 
+  /** 云端主动消息要的记忆：待跟进（排期）、置顶和到期的、最重要的 30 条 */
+  function cloudMemories(characterId: string): ProactiveContext['memories'] {
+    const mem = useMemoryStore();
+    const active = mem.activeOf(characterId);
+    const keep = new Map<string, (typeof active)[number]>();
+    for (const m of active) if (m.type === 'followup' && m.dueAt) keep.set(m.id, m);
+    for (const m of alwaysOn(characterId, Date.now())) keep.set(m.id, m);
+    for (const m of [...active].sort((a, b) => b.importance - a.importance || b.updatedAt - a.updatedAt).slice(0, 30)) keep.set(m.id, m);
+    return [...keep.values()].slice(0, 120).map(({ id, content, dueAt, type }) => ({ id, content, ...(dueAt ? { dueAt } : {}), type }));
+  }
+
   function contexts(): ProactiveContext[] {
     const chars = useCharacterStore();
     const chats = useChatStore();
     const lib = useLibraryStore();
+    const msgSettings = useMessageSettingsStore();
+    const timeZone = useEnvironmentStore().settings.timezone;
     return chars.list.flatMap((character) => {
       const chat = chats.chatOfCharacter(character.id);
       if (!chat || chats.streams[chat.id]) return [];
@@ -115,9 +139,14 @@ export const useHubStore = defineStore('hub', () => {
       return [{ character: { ...character, avatar: null }, chat, persona: { ...personaOf(chat), avatar: null },
         preset: lib.presetForUse('proactive', character) ?? null,
         lorebooks: character.lorebookIds.map((id) => lib.lorebookById(id)).filter((b) => !!b),
-        // 消息设置 → 发送条数：云端主动消息的上下文同样截取
-        history: lastN(chats.list(chat.id).filter((m) => !m.meta.error && !m.meta.interrupted), useMessageSettingsStore().sendCount()).slice(-200),
-        memories: memories.filter((m) => m.characterId === character.id && m.status === 'active').map(({ id, content, dueAt, type }) => ({ id, content, ...(dueAt ? { dueAt } : {}), type })),
+        // 消息设置 → 发送条数、已总结的消息不发送：云端主动消息的上下文同样截取
+        history: lastN(
+          (msgSettings.settings.dropSummarized ? afterSummarized(chats.list(chat.id), chat.summaryUntilMessageId) : chats.list(chat.id)).filter((m) => !m.meta.error && !m.meta.interrupted),
+          msgSettings.sendCount(),
+        ).slice(-200),
+        // 只传排期要用的待跟进、每次都带的和最重要的几十条，记忆再多也不会超长
+        memories: cloudMemories(character.id),
+        memoryBlocks: { summary: summaryBlock(chat, character, timeZone).content, memory: memoryBlock(character, [], Date.now(), timeZone, { proactive: true }).content },
         environment: useEnvironmentStore().settings, rules: DEFAULT_PROACTIVE_RULES,
         busyUntil: ['study', 'sleep'].includes(chat.currentScene ?? '') ? chat.lastMessageAt + 4 * 3_600_000 : 0,
         preview: config.preview }];
@@ -148,9 +177,9 @@ export const useHubStore = defineStore('hub', () => {
     if (failed?.status === 'rejected') throw failed.reason;
   }
 
-  async function uploadApi(role: 'proactive' | 'rhythm' = 'proactive') {
+  async function uploadApi(role: 'proactive' | 'rhythm' | 'consolidate' = 'proactive') {
     const ai = useAiStore();
-    if (!ai.isLive(role)) throw new Error(`请先在 API 设置中接通${role === 'rhythm' ? '节律' : '主动消息'}`);
+    if (!ai.isLive(role)) throw new Error(`请先在 API 设置中接通${role === 'rhythm' ? '节律' : role === 'consolidate' ? '记忆整理' : '主动消息'}`);
     // 主动消息可能跟随「陪伴 · 快速」、它再跟随主对话：一路上的设置都要带上，云端才解析得出用哪个 API
     const chain = ai.system.router.chain(role);
     const source = chain.at(-1) ?? role;
@@ -160,8 +189,9 @@ export const useHubStore = defineStore('hub', () => {
       outputFilters: ai.outputFilters,
     });
     const fingerprint = await hash(credentials);
-    const key = role === 'rhythm' ? 'rhythmApiHash' : 'apiHash';
-    if (config[key] === fingerprint && (role === 'rhythm' ? status.value?.rhythmConfigured : status.value?.configured)) return;
+    const key = role === 'rhythm' ? 'rhythmApiHash' : role === 'consolidate' ? 'memoryApiHash' : 'apiHash';
+    const configured = role === 'rhythm' ? status.value?.rhythmConfigured : role === 'consolidate' ? status.value?.memoryConfigured : status.value?.configured;
+    if (config[key] === fingerprint && configured) return;
     await request(`/v1/secrets/${role}`, 'PUT', credentials);
     config[key] = fingerprint;
     await save();
@@ -197,6 +227,49 @@ export const useHubStore = defineStore('hub', () => {
     await save();
     const failure = results.find((r) => r.status === 'rejected');
     if (failure?.status === 'rejected') throw failure.reason;
+  }
+
+  /**
+   * 记忆整理：每个角色打包这次要整理的东西上传（内容没变不传），凌晨 4 点云端整理。
+   * "记忆整理"没接通 API 时不传（打开 App 时会在本机补跑）
+   */
+  async function uploadMemories() {
+    if (!useAiStore().isLive('consolidate')) return;
+    config.memoryRevisions ??= {};
+    config.memoryHashes ??= {};
+    const revisions = config.memoryRevisions;
+    const hashes = config.memoryHashes;
+    let any = false;
+    const results = await Promise.allSettled(useCharacterStore().list.map(async (c) => {
+      const context = await packConsolidation(c.id);
+      if (!context?.preset) return;
+      any = true;
+      // 打包时间每次都变，不算进指纹
+      const fingerprint = await hash({ ...context, packedAt: 0 });
+      if (hashes[c.id] === fingerprint) return;
+      const result = await request<{ revision: number }>(`/v1/memory/contexts/${encodeURIComponent(c.id)}`, 'PUT', { context: clone(context), revision: revisions[c.id] ?? 0 });
+      revisions[c.id] = result.revision;
+      hashes[c.id] = fingerprint;
+    }));
+    if (any) await uploadApi('consolidate');
+    await save();
+    const failure = results.find((r) => r.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+  }
+
+  /** 拉云端整理好的结果，按顺序应用（你在手机上改过的那一处跳过） */
+  async function pullMemories() {
+    const since = config.memoryAppliedAt ?? 0;
+    const data = await request<HubMemoryResults>(`/v1/memory/results?since=${since}`);
+    memoryErrors.value = data.errors;
+    if (!useMemoryStore().ready) return;
+    for (const { doneAt, result } of data.results) {
+      await applyMemoryOps(result.context, result.ops);
+      config.memoryAppliedAt = Math.max(config.memoryAppliedAt ?? 0, doneAt);
+      // 这份上下文整理完了：下次内容有变化再上传
+      if (config.memoryHashes) delete config.memoryHashes[result.characterId];
+    }
+    if (data.results.length) await save();
   }
 
   async function pullRhythms() {
@@ -257,7 +330,9 @@ export const useHubStore = defineStore('hub', () => {
     try {
       await refreshStatus();
       // Context updates and inbox reads are independent. Neither starts cloud generation.
-      const jobs = await Promise.allSettled([pull(), pullRhythms(), uploadRhythms(), ...(config.active ? [uploadContexts(), uploadApi()] : [])]);
+      // 记忆：先拉云端整理好的结果并应用，再上传这次要整理的
+      const memory = pullMemories().then(() => uploadMemories());
+      const jobs = await Promise.allSettled([pull(), pullRhythms(), uploadRhythms(), memory, ...(config.active ? [uploadContexts(), uploadApi()] : [])]);
       const failure = jobs.find((r) => r.status === 'rejected');
       if (failure?.status === 'rejected') throw failure.reason;
       if (version === connectionVersion) { lastSyncAt.value = Date.now(); error.value = ''; }
@@ -313,5 +388,5 @@ export const useHubStore = defineStore('hub', () => {
       clearTimeout(debounce); debounce = setTimeout(() => void syncNow(), 500);
     }, { deep: true });
   }
-  return { config, savedPassword, connected, status, points, error, syncing, lastSyncAt, hydrate, connect, disconnect, syncNow, enable, disable, subscribe, addWebhook, removeChannel, testChannel, start };
+  return { config, savedPassword, connected, status, points, error, syncing, lastSyncAt, memoryErrors, hydrate, connect, disconnect, syncNow, enable, disable, subscribe, addWebhook, removeChannel, testChannel, start };
 });

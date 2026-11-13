@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { RECALL_REASON_LABEL } from '@app/ai';
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import Segmented from '@/components/common/Segmented.vue';
@@ -6,7 +7,7 @@ import PageHeader from '@/layouts/PageHeader.vue';
 import { assembleForChat, useLabel, type ChatPrompt } from '@/services/prompt';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
-import { hhmm } from '@/utils/time';
+import { hhmm, monthDay } from '@/utils/time';
 
 /**
  * 查看提示词：发消息时拼好的提示词原样留在内存里，这里逐条列出来（发了哪些消息、预设每一块怎么处理、
@@ -35,7 +36,7 @@ const preview = computed((): ChatPrompt | null => {
 });
 const p = computed(() => (which.value === 'last' && last.value ? last.value.prompt : preview.value));
 
-const tab = ref<'messages' | 'blocks' | 'lore' | 'request'>('messages');
+const tab = ref<'messages' | 'blocks' | 'lore' | 'memory' | 'request'>('messages');
 const open = ref<Set<string>>(new Set());
 function toggle(key: string) {
   const s = new Set(open.value);
@@ -119,6 +120,7 @@ function slotNote(position: string): string | null {
           { value: 'messages', label: '发送的消息' },
           { value: 'blocks', label: '预设块' },
           { value: 'lore', label: '世界书' },
+          { value: 'memory', label: '记忆' },
           { value: 'request', label: '请求体' },
         ]"
       />
@@ -181,6 +183,29 @@ function slotNote(position: string): string | null {
           扫描规则同 SillyTavern：默认看最近 2 条消息，常驻条目总是触发；"延迟到递归"的条目只在别的条目内容触发递归时才有机会。预算 {{ p.lore.budget.toLocaleString('zh-CN') }} tokens。
           触发了的条目还要看预设里对应的位置（例如"世界书（角色前）"）开没开，才会发出去。
         </p>
+      </div>
+
+      <div v-else-if="tab === 'memory'" class="px-4 grid gap-2" data-testid="inspect-memory">
+        <div class="text-[12.5px] text-ink-2 leading-relaxed">
+          <template v-if="p.recall.reused">重新生成：沿用这条回复原来用的记忆。</template>
+          <template v-else-if="p.recall.snapshot">
+            上一轮回复完成后（{{ hhmm(p.recall.snapshot.at) }}）用"{{ p.recall.snapshot.query.slice(0, 60) }}{{ p.recall.snapshot.query.length > 60 ? '…' : '' }}"搜的：
+            {{ p.recall.snapshot.dense ? '按意思 + 按字面' : p.recall.snapshot.denseNote || '只按字面' }}<template v-if="p.recall.snapshot.time"> · 时间说法"{{ p.recall.snapshot.time }}"</template><template v-if="p.recall.snapshot.specials.length"> · 今天：{{ p.recall.snapshot.specials.join('、') }}</template><template v-if="p.recall.snapshot.states.length"> · 状态：{{ p.recall.snapshot.states.join('、') }}</template>。
+          </template>
+          <template v-else>还没有搜过（她回复完一次以后才有）。</template>
+          <template v-if="p.recall.added"> 发送时按本轮消息在本机补了 {{ p.recall.added }} 条。</template>
+          每次都带的（置顶、到期的）和画像卡、时间线在"预设块"里的"长期记忆""过往摘要"。
+        </div>
+        <div v-for="l in p.recall.lines" :key="l.key" class="lore on">
+          <span :class="l.kind === 'slice' ? 'i-lucide-book-open' : 'i-lucide-bookmark'" class="shrink-0 mt-0.5 text-accent-ink" />
+          <div class="flex-1 min-w-0">
+            <div class="text-[13.5px] leading-relaxed">{{ l.text }}</div>
+            <div class="text-[11.5px] text-ink-3 num">
+              {{ monthDay(l.at) }} · {{ RECALL_REASON_LABEL[l.reason] }} · 分数 {{ l.score.toFixed(4) }}<template v-if="l.dense !== null"> · 相似度 {{ l.dense.toFixed(3) }}</template><template v-if="l.lexical !== null"> · 字面 {{ l.lexical.toFixed(2) }}</template>
+            </div>
+          </div>
+        </div>
+        <p v-if="!p.recall.lines.length" class="text-[13px] text-ink-3 text-center py-6 m-0">这一轮没有取到记忆</p>
       </div>
 
       <div v-else class="px-4">

@@ -1,0 +1,133 @@
+{
+  "format": "ai-mobile-preset",
+  "version": 1,
+  "id": "preset-consolidate",
+  "category": "summary",
+  "name": "整理 · 记忆",
+  "defaultFor": [
+    "consolidate"
+  ],
+  "description": "每天凌晨 4 点在云端整理记忆（记忆本里也能\"立即整理\"）：合并重复的记忆、合并时间线、过期的待跟进改时态、逐行修改画像卡。四件事按触发条件只发这次的那几块。",
+  "blocks": [
+    {
+      "identifier": "main",
+      "name": "任务",
+      "role": "system",
+      "content": "你负责替{{char}}整理{{char}}记得的关于{{user}}的事。只输出一个 JSON 对象，不要任何其他文字。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "merge",
+      "name": "合并重复的记忆",
+      "role": "system",
+      "content": "这次的任务：合并重复的记忆。每组里是可能重复的几条记忆，判断哪些说的是同一件事：同一件事的合并成一条，保留所有具体信息（时间、地点、数字、原话），前后矛盾时以日期新的为准；不是同一件事的不要合并。\n输出：{\"merges\": [{\"ids\": [\"要合并的记忆 id，至少两条，必须在同一组里\"], \"content\": \"合并后的一句话\", \"type\": \"fact|preference|event|promise|followup|emotion|relationship\", \"importance\": 1-10}]}。没有要合并的就输出 {\"merges\": []}。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "merge"
+      ]
+    },
+    {
+      "identifier": "rollup",
+      "name": "合并时间线",
+      "role": "system",
+      "content": "这次的任务：把几段按时间排好的梗概合成一段时间更长的梗概。保留重要的事件、关系变化、约定和日期，去掉重复和零碎的细节；第三人称，按时间顺序，200–350 字。\n输出：{\"text\": \"合并后的梗概\"}",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "rollup"
+      ]
+    },
+    {
+      "identifier": "tense",
+      "name": "过期的待跟进改时态",
+      "role": "system",
+      "content": "这次的任务：下面这些待跟进的事已经过了原定的时间。把每条改成过去时的说法，写清日期（例如\"要去面试\"改成\"11 月 12 日去面试了，结果还不知道\"）；结果还值得{{char}}之后再问一次的，保留为 followup 并写新的 dueAt，否则改成 event。\n输出：{\"updates\": [{\"id\": \"记忆 id\", \"content\": \"新的说法\", \"type\": \"event 或 followup\", \"dueAt\": \"type 为 followup 时写 ISO 时间（带时区），否则 null\"}]}",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "tense"
+      ]
+    },
+    {
+      "identifier": "profile",
+      "name": "修改画像卡",
+      "role": "system",
+      "content": "这次的任务：按最近新记下的事，修改\"{{char}}知道的{{user}}\"这张画像卡。只做必要的改动，不要整张重写：\n- 以后每次聊天都用得上的稳定信息才加一行，栏目用：基本、学习工作、作息身体、喜好、雷区、重要的人、最近、我们这一路；\n- 和新记忆矛盾的、过时的行改掉或删掉；\n- 一行只写一件事，写名字、写日期；整张卡控制在 20 行以内。\n输出：{\"ops\": [{\"op\": \"add\", \"section\": \"栏目\", \"text\": \"一行\"}, {\"op\": \"edit\", \"id\": \"行 id\", \"text\": \"改后的一行\"}, {\"op\": \"remove\", \"id\": \"行 id\"}]}。不用改就输出 {\"ops\": []}。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "profile"
+      ]
+    },
+    {
+      "identifier": "consolidateNow",
+      "name": "现在",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "consolidateInput",
+      "name": "这次要整理的",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    }
+  ],
+  "sampler": {
+    "temperature": 0.5,
+    "topP": 1,
+    "maxTokens": 3000,
+    "contextTokens": 32000,
+    "frequencyPenalty": 0,
+    "presencePenalty": 0,
+    "stream": false
+  },
+  "formats": {
+    "newChatPrompt": "",
+    "newExampleChatPrompt": "",
+    "continueNudgePrompt": "",
+    "impersonationPrompt": "",
+    "sendIfEmpty": "",
+    "wiFormat": "{0}",
+    "scenarioFormat": "{{scenario}}",
+    "personalityFormat": "{{personality}}",
+    "namesBehavior": 0,
+    "squashSystemMessages": false,
+    "preferCharacterPrompt": true,
+    "preferCharacterJailbreak": true
+  },
+  "regex": []
+}

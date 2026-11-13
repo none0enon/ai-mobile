@@ -129,6 +129,7 @@ export type AgentRole =
   | 'companion'
   | 'sidestory'
   | 'summary'
+  | 'consolidate'
   | 'embedding'
   | 'imagePrompt'
   | 'image'
@@ -211,10 +212,17 @@ export const AGENT_META: Record<
   },
   summary: {
     label: '总结 / 记忆',
-    desc: '滚动摘要、抽取记忆条目、写日记、更新关系状态',
+    desc: '每攒够几条写一段梗概、按话题切故事片段、抽记忆条目、更新关系状态',
     capability: 'chat',
     runsOn: 'both',
     icon: 'i-lucide-notebook-pen',
+  },
+  consolidate: {
+    label: '记忆整理',
+    desc: '每天凌晨 4 点在云端整理：合并重复的记忆、合并时间线、过期的事改时态、修改画像卡；记忆本里也能立即整理',
+    capability: 'chat',
+    runsOn: 'both',
+    icon: 'i-lucide-sparkles',
   },
   embedding: {
     label: '向量化',

@@ -28,8 +28,11 @@ import { services } from '@/services';
 import { putAsset } from '@/services/assets';
 import { describePhoto } from '@/services/photos';
 import { sessionSummary as musicSummary, stop as stopMusic } from '@/services/musicPlayer';
-import { assembleForChat, personaOf, storeRegex, toLLMMessages, type ChatPrompt } from '@/services/prompt';
-import { pendingForSummary, SUMMARY_EVERY, summarizeChat, type SummaryOutcome } from '@/services/summary';
+import { assembleForChat, messageToText, personaOf, storeRegex, toLLMMessages, type ChatPrompt } from '@/services/prompt';
+import { latestRecall, noteRecallUsed, prefetchRecall } from '@/services/recall';
+import { pendingForSummary, summarizeChat, type SummaryOutcome } from '@/services/summary';
+import { useMemoryStore } from './memory';
+import { useMessageSettingsStore } from './messageSettings';
 import { uid } from '@/utils/id';
 
 /** generate 的选项：一起做事时用哪个功能、这一次的场景任务、在这件事里的位置 */
@@ -282,7 +285,9 @@ export const useChatStore = defineStore('chat', () => {
     try {
       // 拼提示词（真实发送：推进世界书粘性 / 冷却，保存 {{setvar}} 改过的变量）。
       // 预设按用途选：语音通话用"语音通话"的预设，在场景页里一起做某件事时用那件事的功能预设，聊天里用这个角色的对话预设；一个都选不到时报错
-      const prompt = assembleForChat(chat, character, history, { type: target ? 'swipe' : 'normal', agent, task: opts.task, use: opts.use });
+      const prompt = assembleForChat(chat, character, history, { type: target ? 'swipe' : 'normal', agent, task: opts.task, use: opts.use, targetId: target });
+      // 记下这条回复用了哪些记忆（重新生成时沿用）；重新生成不重复记"想起过"
+      noteRecallUsed(id, prompt.recall.lines, !prompt.recall.reused);
       if (opts.minTokens || opts.quick) prompt.request = tuneRequest(prompt.request, agent, opts);
       chat.loreState = prompt.loreState;
       chat.vars = prompt.vars;
@@ -371,8 +376,11 @@ export const useChatStore = defineStore('chat', () => {
       }
       // 配图：生图预设写 tags → 生图 API 出图；生图 API 没接通时卡片上写原因
       for (const part of parts) if (part.type === 'image') void drawPart(chatId, id, part.caption);
-      // 攒够了就在后台整理一段（"总结"预设）
-      setTimeout(() => void maybeSummarize(chatId), 0);
+      // 回复完成后在后台取下一轮要带的记忆（本轮你的话 + 她的回复）；攒够了就在后台整理一段（"总结"预设）
+      setTimeout(() => {
+        void refreshRecall(chatId, id);
+        void maybeSummarize(chatId);
+      }, 0);
     } catch (e) {
       const msg = find(chatId, id);
       if (msg) {
@@ -446,7 +454,34 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // —— 总结：攒够 SUMMARY_EVERY 条定稿的消息就在后台整理一段（"总结 / 记忆"接通了 API 时） ——
+  // —— 取记忆：AI 回复完成后在后台搜，下一轮直接带上（services/recall.ts） ——
+
+  /** 用 afterId 这条回复和它前面你的那条消息搜一次；afterId 不给时用这条聊天最后的一问一答 */
+  async function refreshRecall(chatId: string, afterId?: string) {
+    const chat = chatById(chatId);
+    const character = useCharacterStore().byId(chat?.characterId);
+    if (!chat || !character) return;
+    const msgs = list(chatId);
+    const at = afterId ? msgs.findIndex((m) => m.id === afterId) : msgs.length - 1;
+    if (at < 0) return;
+    const upTo = msgs.slice(0, at + 1).filter((m) => !m.meta.error);
+    const reply = [...upTo].reverse().find((m) => m.role === 'assistant');
+    const said = [...upTo].reverse().find((m) => m.role === 'user');
+    const user = personaOf(chat).name;
+    const text = [said, reply].filter((m): m is Message => !!m).map((m) => messageToText(m, character, user).slice(0, 300)).join('\n');
+    try {
+      await prefetchRecall(chat, character, text, msgs[at]?.id ?? null);
+    } catch {
+      // 取记忆失败不影响聊天：下一轮沿用上一份结果
+    }
+  }
+
+  /** 打开聊天时：还没有搜过就在后台搜一次 */
+  function ensureRecall(chatId: string) {
+    if (!latestRecall(chatId)) void refreshRecall(chatId);
+  }
+
+  // —— 总结：攒够（消息设置里的）x 条定稿的消息就在后台整理一段（"总结 / 记忆"接通了 API 时） ——
   const summarizing = reactive<Record<string, boolean>>({});
   /** 自动整理失败后，这条聊天 10 分钟内不再自动试（完整报错在 API 设置 → 总结 / 记忆） */
   const summaryBackoff = new Map<string, number>();
@@ -456,7 +491,7 @@ export const useChatStore = defineStore('chat', () => {
     // 一起做事的过程中不整理，结束（leaveScene）以后再整理
     if (!chat || chat.currentScene || summarizing[chatId] || streams[chatId] || !useAiStore().isLive('summary')) return;
     if ((summaryBackoff.get(chatId) ?? 0) > Date.now()) return;
-    if (pendingForSummary(chat, list(chatId)).length < SUMMARY_EVERY) return;
+    if (pendingForSummary(chat, list(chatId)).length < useMessageSettingsStore().summaryEvery()) return;
     summarizing[chatId] = true;
     try {
       await summarizeChat(chat, list(chatId));
@@ -685,6 +720,7 @@ export const useChatStore = defineStore('chat', () => {
   function editMessage(chatId: string, id: string, text: string) {
     const msg = find(chatId, id);
     if (!msg) return;
+    sourceChanged(chatId, [id]);
     let t = text.replace(/\r/g, '').trim();
     // 预设里勾了"改消息时也执行"的正则（同 ST 的 runOnEdit）
     const chat = chatById(chatId);
@@ -726,7 +762,28 @@ export const useChatStore = defineStore('chat', () => {
   function deleteMessage(chatId: string, id: string) {
     if (streams[chatId]?.messageId === id) return;
     const msgs = messages.value[chatId];
-    if (msgs) messages.value[chatId] = msgs.filter((m) => m.id !== id);
+    if (!msgs) return;
+    sourceChanged(chatId, [id]);
+    // 删的正好是总结覆盖到的那条：往前挪一条，"已总结"的分界不丢
+    const chat = chatById(chatId);
+    if (chat?.summaryUntilMessageId === id) {
+      const at = msgs.findIndex((m) => m.id === id);
+      chat.summaryUntilMessageId = at > 0 ? (msgs[at - 1]?.id ?? null) : null;
+    }
+    messages.value[chatId] = msgs.filter((m) => m.id !== id);
+  }
+
+  /** 已经总结过的消息被改或删了：相关片段要重新生成，相关记忆标"来源改过"（记忆本里提示复核） */
+  function sourceChanged(chatId: string, ids: string[]) {
+    const chat = chatById(chatId);
+    if (!chat?.summaryUntilMessageId) return;
+    const msgs = list(chatId);
+    const until = msgs.findIndex((m) => m.id === chat.summaryUntilMessageId);
+    const covered = ids.filter((id) => {
+      const i = msgs.findIndex((m) => m.id === id);
+      return i >= 0 && i <= until;
+    });
+    if (covered.length) useMemoryStore().markSourceChanged(chatId, covered, msgs);
   }
 
   async function regenerate(chatId: string, messageId: string) {
@@ -941,6 +998,8 @@ export const useChatStore = defineStore('chat', () => {
     recentLines,
     summarizing,
     summarizeNow,
+    refreshRecall,
+    ensureRecall,
     poke,
     postCard,
     enterScene,

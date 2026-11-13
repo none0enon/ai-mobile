@@ -34,8 +34,13 @@ export function proactivePrompt(context: ProactiveContext, t: Touchpoint, now: n
       };
     }),
     app: {
-      summary: { content: (chat.summaries ?? []).slice(-6).map((s) => s.text).join('\n'), source: '聊天摘要' },
-      memory: { content: context.memories.map((m) => `- ${m.content}`).join('\n') + `\n关系：${JSON.stringify(c.relationship)}`, source: '记忆和关系' },
+      // 手机拼好的两块（画像卡 + 时间线；每次都带的 + 最重要的 30 条）；旧版 App 上传的没有这两块时退回原来的写法
+      summary: context.memoryBlocks
+        ? { content: context.memoryBlocks.summary, source: '画像卡和时间线' }
+        : { content: (chat.summaries ?? []).slice(-6).map((s) => s.text).join('\n'), source: '聊天摘要' },
+      memory: context.memoryBlocks
+        ? { content: context.memoryBlocks.memory, source: '记忆和关系' }
+        : { content: context.memories.map((m) => `- ${m.content}`).join('\n') + `\n关系：${JSON.stringify(c.relationship)}`, source: '记忆和关系' },
       environment: { content: formatEnvironmentBlock({ now: date, timeZone }), source: `云端当前时间（${timeZone}）` },
       sceneRules: { content: FREE_SCENE.promptFragment, source: '日常聊天' },
       proactive: { content: quiet, source: '本次主动消息' },

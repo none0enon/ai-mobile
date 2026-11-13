@@ -36,6 +36,7 @@ import { reactive, ref } from 'vue';
 import { useAiStore } from './ai';
 import { useCharacterStore } from './characters';
 import { useChatStore } from './chat';
+import { useMemoryStore } from './memory';
 import { useLibraryStore } from './library';
 import { useEnvironmentStore } from './environment';
 import { useHubStore } from './hub';
@@ -281,7 +282,11 @@ export const useRhythmStore = defineStore('rhythm', () => {
     const chat = useChatStore();
     const c = chat.chatOfCharacter(characterId);
     if (!c) return '';
-    const summary = (c.summaries ?? []).slice(-2).map((s) => s.text).join('\n');
+    const summary = useMemoryStore()
+      .timelineOf(c.id)
+      .slice(-2)
+      .map((s) => s.text)
+      .join('\n');
     const recent = chat.recentLines(c.id, 8);
     return [summary ? `最近的聊天摘要：\n${summary}` : '', recent.length ? `最近的聊天：\n${recent.join('\n')}` : ''].filter(Boolean).join('\n');
   }
