@@ -176,6 +176,24 @@ export type MessagePart =
       /** 收工时拍的屋子：本机素材库的 key */
       photo?: string;
     }
+  /** 一起玩的一局：创意工坊里给她看的作品（小说的一章 / 番外，或者一张画）和她的反应 */
+  | {
+      type: 'game';
+      logId: string;
+      game: 'workshop';
+      /** novel 小说的一章或番外；image 一张画 */
+      kind: 'novel' | 'image';
+      /** 作品名：小说的书名，画的标题 */
+      title: string;
+      /** 小说给她看的是哪一章 / 哪篇番外（标题） */
+      chapter?: string;
+      /** 小说的开头几句（卡片上显示，提示词里也用） */
+      excerpt?: string;
+      /** 画：本机素材库的 key */
+      photo?: string;
+      /** 她看完是捧场还是吐槽（她自己判断的） */
+      verdict?: 'cheer' | 'roast';
+    }
   /** 一起观影的票根 */
   | {
       type: 'watch';

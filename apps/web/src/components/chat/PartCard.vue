@@ -54,6 +54,15 @@ async function previewPhoto() {
   else showToast('本机找不到这张照片了');
 }
 
+/** 创意工坊给她看的画：点开看大图 */
+async function previewWork() {
+  const p = props.part;
+  if (p.type !== 'game' || p.game !== 'workshop' || !p.photo) return;
+  const url = await assetUrl(p.photo);
+  if (url) showImagePreview({ images: [url], closeable: true, showIndex: false });
+  else showToast('本机找不到这张画了');
+}
+
 /** 学习卡片里这次画的图：点一张从它开始翻 */
 async function previewShots(start: number) {
   const p = props.part;
@@ -232,6 +241,21 @@ async function playVoice() {
       <div v-if="part.photo" class="shots">
         <button type="button" class="shot wide" :aria-label="`看大图：${part.room}`" @click="previewPhoto">
           <AssetImg :asset-key="part.photo" :alt="part.room" />
+        </button>
+      </div>
+    </div>
+  </div>
+  <div v-else-if="part.type === 'game' && part.game === 'workshop'" class="pcard row-card" style="--tone: #7fc8a9">
+    <span class="icon-wrap" style="color: var(--tone)"><span :class="part.kind === 'image' ? 'i-lucide-palette' : 'i-lucide-feather'" /></span>
+    <div class="flex-1 min-w-0">
+      <div class="text-[14.5px] truncate">创意工坊 · {{ part.kind === 'image' ? `「${part.title}」` : `《${part.title}》` }}</div>
+      <div class="text-[12px] text-ink-3 truncate">
+        {{ part.kind === 'image' ? `给${character.pronoun}看了一张画` : (part.chapter ?? '小说') }}<template v-if="part.verdict"> · 想听{{ part.verdict === 'cheer' ? '夸' : '吐槽' }}</template>
+      </div>
+      <div v-if="part.excerpt" class="text-[12.5px] text-ink-2 mt-1 line-clamp-2">{{ part.excerpt }}…</div>
+      <div v-if="part.photo" class="shots">
+        <button type="button" class="shot" :aria-label="`看大图：${part.title}`" @click="previewWork">
+          <AssetImg :asset-key="part.photo" :alt="part.title" />
         </button>
       </div>
     </div>

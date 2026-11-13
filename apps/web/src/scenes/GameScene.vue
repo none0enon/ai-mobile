@@ -16,10 +16,11 @@ import { useChatStore } from '@/stores/chat';
  * - 真心话大冒险（TruthDare.vue）
  * - 飞行棋（FlightChess.vue）
  * - 装修小屋（decor/DecorGame.vue）：捏你们俩的小人、布置一间 3D 小屋；用到 three.js，点进去时才加载。
+ * - 创意工坊（workshop/WorkshopGame.vue）：和 AI 一起写小说、画画，写好画好拿给她看，听她捧场或吐槽。
  * 回到列表不结束游戏（KeepAlive）：玩到一半回列表、换个游戏，再点回来接着玩，列表上标"进行中"。
  * 这一次玩的都算这一段：离开场景页时那一段写"一起玩了…"（玩完的几局和玩到一半的）。
  */
-type Game = 'soup' | 'truthdare' | 'flight' | 'decor';
+type Game = 'soup' | 'truthdare' | 'flight' | 'decor' | 'workshop';
 interface GameInfo {
   id: Game;
   label: string;
@@ -28,7 +29,7 @@ interface GameInfo {
   tone: string;
   /** 这些阶段算"进行中" */
   busy: string[];
-  /** 打开后面板占满（装修要大画面，小人在屋子里，不画立绘） */
+  /** 打开后面板占满（装修要大画面，小人在屋子里；创意工坊要写字、看图），不画立绘 */
   fill?: boolean;
 }
 const GAMES: GameInfo[] = [
@@ -36,6 +37,7 @@ const GAMES: GameInfo[] = [
   { id: 'truthdare', label: '真心话大冒险', desc: '转瓶子定谁先，轮流问、轮流做', icon: 'i-lucide-bottle-wine', tone: '#e88fa6', busy: ['spin', 'playing'] },
   { id: 'flight', label: '飞行棋', desc: '双人 128 格，走到哪一格做哪一格', icon: 'i-lucide-dice-5', tone: '#b9a3e6', busy: ['playing'] },
   { id: 'decor', label: '装修小屋', desc: '捏你们俩的小人，一起布置一间 3D 小屋', icon: 'i-lucide-sofa', tone: '#e7b46a', busy: ['playing'], fill: true },
+  { id: 'workshop', label: '创意工坊', desc: '和 AI 写小说、画画，拿给她看听她捧场或吐槽', icon: 'i-lucide-palette', tone: '#7fc8a9', busy: ['novel', 'draw'], fill: true },
 ];
 const COMPONENTS: Record<Game, Component> = {
   soup: TurtleSoup,
@@ -43,6 +45,7 @@ const COMPONENTS: Record<Game, Component> = {
   flight: FlightChess,
   // three.js 有点大：点进装修小屋才加载
   decor: defineAsyncComponent(() => import('@/components/scene/game/decor/DecorGame.vue')),
+  workshop: defineAsyncComponent(() => import('@/components/scene/game/workshop/WorkshopGame.vue')),
 };
 
 const app = useAppStore();
@@ -56,8 +59,8 @@ const replying = computed(() => !!chat.streams[chatId.value]);
 
 const game = computed<GameInfo | null>(() => GAMES.find((g) => g.id === route.query.g) ?? null);
 /** 每个游戏自己的那句话和阶段（回列表再回来还在） */
-const lines = reactive<Record<Game, string>>({ soup: '', truthdare: '', flight: '', decor: '' });
-const phases = reactive<Record<Game, string>>({ soup: 'menu', truthdare: 'menu', flight: 'menu', decor: 'menu' });
+const lines = reactive<Record<Game, string>>({ soup: '', truthdare: '', flight: '', decor: '', workshop: '' });
+const phases = reactive<Record<Game, string>>({ soup: 'menu', truthdare: 'menu', flight: 'menu', decor: 'menu', workshop: 'menu' });
 const herLine = computed(() => (game.value ? lines[game.value.id] : ''));
 const busy = (g: GameInfo) => g.busy.includes(phases[g.id]);
 
