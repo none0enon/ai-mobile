@@ -1,5 +1,5 @@
 import type { LocationActivity, MapLocation } from '@app/shared';
-import type { LatLng, MapsClient, RealPlaceKind } from './types';
+import type { FoodPlace, GroceryStore, LatLng, MapsClient, RealPlaceKind } from './types';
 import { NEARBY_PLACES } from '@/mock/realworld';
 import { useServicesStore } from '@/stores/services';
 
@@ -7,6 +7,7 @@ import { useServicesStore } from '@/stores/services';
  * 你的真实世界用 Google Maps Platform（设计文档 §9「Google 地图接入」）：
  * - Geocoding API：家的地址 → 坐标（地址变了才查一次，结果存在本机）；
  * - Places API (New) 附近搜索：按种类找附近的咖啡店、餐厅、公园、健身房、图书馆，结果缓存一天；
+ *   排健康计划时另外找附近能吃饭的地方（带价位、评分、营业时间、能不能外带外送）和超市，也缓存一天；
  * - Maps JavaScript API：在"我的世界"里画真地图（components/map/RealMap.vue）。
  * Key 在"我的 → 地图、天气、音乐"里填，只存在这台设备，请求从浏览器直接发给 Google
  * （在 Google Cloud 里给这个 Key 加上"网站限制"，只允许你的 App 地址）。
@@ -155,17 +156,87 @@ const KIND_ACTIVITIES: Record<RealPlaceKind, LocationActivity[]> = {
 /** 搜多远（米）：公园可以远一点 */
 const KIND_RADIUS: Record<RealPlaceKind, number> = { cafe: 1500, restaurant: 1500, park: 3000, gym: 3000, library: 5000 };
 
+interface PlaceJson {
+  id?: string;
+  displayName?: { text?: string };
+  formattedAddress?: string;
+  shortFormattedAddress?: string;
+  location?: { latitude?: number; longitude?: number };
+  primaryType?: string;
+  primaryTypeDisplayName?: { text?: string };
+  googleMapsUri?: string;
+  businessStatus?: string;
+  priceLevel?: string;
+  rating?: number;
+  userRatingCount?: number;
+  regularOpeningHours?: { weekdayDescriptions?: string[] };
+  takeout?: boolean;
+  delivery?: boolean;
+  dineIn?: boolean;
+  servesVegetarianFood?: boolean;
+  servesBreakfast?: boolean;
+  servesLunch?: boolean;
+  servesDinner?: boolean;
+  editorialSummary?: { text?: string };
+}
+
 interface PlacesJson {
-  places?: {
-    id?: string;
-    displayName?: { text?: string };
-    formattedAddress?: string;
-    shortFormattedAddress?: string;
-    location?: { latitude?: number; longitude?: number };
-    primaryTypeDisplayName?: { text?: string };
-    googleMapsUri?: string;
-  }[];
+  places?: PlaceJson[];
   error?: { code?: number; message?: string; status?: string };
+}
+
+/**
+ * 一次 Places API (New) 附近搜索。fields 决定计费档（名字、地址、坐标、种类是 Pro；价位、评分、营业时间是 Enterprise；
+ * 能不能外带外送、有没有素食、一句介绍是 Enterprise + Atmosphere），只要用得上的。
+ * 有的种类名（较新的 coffee_shop、fitness_center……）旧账号可能不认：报种类不对时只用第一个再试一次
+ */
+async function placesNearby(opts: {
+  types: string[];
+  center: LatLng;
+  radius: number;
+  max: number;
+  rank: 'DISTANCE' | 'POPULARITY';
+  fields: string[];
+  key: string;
+  signal?: AbortSignal;
+}): Promise<PlaceJson[]> {
+  const send = async (types: string[]) => {
+    let res: Response;
+    try {
+      res = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': opts.key, 'X-Goog-FieldMask': opts.fields.map((f) => `places.${f}`).join(',') },
+        body: JSON.stringify({
+          includedTypes: types,
+          maxResultCount: opts.max,
+          rankPreference: opts.rank,
+          languageCode: 'zh-CN',
+          locationRestriction: { circle: { center: { latitude: opts.center.lat, longitude: opts.center.lng }, radius: opts.radius } },
+        }),
+        signal: timeout(20_000, opts.signal),
+      });
+    } catch (e) {
+      throw new MapsError(`连不上 Google 地点搜索：${e instanceof Error ? e.message : String(e)}`);
+    }
+    const json = (await res.json().catch(() => ({}))) as PlacesJson;
+    return { res, json };
+  };
+  let { res, json } = await send(opts.types);
+  if (res.status === 400 && /type/i.test(json.error?.message ?? '') && opts.types.length > 1) ({ res, json } = await send(opts.types.slice(0, 1)));
+  if (!res.ok) {
+    const msg = json.error?.message ?? '';
+    const hint = res.status === 403 || /not been used|disabled|PERMISSION_DENIED/i.test(msg)
+      ? '（这个 Key 没开通 Places API (New)，或者 Key 的限制不允许）'
+      : res.status === 400 && /API key/i.test(msg)
+        ? '（Key 不对）'
+        : '';
+    throw new MapsError(`Google 附近搜索失败：HTTP ${res.status}${hint}`, msg);
+  }
+  return (json.places ?? []).filter((p) => p.id && p.displayName?.text && typeof p.location?.latitude === 'number' && typeof p.location.longitude === 'number');
+}
+
+function placeAt(p: PlaceJson): LatLng {
+  return { lat: p.location!.latitude!, lng: p.location!.longitude! };
 }
 
 /** 在示意图上的位置：以中心（家）为原点，按离中心多远摆到 0–100 */
@@ -177,53 +248,20 @@ function schematicXY(center: LatLng, p: LatLng, rangeKm: number): { x: number; y
 }
 
 async function searchKind(kind: RealPlaceKind, center: LatLng, key: string, signal?: AbortSignal): Promise<MapLocation[]> {
-  const fields = [
-    'places.id',
-    'places.displayName',
-    'places.formattedAddress',
-    'places.shortFormattedAddress',
-    'places.location',
-    'places.primaryTypeDisplayName',
-    'places.googleMapsUri',
-  ].join(',');
-  const send = async (types: string[]) => {
-    let res: Response;
-    try {
-      res = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': fields },
-        body: JSON.stringify({
-          includedTypes: types,
-          maxResultCount: 5,
-          rankPreference: 'DISTANCE',
-          languageCode: 'zh-CN',
-          locationRestriction: { circle: { center: { latitude: center.lat, longitude: center.lng }, radius: KIND_RADIUS[kind] } },
-        }),
-        signal: timeout(20_000, signal),
-      });
-    } catch (e) {
-      throw new MapsError(`连不上 Google 地点搜索：${e instanceof Error ? e.message : String(e)}`);
-    }
-    const json = (await res.json().catch(() => ({}))) as PlacesJson;
-    return { res, json };
-  };
-  let { res, json } = await send(KIND_TYPES[kind]);
-  // 有的种类名（较新的 coffee_shop、fitness_center）旧账号可能不认：只用第一个再试一次
-  if (res.status === 400 && /type/i.test(json.error?.message ?? '') && KIND_TYPES[kind].length > 1) ({ res, json } = await send(KIND_TYPES[kind].slice(0, 1)));
-  if (!res.ok) {
-    const msg = json.error?.message ?? '';
-    const hint = res.status === 403 || /not been used|disabled|PERMISSION_DENIED/i.test(msg)
-      ? '（这个 Key 没开通 Places API (New)，或者 Key 的限制不允许）'
-      : res.status === 400 && /API key/i.test(msg)
-        ? '（Key 不对）'
-        : '';
-    throw new MapsError(`Google 附近搜索失败：HTTP ${res.status}${hint}`, msg);
-  }
+  const places = await placesNearby({
+    types: KIND_TYPES[kind],
+    center,
+    radius: KIND_RADIUS[kind],
+    max: 5,
+    rank: 'DISTANCE',
+    fields: ['id', 'displayName', 'formattedAddress', 'shortFormattedAddress', 'location', 'primaryTypeDisplayName', 'googleMapsUri'],
+    key,
+    signal,
+  });
   const rangeKm = Math.max(1, KIND_RADIUS[kind] / 1000);
-  return (json.places ?? [])
-    .filter((p) => p.id && p.displayName?.text && typeof p.location?.latitude === 'number' && typeof p.location.longitude === 'number')
+  return places
     .map((p) => {
-      const at = { lat: p.location!.latitude!, lng: p.location!.longitude! };
+      const at = placeAt(p);
       const km = distanceKm(center, at);
       return {
         id: `real:g:${p.id}`,
@@ -289,6 +327,124 @@ export function rememberPlaces(list: MapLocation[]) {
 }
 export function knownPlaces(): MapLocation[] {
   return readJson<MapLocation[]>(KNOWN) ?? [];
+}
+
+// —— 附近能吃饭的地方、超市（排健康计划用） ——
+
+/** 能吃饭的地方：餐厅、快餐、外卖店、三明治店、食堂；按受欢迎程度取 20 家（附近真有人去的店），太少就搜远一点 */
+const FOOD_TYPES = ['restaurant', 'fast_food_restaurant', 'meal_takeaway', 'sandwich_shop', 'cafeteria'];
+const FOOD_FIELDS = [
+  'id',
+  'displayName',
+  'location',
+  'primaryTypeDisplayName',
+  'googleMapsUri',
+  'businessStatus',
+  'priceLevel',
+  'rating',
+  'userRatingCount',
+  'regularOpeningHours',
+  'takeout',
+  'delivery',
+  'dineIn',
+  'servesVegetarianFood',
+  'servesBreakfast',
+  'servesLunch',
+  'servesDinner',
+  'editorialSummary',
+];
+const PRICE: Record<string, number> = { PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4 };
+/** 超市：不要加油站里的、便利店、卖酒的 */
+const GROCERY_TYPES = ['supermarket', 'grocery_store'];
+const NOT_GROCERY = new Set(['gas_station', 'convenience_store', 'liquor_store', 'pharmacy', 'drugstore']);
+
+const FOOD_CACHE = 'ai-mobile:food-nearby:v1';
+const GROCERY_CACHE = 'ai-mobile:grocery-nearby:v1';
+interface ListCache<T> {
+  key: string;
+  at: number;
+  list: T[];
+}
+function cached<T>(storeKey: string, key: string, force?: boolean): T[] | null {
+  const c = readJson<ListCache<T>>(storeKey);
+  return !force && c?.key === key && Date.now() - c.at < NEARBY_TTL && Array.isArray(c.list) && c.list.length ? c.list : null;
+}
+const centerKey = (c: LatLng) => `${c.lat.toFixed(3)},${c.lng.toFixed(3)}`;
+const open = (p: PlaceJson) => !p.businessStatus || p.businessStatus === 'OPERATIONAL';
+
+/** 附近能吃饭的地方（缓存一天）：按距离排 */
+export async function searchFood(center: LatLng, key: string, opts: { force?: boolean; signal?: AbortSignal } = {}): Promise<FoodPlace[]> {
+  const ck = centerKey(center);
+  const hit = cached<FoodPlace>(FOOD_CACHE, ck, opts.force);
+  if (hit) return hit;
+  const ask = (radius: number) => placesNearby({ types: FOOD_TYPES, center, radius, max: 20, rank: 'POPULARITY', fields: FOOD_FIELDS, key, signal: opts.signal });
+  let places = (await ask(1600)).filter(open);
+  // 郊区 1.6 公里里没几家：放到 5 公里
+  if (places.length < 6) places = (await ask(5000)).filter(open);
+  const list: FoodPlace[] = places
+    .map((p) => {
+      const price = PRICE[p.priceLevel ?? ''];
+      const hours = p.regularOpeningHours?.weekdayDescriptions?.filter((x) => typeof x === 'string');
+      return {
+        id: p.id!,
+        name: p.displayName!.text!,
+        type: p.primaryTypeDisplayName?.text || '餐厅',
+        distanceKm: Math.round(distanceKm(center, placeAt(p)) * 100) / 100,
+        ...(price ? { price } : {}),
+        ...(typeof p.rating === 'number' ? { rating: p.rating } : {}),
+        ...(typeof p.userRatingCount === 'number' ? { ratings: p.userRatingCount } : {}),
+        ...(hours?.length === 7 ? { hours } : {}),
+        ...(typeof p.takeout === 'boolean' ? { takeout: p.takeout } : {}),
+        ...(typeof p.delivery === 'boolean' ? { delivery: p.delivery } : {}),
+        ...(typeof p.dineIn === 'boolean' ? { dineIn: p.dineIn } : {}),
+        ...(typeof p.servesVegetarianFood === 'boolean' ? { vegetarian: p.servesVegetarianFood } : {}),
+        ...(typeof p.servesBreakfast === 'boolean' ? { breakfast: p.servesBreakfast } : {}),
+        ...(typeof p.servesLunch === 'boolean' ? { lunch: p.servesLunch } : {}),
+        ...(typeof p.servesDinner === 'boolean' ? { dinner: p.servesDinner } : {}),
+        ...(p.editorialSummary?.text ? { summary: p.editorialSummary.text.slice(0, 80) } : {}),
+        ...(p.googleMapsUri ? { mapsUri: p.googleMapsUri } : {}),
+      };
+    })
+    .sort((a, b) => a.distanceKm - b.distanceKm);
+  writeJson(FOOD_CACHE, { key: ck, at: Date.now(), list } satisfies ListCache<FoodPlace>);
+  return list;
+}
+
+/** 附近的超市（缓存一天）：5 公里里受欢迎的，同一家连锁只留最近的一间，按距离排 */
+export async function searchGroceries(center: LatLng, key: string, opts: { force?: boolean; signal?: AbortSignal } = {}): Promise<GroceryStore[]> {
+  const ck = centerKey(center);
+  const hit = cached<GroceryStore>(GROCERY_CACHE, ck, opts.force);
+  if (hit) return hit;
+  const places = await placesNearby({
+    types: GROCERY_TYPES,
+    center,
+    radius: 5000,
+    max: 15,
+    rank: 'POPULARITY',
+    fields: ['id', 'displayName', 'location', 'primaryType', 'primaryTypeDisplayName', 'googleMapsUri', 'businessStatus'],
+    key,
+    signal: opts.signal,
+  });
+  const seen = new Set<string>();
+  const list: GroceryStore[] = places
+    .filter((p) => open(p) && !NOT_GROCERY.has(p.primaryType ?? ''))
+    .map((p) => ({
+      id: p.id!,
+      name: p.displayName!.text!,
+      type: p.primaryTypeDisplayName?.text || '超市',
+      distanceKm: Math.round(distanceKm(center, placeAt(p)) * 100) / 100,
+      ...(p.googleMapsUri ? { mapsUri: p.googleMapsUri } : {}),
+    }))
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .filter((s) => {
+      const k = s.name.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '');
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .slice(0, 8);
+  writeJson(GROCERY_CACHE, { key: ck, at: Date.now(), list } satisfies ListCache<GroceryStore>);
+  return list;
 }
 
 // —— 定位 ——
@@ -366,6 +522,16 @@ export class RoutedMaps implements MapsClient {
       return NEARBY_PLACES.filter((p) => kinds.includes(KIND_OF[p.id] ?? 'cafe'));
     }
     return searchNearby(center, kinds, this.key(), opts);
+  }
+
+  async food(center: LatLng, opts: { force?: boolean } = {}): Promise<FoodPlace[]> {
+    if (!this.ready) return [];
+    return searchFood(center, this.key(), opts);
+  }
+
+  async groceries(center: LatLng, opts: { force?: boolean } = {}): Promise<GroceryStore[]> {
+    if (!this.ready) return [];
+    return searchGroceries(center, this.key(), opts);
   }
 }
 

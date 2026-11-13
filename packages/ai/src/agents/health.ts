@@ -9,7 +9,7 @@ import type { TaskPreset } from './taskPreset.ts';
  */
 
 /** 健康预设的程序填充块（TASK_MARKERS.health） */
-export type HealthFill = 'healthProfile' | 'healthTime' | 'healthKitchen' | 'healthToday' | 'healthWeek' | 'healthRecent' | 'healthAsk';
+export type HealthFill = 'healthProfile' | 'healthTime' | 'healthKitchen' | 'healthNearby' | 'healthToday' | 'healthWeek' | 'healthRecent' | 'healthAsk';
 
 export interface HealthPromptInput {
   task: HealthTask;

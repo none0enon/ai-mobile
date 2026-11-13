@@ -1,5 +1,5 @@
 import type { ISODate } from './types/common.ts';
-import type { FitTimeOfDay, HealthSettings, HealthSex, MealKey } from './types/life.ts';
+import type { ChoreWhen, FitTimeOfDay, HealthBento, HealthSettings, HealthSex, MealKey, MealSpot } from './types/life.ts';
 
 /**
  * 健康系统（设计文档 §9.13）：你人设里的身体、目标、能练的方式和时间、食材、做饭时间和厨具，
@@ -51,6 +51,7 @@ export const COMMON_INGREDIENTS = ['鸡蛋', '鸡胸肉', '牛肉', '猪里脊',
 export const FIT_TIME_LABEL: Record<FitTimeOfDay, string> = { morning: '早上', noon: '中午', evening: '晚上', any: '都行' };
 export const MEAL_LABEL: Record<MealKey | 'snack', string> = { breakfast: '早饭', lunch: '午饭', dinner: '晚饭', snack: '加餐' };
 export const MEAL_KEYS: MealKey[] = ['breakfast', 'lunch', 'dinner'];
+export const BENTO_LABEL: Record<HealthBento, string> = { heat: '能带，也能热', cold: '能带，热不了', off: '不带' };
 
 export const DEFAULT_HEALTH: HealthSettings = {
   enabled: false,
@@ -67,7 +68,9 @@ export const DEFAULT_HEALTH: HealthSettings = {
   ingredients: ['鸡蛋', '牛奶', '燕麦', '鸡胸肉', '番茄', '西兰花', '米饭'],
   avoid: '',
   cookMinutes: { breakfast: 10, lunch: 0, dinner: 30 },
+  bento: 'heat',
   tools: ['燃气灶', '炒锅', '电饭煲', '微波炉'],
+  nearby: true,
   note: '',
 };
 
@@ -100,7 +103,9 @@ export function normalizeHealth(raw: unknown): HealthSettings {
     ingredients: Array.isArray(raw.ingredients) ? strList(raw.ingredients, 80) : [...d.ingredients],
     avoid: str(raw.avoid, 200),
     cookMinutes: { breakfast: intIn(cook.breakfast, 0, 180, 10), lunch: intIn(cook.lunch, 0, 180, 0), dinner: intIn(cook.dinner, 0, 180, 30) },
+    bento: raw.bento === 'cold' || raw.bento === 'off' ? raw.bento : 'heat',
     tools: Array.isArray(raw.tools) ? strList(raw.tools) : [...d.tools],
+    nearby: raw.nearby !== false,
     note: str(raw.note),
   };
 }
@@ -177,13 +182,60 @@ export interface FitMove {
 }
 
 export interface PlanMeal {
+  /** 吃什么；英文的店里的菜写成"中文（英文原名）" */
   name: string;
-  /** 自己做（false = 食堂、外卖、在外面吃怎么选） */
+  /** 这顿现做（false = 外食，或者吃提前做好的） */
   cook: boolean;
+  /** 吃提前做好带去的（便当、隔夜燕麦这类）：这顿不用现做 */
+  bento?: boolean;
+  /** 现做的：做多久；提前做的：做的时候花多久；外食是 0 */
   minutes: number;
   kcal: number | null;
   ingredients: string[];
   steps: string[];
+  note: string;
+  /** 带便当的那顿：哪顿做的、怎么装、怎么热 */
+  prep?: string;
+  /** 带便当的那顿：没做成、忘了带时的备案 */
+  backup?: string;
+  /** 备案里提到的附近的店 */
+  backupSpot?: MealSpot;
+  /** 外食时去哪家：「健康」从"附近能吃的"里挑的店名 */
+  place?: string;
+  /** 外食时点什么 */
+  order?: string[];
+  /** 这家店在地图上（对上了附近搜到的店才有） */
+  spot?: MealSpot;
+}
+
+/**
+ * 今天要提前做的一件事（给之后哪顿备的：泡隔夜燕麦、晚饭多做一份装饭盒）。
+ * 开了家务系统时发到今天的家务里（"共同的家"能开始、打勾、拖），带着没来得及做的备案
+ */
+export interface PrepTask {
+  name: string;
+  /** 什么时候做 */
+  when: ChoreWhen;
+  minutes: number;
+  /** 给哪顿备的（"明天午饭"） */
+  meal: string;
+  steps: string[];
+  /** 没来得及做的备案：那顿改成什么 */
+  backup: string;
+  /** 备案里提到的附近的店 */
+  backupSpot?: MealSpot;
+}
+
+/** 这周要买的一样东西 */
+export interface ShoppingItem {
+  /** 买什么：具体的商品（"去皮鸡胸肉"、"无糖希腊酸奶"） */
+  name: string;
+  /** 买多少：按店里卖的规格（"约 1.5 lb"、"32 oz 一盒"） */
+  amount: string;
+  /** 在哪买：附近超市的名字或者网店（Amazon、Kroger……）；没写是空的 */
+  where: string;
+  /** 在网店里搜什么（店里用的语言，美国的店写英文） */
+  search: string;
   note: string;
 }
 
@@ -194,7 +246,11 @@ export interface HealthDayPlan {
   rest: boolean;
   workout: { title: string; minutes: number; intensity: string; warmup: FitMove[]; items: FitMove[]; cooldown: FitMove[] } | null;
   meals: Partial<Record<MealKey | 'snack', PlanMeal>>;
+  /** 今天要提前做的（给之后的哪顿备） */
+  prep?: PrepTask[];
   tips: string;
+  /** 排的时候参考了附近哪些店（"参考了家附近 18 家能吃饭的地方、6 家超市"），或者为什么没参考 */
+  near?: string;
   model: string;
   at: number;
 }
@@ -214,8 +270,14 @@ export interface HealthWeekPlan {
   weekStart: ISODate;
   focus: string;
   days: HealthWeekDay[];
-  shopping: string[];
+  shopping: ShoppingItem[];
   tips: string[];
+  /** 排的时候附近的超市（要买的东西点开地图用） */
+  stores?: MealSpot[];
+  /** 在哪个国家（ISO 代码，挑网店用） */
+  country?: string;
+  /** 参考了附近哪些店，或者为什么没参考 */
+  near?: string;
   model: string;
   at: number;
 }
@@ -262,7 +324,68 @@ function mealFrom(v: unknown): PlanMeal | null {
   const name = str(v.name, 60);
   if (!name) return null;
   const kcal = typeof v.kcal === 'number' && Number.isFinite(v.kcal) && v.kcal > 0 ? Math.round(v.kcal) : null;
-  return { name, cook: v.cook !== false, minutes: intIn(v.minutes, 0, 240, 0), kcal, ingredients: lines(v.ingredients, 20), steps: lines(v.steps, 15), note: str(v.note, 200) };
+  const bento = v.bento === true;
+  const place = bento ? '' : str(v.place ?? v.restaurant ?? v.store, 60);
+  const order = lines(v.order, 8);
+  // 提前做好的这顿不现做；写了店、没写现不现做：算外食
+  const cook = bento ? false : v.cook === undefined ? !place : v.cook !== false;
+  const out = !cook && !bento;
+  const prep = str(v.prep, 200);
+  const backup = str(v.backup, 200);
+  return {
+    name,
+    cook,
+    ...(bento ? { bento } : {}),
+    minutes: out ? 0 : intIn(v.minutes, 0, 240, 0),
+    kcal,
+    ingredients: lines(v.ingredients, 20),
+    steps: lines(v.steps, 15),
+    note: str(v.note, 200),
+    ...(bento && prep ? { prep } : {}),
+    ...(bento && backup ? { backup } : {}),
+    ...(out && place ? { place } : {}),
+    ...(out && order.length ? { order } : {}),
+  };
+}
+
+const WHEN_WORDS: Record<string, ChoreWhen> = { morning: 'morning', noon: 'noon', evening: 'evening', bedtime: 'bedtime', any: 'any', 早上: 'morning', 上午: 'morning', 中午: 'noon', 下午: 'noon', 晚上: 'evening', 傍晚: 'evening', 睡前: 'bedtime', 随时: 'any' };
+
+/** 今天要提前做的事（最多 4 件）；没写什么时候做的算晚上，没写备案的也留着 */
+export function parsePrepTasks(v: unknown): PrepTask[] {
+  const out: PrepTask[] = [];
+  for (const raw of Array.isArray(v) ? v : []) {
+    if (!isObj(raw)) continue;
+    const name = str(raw.name, 60);
+    if (!name) continue;
+    const when = WHEN_WORDS[str(raw.when, 10).toLowerCase()] ?? 'evening';
+    out.push({ name, when, minutes: intIn(raw.minutes, 1, 240, 10), meal: str(raw.meal ?? raw.for, 30), steps: lines(raw.steps, 8), backup: str(raw.backup, 200) });
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
+/** 要买的东西：「健康」写的对象（名字、多少、在哪买、搜什么），以前存的一行一样的文字也认 */
+export function parseShopping(v: unknown, max = 40): ShoppingItem[] {
+  const list: unknown[] = Array.isArray(v) ? v : typeof v === 'string' ? lines(v, max) : [];
+  const out: ShoppingItem[] = [];
+  const seen = new Set<string>();
+  for (const x of list) {
+    let item: ShoppingItem | null = null;
+    if (typeof x === 'string') {
+      const t = x.trim().slice(0, 80);
+      if (t) item = { name: t, amount: '', where: '', search: '', note: '' };
+    } else if (isObj(x)) {
+      const name = str(x.name ?? x.item, 60);
+      if (name) item = { name, amount: str(x.amount ?? x.qty ?? x.quantity, 40), where: str(x.where ?? x.store, 40), search: str(x.search ?? x.query, 80), note: str(x.note, 120) };
+    }
+    if (!item) continue;
+    const key = `${item.name}|${item.where}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 /** 读「健康」写回来的这周计划；不像样时返回 null */
@@ -280,7 +403,7 @@ export function parseHealthWeek(v: unknown): Omit<HealthWeekPlan, 'personaId' | 
   });
   if (!byDay.size) return null;
   const days = [1, 2, 3, 4, 5, 6, 0].map((d) => byDay.get(d) ?? { weekday: d, workout: '休息', minutes: 0, rest: true, meals: '' });
-  return { focus: str(v.focus, 200), days, shopping: lines(v.shopping, 40), tips: lines(v.tips, 8) };
+  return { focus: str(v.focus, 200), days, shopping: parseShopping(v.shopping), tips: lines(v.tips, 8) };
 }
 
 /** 读「健康」写回来的今天的计划；不像样时返回 null */
@@ -305,7 +428,8 @@ export function parseHealthDay(v: unknown): Omit<HealthDayPlan, 'personaId' | 'd
       }
     : null;
   if (!workout && !Object.keys(meals).length) return null;
-  return { rest: v.rest === true || !workout, workout, meals, tips: str(v.tips, 300) };
+  const prep = parsePrepTasks(v.prep);
+  return { rest: v.rest === true || !workout, workout, meals, ...(prep.length ? { prep } : {}), tips: str(v.tips, 300) };
 }
 
 /** "3 组 × 12 次" / "3 组 × 30 秒" / "1 分钟" */

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  BENTO_LABEL,
   bmiOf,
   COMMON_INGREDIENTS,
   FIT_METHODS,
@@ -11,25 +12,29 @@ import {
   WEEKDAY_LABEL,
   WEEKDAY_ORDER,
   type FitTimeOfDay,
+  type HealthBento,
   type HealthSettings,
 } from '@app/shared';
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { usePersonaStore } from '@/stores/personas';
+import { useServicesStore } from '@/stores/services';
 
 /**
  * 人设 → 健康系统（设计文档 §9.13）：「健康计划」按这里的设置排这周和今天的健身计划、饮食计划。
  * - 身体：身高、体重、目标体重；年龄、性别只用来按心率估算消耗（都可以不填）；
  * - 目标、身体情况（旧伤……）；
  * - 能接受的健身方式（"健身"里随便动动时也从这里挑）、一周里每天能练多久、一般什么时候练；
- * - 家里常有的食材、忌口、每顿能花多久做饭（0 = 不自己做）、有的厨具。
+ * - 家里常有的食材、忌口、每顿能花多久做饭（0 = 那顿不做饭：外食，或者带提前做好的便当）、能不能带便当、有的厨具；
+ * - 接了 Google 地图时参不参考附近的店（外食从附近真实的店里挑，要买的东西按附近超市和网店真能买到的写）。
  * 存在本机。打开以后聊天里她也知道你的目标和今天的计划（"家务和健康"那一块），按预设里"健康：你怎么反应"来。
  */
 const route = useRoute();
 const store = usePersonaStore();
 const persona = computed(() => store.byId(route.params.id as string) ?? store.defaultPersona);
 const h = computed(() => store.health(persona.value));
+const svc = useServicesStore();
 function touch() {
   store.touch(persona.value);
 }
@@ -82,6 +87,12 @@ const ingredientOptions = computed(() => [...COMMON_INGREDIENTS, ...h.value.ingr
 
 const weekTotal = computed(() => h.value.weekMinutes.reduce((a, b) => a + b, 0));
 const TIMES: FitTimeOfDay[] = ['morning', 'noon', 'evening', 'any'];
+const BENTOS = Object.keys(BENTO_LABEL) as HealthBento[];
+const anyZero = computed(() => MEAL_KEYS.some((k) => !h.value.cookMinutes[k]));
+function setBento(b: HealthBento) {
+  h.value.bento = b;
+  touch();
+}
 function setSex(s: HealthSettings['sex']) {
   h.value.sex = h.value.sex === s ? null : s;
   touch();
@@ -179,12 +190,18 @@ function setSex(s: HealthSettings['sex']) {
         </form>
         <label class="field-label" for="h-avoid">忌口 / 过敏（可以不填）</label>
         <input id="h-avoid" v-model="h.avoid" class="input" placeholder="例如：不吃香菜；乳糖不耐" @change="touch" />
-        <div class="field-label">每顿能花多久做饭（0 = 不自己做：食堂、外卖、在外面吃）</div>
+        <div class="field-label">每顿能花多久做饭（0 = 那顿不做饭：外食，或者带提前做好的便当）</div>
         <div v-for="k in MEAL_KEYS" :key="k" class="day-row">
           <span class="w-10 text-[14px]">{{ MEAL_LABEL[k] }}</span>
           <van-stepper v-model="h.cookMinutes[k]" :min="0" :max="180" :step="5" integer button-size="26px" input-width="44px" @change="touch" />
-          <span class="text-[12.5px]" :class="h.cookMinutes[k] ? 'text-ink-2' : 'text-ink-3'">{{ h.cookMinutes[k] ? '分钟' : '不自己做' }}</span>
+          <span class="text-[12.5px]" :class="h.cookMinutes[k] ? 'text-ink-2' : 'text-ink-3'">{{ h.cookMinutes[k] ? '分钟' : h.bento === 'off' ? '外食' : '外食或带便当' }}</span>
         </div>
+        <template v-if="anyZero">
+          <div class="field-label">带便当（不做饭的那顿，在能做饭的那顿顺手做好带去；隔夜燕麦这类也算）</div>
+          <div class="flex flex-wrap gap-1.5" role="radiogroup" aria-label="带便当">
+            <button v-for="b in BENTOS" :key="b" type="button" role="radio" class="opt" :class="{ on: h.bento === b }" :aria-checked="h.bento === b" :data-testid="`bento-${b}`" @click="setBento(b)">{{ BENTO_LABEL[b] }}</button>
+          </div>
+        </template>
         <div class="field-label">有的厨具</div>
         <div class="flex flex-wrap gap-1.5">
           <button v-for="t in toolOptions" :key="t" type="button" class="opt" :class="{ on: h.tools.includes(t) }" @click="toggleIn('tools', t)">{{ t }}</button>
@@ -193,6 +210,16 @@ function setSex(s: HealthSettings['sex']) {
           <input v-model="custom.tools" class="input !h-[34px]" placeholder="别的厨具（例如：宿舍小电锅）" aria-label="加厨具" />
           <van-button size="small" round native-type="submit">加上</van-button>
         </form>
+        <div class="flex items-center gap-3 mt-3.5">
+          <div class="flex-1 min-w-0">
+            <div class="text-[14px]">外食和买东西参考附近真实的店</div>
+            <div class="text-[12px] text-ink-3 leading-relaxed">
+              <template v-if="svc.mapsReady">用 Google 地图搜家附近（出门时是你在的地方）能吃饭的地方和超市：外食只从这些店里挑，要买的东西按这些超市和网店（Amazon、Kroger……）真能买到的写。发给模型的是店名、种类、距离，不发地址</template>
+              <template v-else>要先在"我的 → 地图、天气、音乐"里接上 Google 地图</template>
+            </div>
+          </div>
+          <van-switch v-model="h.nearby" size="20px" data-testid="health-nearby" @change="touch" />
+        </div>
       </div>
       <p class="note">这些只存在这台设备上；排计划时发给「健康计划」用的模型（API 设置里能单独设置，默认跟随主对话）。</p>
     </div>

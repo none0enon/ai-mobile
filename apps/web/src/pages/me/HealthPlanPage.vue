@@ -1,22 +1,29 @@
 <script setup lang="ts">
-import { MEAL_KEYS, moveAmount, weekdayOf, WEEKDAY_LABEL, type FitMove, type MealKey } from '@app/shared';
+import { CHORE_WHEN, MEAL_KEYS, moveAmount, weekdayOf, WEEKDAY_LABEL, type FitMove, type MealKey, type MealSpot, type ShoppingItem } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import BiName from '@/components/common/BiName.vue';
 import ErrorDetails from '@/components/common/ErrorDetails.vue';
 import Segmented from '@/components/common/Segmented.vue';
 import MealCard from '@/components/health/MealCard.vue';
 import MoveHow from '@/components/health/MoveHow.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
+import { distanceText } from '@/services/maps';
 import { useAiStore } from '@/stores/ai';
 import { useHealthStore, workoutLine } from '@/stores/health';
 import { usePersonaStore } from '@/stores/personas';
+import { useServicesStore } from '@/stores/services';
+import { copyText } from '@/utils/errors';
+import { nearbyStoreFor, searchLinkFor } from '@/utils/shopping';
 import { listTime } from '@/utils/time';
 
 /**
  * 我的 → 健康计划（设计文档 §9.13）：按默认人设的健康设置，「健康计划」用「健康」预设排的这周和今天的计划。
  * - 今天：练什么（热身、动作、拉伸；复杂的动作点开看怎么做，大白话）、三顿饭（自己做的点开看食材和做法）、一句提醒；"开始今天的健身"去"健身"照着练；
- * - 这周：每天练什么、多久，三餐的方向，要买的东西。
+ * - 这周：每天练什么、多久，三餐的方向，要买的东西（按在哪买分组：网店点了在它网站上搜，附近的超市能点开地图）。
+ * 接了 Google 地图时，外食是附近真实的店，要买的东西按附近超市和网店真能买到的写（stores/health.ts）。
+ * 要提前做的（便当、隔夜燕麦）列在"要提前做的"：开了家务系统就发到"共同的家"今天的家务里，这里看得到做没做，每件带备案。
  * 第一次打开今天、这周还没排时自动排一次（接通了「健康计划」时）；之后手动"重新排"。
  */
 const router = useRouter();
@@ -26,6 +33,9 @@ const ai = useAiStore();
 const persona = computed(() => personas.defaultPersona);
 const enabled = computed(() => !!persona.value.health?.enabled);
 const status = computed(() => ai.status('health'));
+const svc = useServicesStore();
+/** 想参考附近的店、但还没接 Google 地图：提示一句 */
+const mapsHint = computed(() => persona.value.health?.nearby !== false && !svc.mapsReady);
 
 const tab = ref<'today' | 'week'>('today');
 const TABS = [
@@ -68,9 +78,45 @@ function hasMore(m: FitMove) {
 }
 const meals = computed(() => (day.value ? [...MEAL_KEYS, 'snack' as const].filter((k) => day.value!.meals[k]).map((k) => ({ key: k as MealKey | 'snack', meal: day.value!.meals[k]! })) : []));
 
+/** 要提前做的：在家务里做没做 */
+const PREP_STATE = { off: '没发到家务', todo: '还没做', doing: '正在做', later: '拖着', done: '做完了' } as const;
+const houseworkOn = computed(() => !!persona.value.housework?.enabled);
+const prepList = computed(() => (day.value?.prep ?? []).map((t) => ({ t, state: health.prepState(persona.value, t) })));
+
+/** 要买的东西按"在哪买"分组：附近的超市带距离和地图，每一样带去哪搜的链接；没写在哪买的放最后 */
+interface ShopGroup {
+  where: string;
+  store?: MealSpot;
+  items: (ShoppingItem & { link: { label: string; url: string } | null })[];
+}
+const shoppingGroups = computed<ShopGroup[]>(() => {
+  const w = week.value;
+  if (!w) return [];
+  const groups = new Map<string, ShopGroup>();
+  for (const it of w.shopping) {
+    const where = it.where.trim();
+    const key = where.toLowerCase();
+    let g = groups.get(key);
+    if (!g) {
+      g = { where, store: nearbyStoreFor(where, w.stores), items: [] };
+      groups.set(key, g);
+    }
+    g.items.push({ ...it, link: searchLinkFor(it, w.country) });
+  }
+  return [...groups.values()].sort((a, b) => Number(!a.where) - Number(!b.where));
+});
+async function copyShopping() {
+  const text = shoppingGroups.value
+    .map((g) => [g.where ? `【${g.where}】` : '', ...g.items.map((it) => `- ${it.name}${it.amount ? ` ${it.amount}` : ''}`)].filter(Boolean).join('\n'))
+    .join('\n\n');
+  showToast((await copyText(text)) ? '清单复制好了' : '复制不了，长按文字手动复制');
+}
+
 onMounted(() => {
   // 今天还没排、接通了：自动排一次（这周没排的会先排这周）
   if (enabled.value && status.value.live && !day.value && !busy.value) void planToday();
+  // 排的时候家务系统还没开的：开了以后把要提前做的补发过去
+  health.syncPrep(persona.value);
 });
 </script>
 
@@ -94,6 +140,11 @@ onMounted(() => {
           <span class="i-lucide-plug-zap shrink-0" />
           <span class="flex-1 min-w-0">「健康计划」还没接通：{{ status.reason }}</span>
           <RouterLink to="/me/api?feature=health" class="text-accent-ink shrink-0">去设置</RouterLink>
+        </div>
+        <div v-if="mapsHint" class="notice mx-4 mt-3" data-testid="maps-hint">
+          <span class="i-lucide-map-pinned shrink-0" />
+          <span class="flex-1 min-w-0">接上 Google 地图后，外食从附近真实的店里挑，要买的东西按附近超市和网店（Amazon、Kroger……）真能买到的写</span>
+          <RouterLink to="/me/services" class="text-accent-ink shrink-0">去接</RouterLink>
         </div>
         <div v-if="error && !busy" class="mx-4 mt-3">
           <ErrorDetails :detail="error.detail || error.reason" :title="`没排出来：${error.reason}`" max-height="160px" />
@@ -143,7 +194,35 @@ onMounted(() => {
                 <MealCard v-for="m in meals" :key="m.key" :meal="m.meal" :which="m.key" />
               </div>
             </template>
+            <template v-if="prepList.length">
+              <div class="group-title">要提前做的</div>
+              <div class="px-4 grid gap-2" data-testid="prep-list">
+                <div v-for="({ t, state }, i) in prepList" :key="i" class="prep-card">
+                  <div class="flex items-start gap-2.5">
+                    <span :class="CHORE_WHEN[t.when].icon" class="text-accent-ink text-[18px] mt-0.5 shrink-0" />
+                    <div class="flex-1 min-w-0">
+                      <div class="text-[14.5px] font-600">{{ t.name }}</div>
+                      <div class="text-[12px] text-ink-3 num">{{ CHORE_WHEN[t.when].label }} · 约 {{ t.minutes }} 分钟<template v-if="t.meal"> · 给{{ t.meal }}</template></div>
+                    </div>
+                    <span class="prep-state" :class="state">{{ PREP_STATE[state] }}</span>
+                  </div>
+                  <ol v-if="t.steps.length" class="prep-steps">
+                    <li v-for="(x, j) in t.steps" :key="j">{{ x }}</li>
+                  </ol>
+                  <p v-if="t.backup" class="prep-backup">
+                    <span class="i-lucide-life-buoy text-ink-3" />
+                    <span class="flex-1 min-w-0">没来得及做：{{ t.backup }}<template v-if="t.backupSpot && typeof t.backupSpot.distanceKm === 'number'">（{{ t.backupSpot.name }} · {{ distanceText(t.backupSpot.distanceKm) }}）</template></span>
+                    <a v-if="t.backupSpot?.mapsUri" :href="t.backupSpot.mapsUri" target="_blank" rel="noopener noreferrer" class="text-accent-ink shrink-0">地图</a>
+                  </p>
+                </div>
+                <p class="text-[12px] text-ink-3 leading-relaxed m-0">
+                  <template v-if="houseworkOn">已经发到"共同的家"今天的家务里，做完在那边打勾；没做的话明天按备案排。</template>
+                  <template v-else>打开家务系统后，这些会发到"共同的家"提醒你。<RouterLink :to="`/me/personas/${persona.id}/housework`" class="text-accent-ink">去打开</RouterLink></template>
+                </p>
+              </div>
+            </template>
             <p v-if="day.tips" class="tips mx-4 mt-3"><span class="i-lucide-lightbulb text-accent-ink" />{{ day.tips }}</p>
+            <p v-if="day.near" class="near mx-4 mt-3" data-testid="day-near"><span class="i-lucide-map-pin" />{{ day.near }}</p>
             <div class="flex items-center gap-2 mx-4 mt-3 text-[12px] text-ink-3">
               <span class="flex-1 min-w-0 truncate">{{ day.model }} · {{ listTime(day.at) }}排的</span>
               <button class="text-accent-ink shrink-0" :disabled="!!busy || !status.live" @click="planToday(true)">{{ busy === 'day' ? '在排…' : '重新排今天' }}</button>
@@ -170,12 +249,31 @@ onMounted(() => {
               </div>
             </div>
             <template v-if="week.shopping.length">
-              <div class="group-title">这周要买的</div>
-              <div class="px-4 flex flex-wrap gap-1.5">
-                <span v-for="(s, i) in week.shopping" :key="i" class="tag !h-[26px] !px-2.5 !text-[12.5px]">{{ s }}</span>
+              <div class="group-title">
+                这周要买的
+                <button type="button" class="action" data-testid="copy-shopping" @click="copyShopping">复制清单</button>
+              </div>
+              <div class="px-4 grid gap-2" data-testid="shopping">
+                <div v-for="g in shoppingGroups" :key="g.where" class="shop-group">
+                  <div v-if="g.where || shoppingGroups.length > 1" class="shop-head">
+                    <span :class="g.store ? 'i-lucide-store' : g.where ? 'i-lucide-shopping-cart' : 'i-lucide-list'" class="text-accent-ink shrink-0" />
+                    <span class="flex-1 min-w-0 truncate">
+                      {{ g.where || '其他' }}<span v-if="typeof g.store?.distanceKm === 'number'" class="text-ink-3 text-[12px] font-400 num"> · {{ distanceText(g.store.distanceKm) }}</span>
+                    </span>
+                    <a v-if="g.store?.mapsUri" :href="g.store.mapsUri" target="_blank" rel="noopener noreferrer" class="text-accent-ink text-[12.5px] font-400 shrink-0">地图</a>
+                  </div>
+                  <div v-for="(it, i) in g.items" :key="i" class="shop-item">
+                    <span class="flex-1 min-w-0">
+                      <BiName class="text-[14px]" :text="it.name" /><span v-if="it.amount" class="text-[12.5px] text-ink-3"> · {{ it.amount }}</span>
+                      <span v-if="it.note" class="block text-[12px] text-ink-3">{{ it.note }}</span>
+                    </span>
+                    <a v-if="it.link" :href="it.link.url" target="_blank" rel="noopener noreferrer" class="buy" :aria-label="`${it.link.label}：${it.name}`">{{ it.link.label }}</a>
+                  </div>
+                </div>
               </div>
             </template>
             <p v-for="(t, i) in week.tips" :key="i" class="tips mx-4 mt-2"><span class="i-lucide-lightbulb text-accent-ink" />{{ t }}</p>
+            <p v-if="week.near" class="near mx-4 mt-3" data-testid="week-near"><span class="i-lucide-map-pin" />{{ week.near }}</p>
             <div class="flex items-center gap-2 mx-4 mt-3 text-[12px] text-ink-3">
               <span class="flex-1 min-w-0 truncate">{{ week.weekStart }} 开始 · {{ week.model }}</span>
               <button class="text-accent-ink shrink-0" :disabled="!!busy || !status.live" @click="planWeek(true)">{{ busy === 'week' ? '在排…' : '重新排这周' }}</button>
@@ -260,6 +358,99 @@ onMounted(() => {
 }
 .week-row.rest {
   opacity: 0.75;
+}
+.prep-card {
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.prep-state {
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 99px;
+  background: var(--panel);
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 22px;
+}
+.prep-state.done {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.prep-state.later {
+  color: var(--warn, #b7791f);
+}
+.prep-steps {
+  margin: 8px 0 0;
+  padding-left: 1.3em;
+  list-style: decimal;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+.prep-backup {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+.prep-backup > span:first-child {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+.shop-group {
+  padding: 4px 12px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.shop-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 0 5px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.shop-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+}
+.shop-head + .shop-item,
+.shop-item + .shop-item {
+  border-top: 1px solid var(--border);
+}
+.buy {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 12px;
+  line-height: 26px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.near {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+.near > span:first-child {
+  margin-top: 3px;
+  flex-shrink: 0;
 }
 .wd {
   width: 34px;

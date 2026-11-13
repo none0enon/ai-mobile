@@ -6,6 +6,7 @@ import {
   MEAL_LABEL,
   parseHealthDay,
   parseHealthWeek,
+  parseShopping,
   rhythmDate,
   shiftDate,
   weatherLine,
@@ -15,13 +16,21 @@ import {
   WEEKDAY_ORDER,
   type HealthDayPlan,
   type HealthSettings,
+  type HealthTask,
   type HealthWeekPlan,
+  type ExtraChore,
   type ISODate,
+  type MealSpot,
   type Persona,
+  type PrepTask,
 } from '@app/shared';
 import { defineStore } from 'pinia';
 import { reactive, ref } from 'vue';
 import { autoSave, getOne } from '@/db/idb';
+import { services } from '@/services';
+import { distanceText } from '@/services/maps';
+import type { FoodPlace, GroceryStore } from '@/services/types';
+import { countryAt, onlineShopsText, placeMentioned, samePlaceName } from '@/utils/shopping';
 import { useAiStore } from './ai';
 import { useAppStore } from './app';
 import { useCharacterStore } from './characters';
@@ -29,6 +38,7 @@ import { useEnvironmentStore } from './environment';
 import { useHomeStore } from './home';
 import { useLibraryStore } from './library';
 import { usePersonaStore } from './personas';
+import { useRealWorldStore } from './realworld';
 import { useWeatherStore } from './weather';
 
 /**
@@ -36,6 +46,11 @@ import { useWeatherStore } from './weather';
  * "健身"里照着今天的计划一个动作一个动作地练，练完的记录也记在这里（按人设，和哪个角色一起练的都算）。
  * 存在本机（settings 表的 health 一项）：最近 6 周的周计划、30 天的日计划、90 条运动记录。
  * 不在后台自己排：你打开健康计划、在"健身"里选"按照计划"时才排（没排过的那一份）。
+ * 接了 Google 地图（健康设置里没关"参考附近的店"）时，排之前先搜附近能吃饭的地方和超市（缓存一天）：
+ * 外食只从这些真实的店里挑，要买的东西按这些超市和你那里能用的网店（美国：Amazon、Kroger、Walmart……）真能买到的写。
+ * 发给模型的是店名、种类、距离、价位、评分、营业时间，不发地址和坐标。
+ * 做饭时间是 0 的那顿可以带提前做好的便当：排今天时写出今天要提前做的事（prep），开了家务系统就发到今天的家务里
+ * （"共同的家"能开始、打勾、拖），每件带没来得及做的备案；第二天排计划时看昨天那件做没做，没做就照备案。
  */
 
 export type HealthResult<T> = { ok: true; value: T } | { ok: false; reason: string; detail?: string; notConnected?: boolean };
@@ -76,6 +91,29 @@ function clone<T>(x: T): T {
   return JSON.parse(JSON.stringify(x)) as T;
 }
 
+/** 要提前做的事在家务里的 id：同名的同一件（重新排时做过的记录留着） */
+function prepId(name: string): string {
+  let h = 5381;
+  for (const ch of name.trim()) h = ((h << 5) + h + ch.codePointAt(0)!) >>> 0;
+  return `hp-${h.toString(36)}`;
+}
+
+/** 要提前做的事发到家务里时用的那一件 */
+export function prepExtra(t: PrepTask): ExtraChore {
+  return {
+    id: prepId(t.name),
+    name: t.name,
+    kind: 'cooking',
+    slot: t.when,
+    minutes: t.minutes,
+    source: 'health',
+    ...(t.meal ? { meal: t.meal } : {}),
+    ...(t.steps.length ? { steps: t.steps } : {}),
+    ...(t.backup ? { backup: t.backup } : {}),
+    ...(t.backupSpot ? { backupSpot: t.backupSpot } : {}),
+  };
+}
+
 /** "11-12 跑步 25 分钟 · 3.1 公里 · 平均心率 142 · 约 260 千卡" */
 export function workoutLine(l: WorkoutLog, withDate = true): string {
   const parts = [
@@ -102,7 +140,8 @@ export const useHealthStore = defineStore('health', () => {
   async function hydrate() {
     const saved = await getOne<Saved>('settings', 'health');
     if (saved && typeof saved === 'object') {
-      if (Array.isArray(saved.weeks)) weeks.value = saved.weeks.filter((w) => w && Array.isArray(w.days));
+      // 以前存的"要买的东西"是一行一行的文字：读成现在的格式（名字、多少、在哪买、搜什么）
+      if (Array.isArray(saved.weeks)) weeks.value = saved.weeks.filter((w) => w && Array.isArray(w.days)).map((w) => ({ ...w, shopping: parseShopping(w.shopping) }));
       if (Array.isArray(saved.days)) days.value = saved.days.filter((d) => d && d.meals && typeof d.date === 'string');
       if (Array.isArray(saved.logs)) logs.value = saved.logs.filter((l) => l && typeof l.durationSec === 'number');
     }
@@ -136,8 +175,18 @@ export const useHealthStore = defineStore('health', () => {
     return [`能接受的健身方式：${h.methods.join('、') || '没写（按在家就能做的来）'}`, `一周里每天能练多久：${week}`, `一般在${FIT_TIME_LABEL[h.timeOfDay]}练${h.timeOfDay === 'any' ? '（什么时候都行）' : ''}`, h.timeNote.trim() ? `补充：${h.timeNote.trim()}` : ''].filter(Boolean).join('\n');
   }
   function kitchenText(h: HealthSettings): string {
-    const cook = MEAL_KEYS.map((k) => `${MEAL_LABEL[k]}${h.cookMinutes[k] ? ` ${h.cookMinutes[k]} 分钟` : '不自己做（食堂、外卖或在外面吃）'}`).join('；');
-    return [`家里常有的食材：${h.ingredients.join('、') || '没写'}`, `忌口 / 过敏：${h.avoid.trim() || '没有'}`, `每顿能花多久做饭：${cook}`, `有的厨具：${h.tools.join('、') || '没写'}`].join('\n');
+    const zero = h.bento === 'off' ? ' 0 分钟（这顿不做饭，外食）' : ' 0 分钟（这顿不做饭：外食，或者吃提前做好带去的）';
+    const cook = MEAL_KEYS.map((k) => `${MEAL_LABEL[k]}${h.cookMinutes[k] ? ` ${h.cookMinutes[k]} 分钟` : zero}`).join('；');
+    const bento = h.bento === 'off' ? '不带' : h.bento === 'cold' ? '能带，但带去了热不了（挑凉着也好吃的）' : '能带，带去了能用微波炉热';
+    return [
+      `家里常有的食材：${h.ingredients.join('、') || '没写'}`,
+      `忌口 / 过敏：${h.avoid.trim() || '没有'}`,
+      `每顿能花多久做饭：${cook}`,
+      MEAL_KEYS.some((k) => !h.cookMinutes[k]) ? `带便当：${bento}` : '',
+      `有的厨具：${h.tools.join('、') || '没写'}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
   function todayText(date: ISODate): string {
     const wd = weekdayOf(date);
@@ -165,7 +214,106 @@ export const useHealthStore = defineStore('health', () => {
         }
       }
     }
-    return [ls.length ? `最近 7 天的运动：\n${ls.map((l) => `- ${workoutLine(l)}`).join('\n')}` : '最近 7 天没有运动记录', cooked.length ? `最近自己做的饭：${cooked.join('；')}` : ''].filter(Boolean).join('\n');
+    // 昨天排的饭：昨晚顺手备了今天的便当，今天就吃那份
+    const y = dayOf(personaId, shiftDate(date, -1));
+    const yMeals = y
+      ? (['breakfast', 'lunch', 'dinner', 'snack'] as const)
+          .map((k) => {
+            const m = y.meals[k];
+            if (!m) return '';
+            const how = m.bento ? '（吃提前做好的）' : !m.cook && m.place ? `（在${m.place}吃）` : '';
+            return `${MEAL_LABEL[k]} ${m.name}${how}`;
+          })
+          .filter(Boolean)
+      : [];
+    // 昨天要提前做的（便当、隔夜燕麦）：家务里勾了没有；没开家务系统的不知道做没做
+    const yd = shiftDate(date, -1);
+    const home = useHomeStore();
+    const published = home.extrasOf(personaId, yd).filter((x) => x.source === 'health');
+    const yPrep = published.length
+      ? published.map((x) => {
+          const done = home.markOn(personaId, yd, `extra:${x.id}`)?.status === 'done';
+          return `- ${x.name}${x.meal ? `（给${x.meal}）` : ''}：${done ? '做了' : `没做（在家务里没勾）${x.backup ? `，备案：${x.backup}` : ''}`}`;
+        })
+      : (y?.prep ?? []).map((t) => `- ${t.name}${t.meal ? `（给${t.meal}）` : ''}：不知道做没做（没开家务系统）${t.backup ? `，备案：${t.backup}` : ''}`);
+    return [
+      ls.length ? `最近 7 天的运动：\n${ls.map((l) => `- ${workoutLine(l)}`).join('\n')}` : '最近 7 天没有运动记录',
+      cooked.length ? `最近自己做的饭：${cooked.join('；')}` : '',
+      yMeals.length ? `昨天排的饭：${yMeals.join('；')}` : '',
+      yPrep.length ? `昨天要提前做的：\n${yPrep.join('\n')}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  // —— 附近能吃的、能买的（接了 Google 地图时） ——
+
+  interface Nearby {
+    /** 给「健康」的那一块（没有时是空的，这一块就不发） */
+    text: string;
+    food: FoodPlace[];
+    stores: GroceryStore[];
+    country?: string;
+    /** 计划下面的一句：参考了附近哪些店，或者为什么没参考 */
+    near: string;
+  }
+
+  function placeLine(p: FoodPlace, hours?: string): string {
+    const serves = [p.breakfast ? '早饭' : '', p.lunch ? '午饭' : '', p.dinner ? '晚饭' : ''].filter(Boolean);
+    const bits = [
+      distanceText(p.distanceKm),
+      p.price ? '$'.repeat(p.price) : '',
+      p.rating ? `${p.rating.toFixed(1)} 分${p.ratings ? `（${p.ratings} 条评价）` : ''}` : '',
+      // Google 给的是"星期一: 10:30–21:00"：去掉星期几
+      hours ? `今天 ${hours.replace(/^[^:：]*[:：]\s*/, '')}` : '',
+      serves.length ? `有${serves.join('、')}` : '',
+      [p.takeout ? '能外带' : '', p.delivery ? '能外送' : '', p.vegetarian ? '有素食' : ''].filter(Boolean).join('、'),
+      p.summary ? `"${p.summary}"` : '',
+    ].filter(Boolean);
+    return `${p.name}（${p.type}）· ${bits.join(' · ')}`;
+  }
+
+  function spotOf(p: { name: string; type?: string; distanceKm?: number; mapsUri?: string }): MealSpot {
+    return { name: p.name, ...(p.type ? { type: p.type } : {}), ...(typeof p.distanceKm === 'number' ? { distanceKm: p.distanceKm } : {}), ...(p.mapsUri ? { mapsUri: p.mapsUri } : {}) };
+  }
+
+  /**
+   * 排计划前搜附近：排今天时你出门了（打开 App 时定位到不在家）按你现在在的地方，不然按家。
+   * 没接 Google 地图、健康设置里关了时什么都不做（这一块不发，外食照旧写怎么选）
+   */
+  async function nearbyFor(persona: Persona, task: HealthTask, date: ISODate): Promise<Nearby> {
+    const none = (near = '', country?: string): Nearby => ({ text: '', food: [], stores: [], near, ...(country ? { country } : {}) });
+    if (persona.health?.nearby === false) return none();
+    const real = useRealWorldStore();
+    if (!real.mapsReady) return none();
+    const here = real.here;
+    const useHere = !!here && (!real.homeGeo || (task === 'plan-day' && !real.atHome));
+    const center = useHere ? here : real.homeGeo;
+    if (!center) return none('附近的店没查：家的地址还没换成坐标（在"我的世界"里填家的地址，或者打开定位）');
+    const label = useHere ? '你现在在的地方附近' : '家附近';
+    const country = countryAt(useHere ? real.hereCountry : real.homeGeo?.countryCode, center);
+    const at = { lat: center.lat, lng: center.lng };
+    const [f, g] = await Promise.allSettled([services.maps.food(at), services.maps.groceries(at)]);
+    const food = f.status === 'fulfilled' ? f.value.slice(0, 20) : [];
+    const stores = g.status === 'fulfilled' ? g.value : [];
+    const failed = [f, g].find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    const why = failed ? errorText(failed.reason) : '';
+    if (!food.length && !stores.length) return none(why ? `附近的店没查到：${why}` : `${label}没搜到能吃饭的地方和超市`, country);
+    // Google 的营业时间从周一排起
+    const hoursAt = (weekdayOf(date) + 6) % 7;
+    const online = onlineShopsText(country, stores);
+    const text = [
+      `下面是 Google 地图上${label}真实的店。外食只从"能吃饭的地方"里挑；要买的东西写这些超市${online ? '和网店' : ''}里真能买到的商品和规格。`,
+      food.length
+        ? `能吃饭的地方（按距离）：\n${food.map((p) => `- ${placeLine(p, task === 'plan-day' ? p.hours?.[hoursAt] : undefined)}`).join('\n')}`
+        : '能吃饭的地方：没搜到（外食照旧写在食堂、外卖、外面怎么选）',
+      stores.length ? `附近的超市：\n${stores.map((x) => `- ${x.name}（${x.type}）· ${distanceText(x.distanceKm)}`).join('\n')}` : '',
+      online ? `网购：${online}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const counts = [food.length ? `${food.length} 家能吃饭的地方` : '', stores.length ? `${stores.length} 家超市` : ''].filter(Boolean).join('、');
+    return { text, food, stores, ...(country ? { country } : {}), near: `参考了${label} ${counts}${why ? `（有一项没查到：${why}）` : ''}` };
   }
 
   /** 调「健康计划」：按「健康」预设拼提示词，读回 JSON */
@@ -202,8 +350,10 @@ export const useHealthStore = defineStore('health', () => {
     if (busy[persona.id]) return { ok: false, reason: '正在排' };
     busy[persona.id] = 'week';
     try {
+      const nearby = await nearbyFor(persona, 'plan-week', date);
       const r = await call(persona, 'plan-week', {
         ...fills,
+        healthNearby: nearby.text,
         healthToday: todayText(date),
         healthRecent: recentText(persona.id, date),
         healthAsk: `这次要排：这一周（${weekStart} 周一 到 ${shiftDate(weekStart, 6)} 周日）每天练什么、练多久，三餐的方向，这周要买的东西。今天是${WEEKDAY_LABEL[weekdayOf(date)]}，今天以前的几天照样写（当作参考）。`,
@@ -212,7 +362,16 @@ export const useHealthStore = defineStore('health', () => {
         errors[persona.id] = { reason: r.reason, detail: r.detail, notConnected: r.notConnected };
         return r;
       }
-      const plan: HealthWeekPlan = { ...r.value.value, personaId: persona.id, weekStart, model: r.value.model, at: Date.now() };
+      const plan: HealthWeekPlan = {
+        ...r.value.value,
+        personaId: persona.id,
+        weekStart,
+        ...(nearby.stores.length ? { stores: nearby.stores.map(spotOf) } : {}),
+        ...(nearby.country ? { country: nearby.country } : {}),
+        ...(nearby.near ? { near: nearby.near } : {}),
+        model: r.value.model,
+        at: Date.now(),
+      };
       weeks.value = [plan, ...weeks.value.filter((w) => !(w.personaId === persona.id && w.weekStart === weekStart))].slice(0, KEEP_WEEKS * 4);
       delete errors[persona.id];
       return { ok: true, value: plan };
@@ -240,8 +399,10 @@ export const useHealthStore = defineStore('health', () => {
       const wd = weekdayOf(date);
       const planned = week.days.find((d) => d.weekday === wd);
       const minutes = persona.health?.weekMinutes[wd] ?? 0;
+      const nearby = await nearbyFor(persona, 'plan-day', date);
       const r = await call(persona, 'plan-day', {
         ...fills,
+        healthNearby: nearby.text,
         healthToday: todayText(date),
         healthWeek: weekText(week, date),
         healthRecent: recentText(persona.id, date),
@@ -251,13 +412,49 @@ export const useHealthStore = defineStore('health', () => {
         errors[persona.id] = { reason: r.reason, detail: r.detail, notConnected: r.notConnected };
         return r;
       }
-      const plan: HealthDayPlan = { ...r.value.value, personaId: persona.id, date, model: r.value.model, at: Date.now() };
+      // 外食的那家对上附近搜到的店：带上种类、距离、地图链接（对不上的不带，界面上写明）；备案里提到的店也对上
+      const value = r.value.value;
+      for (const m of Object.values(value.meals)) {
+        if (!m) continue;
+        const hit = !m.cook && m.place ? nearby.food.find((p) => samePlaceName(p.name, m.place!)) : undefined;
+        if (hit) m.spot = spotOf(hit);
+        const alt = placeMentioned(m.backup, nearby.food);
+        if (alt) m.backupSpot = spotOf(alt);
+      }
+      for (const t of value.prep ?? []) {
+        const alt = placeMentioned(t.backup, nearby.food);
+        if (alt) t.backupSpot = spotOf(alt);
+      }
+      const plan: HealthDayPlan = { ...value, personaId: persona.id, date, ...(nearby.near ? { near: nearby.near } : {}), model: r.value.model, at: Date.now() };
       days.value = [plan, ...days.value.filter((d) => !(d.personaId === persona.id && d.date === date))].slice(0, KEEP_DAYS * 2);
       delete errors[persona.id];
+      syncPrep(persona);
       return { ok: true, value: plan };
     } finally {
       delete busy[persona.id];
     }
+  }
+
+  /**
+   * 今天要提前做的发到家务里（开了家务系统时；重新排了就换成新的）。
+   * 排完马上发一次；打开"共同的家"、健康计划时再对一次（排的时候家务系统还没开的，开了以后补上）
+   */
+  function syncPrep(persona: Persona) {
+    if (!persona.housework?.enabled || !persona.health?.enabled) return;
+    const date = today();
+    const day = dayOf(persona.id, date);
+    if (!day) return;
+    const home = useHomeStore();
+    const want = (day.prep ?? []).map(prepExtra);
+    const have = home.extrasOf(persona.id, date).filter((x) => x.source === 'health');
+    if (JSON.stringify(have) !== JSON.stringify(want)) home.setExtras(persona.id, date, want);
+  }
+
+  /** 一件要提前做的事在家务里怎么样了：没发（没开家务系统）/ 还没做 / 拖着 / 做完了 */
+  function prepState(persona: Persona, t: PrepTask, date = today()): 'off' | 'todo' | 'doing' | 'later' | 'done' {
+    if (!persona.housework?.enabled) return 'off';
+    const m = useHomeStore().markOn(persona.id, date, `extra:${prepId(t.name)}`);
+    return m?.status ?? 'todo';
   }
 
   function addLog(l: WorkoutLog) {
@@ -268,5 +465,5 @@ export const useHealthStore = defineStore('health', () => {
     if (l) Object.assign(l, patch);
   }
 
-  return { weeks, days, logs, busy, errors, hydrate, today, weekOf, dayOf, logsOf, planWeek, planDay, addLog, updateLog };
+  return { weeks, days, logs, busy, errors, hydrate, today, weekOf, dayOf, logsOf, planWeek, planDay, syncPrep, prepState, addLog, updateLog };
 });

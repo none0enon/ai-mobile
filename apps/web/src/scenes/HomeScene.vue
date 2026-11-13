@@ -29,6 +29,8 @@ import { clock, hhmm } from '@/utils/time';
  * - "晚点做"是拖一次：她按这件家务"没做时她会怎样"来反应（嫌弃、不肯出门、有点失落……）；拖几次她都记着；
  * - 做完、拖延都发一张家务卡片进聊天（总结时会记成你的习惯），离开时那一段记"做完了几件家务"。
  * 今天的情况也写进聊天、通话、主动消息的提示词（"家务和健康"那一块），所以平时聊天她也知道你没洗澡、衣服拖着没洗。
+ * 健康计划里要提前做的饭（晚饭多做一份当明天的便当、睡前泡隔夜燕麦）也作为今天临时的家务列在这里，做的时候能看怎么做，
+ * 拖着不做时她提醒你照备案来。
  * 没接通「陪伴 · 快速」时照样能勾，她不说话，界面写明原因。
  */
 const app = useAppStore();
@@ -43,7 +45,8 @@ const her = computed(() => chars.byId(app.activeCharacterId) ?? chars.list[0]!);
 const chatId = computed(() => chat.chatOfCharacter(her.value.id)?.id ?? '');
 const persona = computed(() => personaOf(chat.chatById(chatId.value)));
 const userName = computed(() => persona.value.name);
-const enabled = computed(() => !!persona.value.housework?.enabled && !!persona.value.housework.chores.length);
+/** 开了家务系统，而且今天有要做的（重复的家务，或者健康计划发来的要提前做的饭） */
+const enabled = computed(() => !!persona.value.housework?.enabled && (!!persona.value.housework.chores.length || home.itemsFor(persona.value).length > 0));
 const settingsLink = computed(() => `/me/personas/${persona.value.id}/housework`);
 
 /** 做家务时放的歌：轻快的几个 */
@@ -70,7 +73,7 @@ function iconOf(it: ChoreItem) {
   return CHORE_KINDS[it.chore.kind].icon;
 }
 function subOf(it: ChoreItem): string {
-  const parts = [it.when, `约 ${it.chore.minutes} 分钟`];
+  const parts = [it.extra ? `健康计划 · ${it.when}` : it.when, `约 ${it.chore.minutes} 分钟`];
   if (it.mark.status === 'done') parts.splice(0, 2, `${it.mark.doneAt ? hhmm(it.mark.doneAt) : ''} 做完了${it.mark.spentSec ? ` · ${Math.max(1, Math.round(it.mark.spentSec / 60))} 分钟` : ''}`);
   else if (it.mark.status === 'later') parts.push(`拖了 ${it.mark.later ?? 1} 次`);
   else if (it.carriedFrom) parts.splice(1, 1);
@@ -101,14 +104,14 @@ function remainingText(): string {
 function progressLine(): string {
   return `今天的家务做完了 ${doneCount.value} / ${items.value.length} 件`;
 }
-/** 做饭这件对应今天计划里的哪一顿 */
+/** 做饭这件对应今天计划里的哪一顿（那顿是现做的才有菜谱；外食、带便当的那顿不算；要提前做的饭看它自己的做法） */
 function mealFor(it: ChoreItem | null): { key: MealKey; meal: PlanMeal } | null {
-  if (!it || it.chore.kind !== 'cooking') return null;
+  if (!it || it.chore.kind !== 'cooking' || it.extra) return null;
   const day = health.dayOf(persona.value.id);
   if (!day) return null;
   const key: MealKey = it.slot === 'morning' ? 'breakfast' : it.slot === 'noon' ? 'lunch' : 'dinner';
   const meal = day.meals[key];
-  return meal ? { key, meal } : null;
+  return meal?.cook ? { key, meal } : null;
 }
 
 /** 她还在回上一句（开始做时的那句）：先停下，免得做完的夸奖被挡掉 */
@@ -149,17 +152,23 @@ const tab = ref<'talk' | 'music' | 'recipe'>('talk');
 const doingTabs = computed(() => [
   { value: 'talk' as const, label: link.state.on ? '连麦中' : '聊天', icon: link.state.on ? 'i-lucide-headphones' : 'i-lucide-message-circle' },
   { value: 'music' as const, label: '音乐', icon: 'i-lucide-music' },
-  ...(mealFor(doing.value) ? [{ value: 'recipe' as const, label: '菜谱', icon: 'i-lucide-chef-hat' }] : []),
+  ...(mealFor(doing.value) || prepOf(doing.value) ? [{ value: 'recipe' as const, label: prepOf(doing.value) ? '怎么做' : '菜谱', icon: 'i-lucide-chef-hat' }] : []),
 ]);
+/** 健康计划发来的要提前做的饭：怎么做、没来得及做的备案 */
+function prepOf(it: ChoreItem | null) {
+  const x = it?.extra;
+  return x && (x.steps?.length || x.backup) ? x : null;
+}
 
 async function start(it: ChoreItem) {
   home.startChore(persona.value, it.key);
   services.native.vibrate(12);
   talk.value = [];
-  tab.value = mealFor(it) ? 'recipe' : 'talk';
+  tab.value = mealFor(it) || prepOf(it) ? 'recipe' : 'talk';
   const recipe = mealFor(it);
   await reply('chore-start', [
     `${userName.value}开始做：${it.label}（大概要 ${it.chore.minutes} 分钟）`,
+    it.extra ? `这是健康计划里要提前做的${it.extra.meal ? `，给${it.extra.meal}备的` : ''}` : '',
     it.mark.later ? `这件之前说了晚点做，拖了 ${it.mark.later} 次` : it.carriedFrom ? `这件是之前该做没做、拖到今天的` : it.overdue ? '已经过了该做的时间' : '',
     it.missedDays > 1 ? `之前已经 ${it.missedDays} 天没做了` : '',
     recipe ? `今天计划做：${recipe.meal.name}` : it.chore.kind === 'cooking' && it.chore.effectNote ? `你最想吃${userName.value}做的：${it.chore.effectNote}` : '',
@@ -182,6 +191,7 @@ async function finish(it: ChoreItem) {
     wasLater ? `之前拖了 ${wasLater} 次` : '',
     it.overdue || it.missedDays ? `没做时你会：${effectLine(it.chore, userName.value) || '不在意'}（现在做完了）` : '',
     recipe ? `做的是今天计划里的：${recipe.meal.name}` : '',
+    it.extra?.meal ? `${it.extra.meal}的饭备好了` : '',
     progressLine(),
     remainingText(),
   ], undefined, `做完${it.label}`);
@@ -196,6 +206,7 @@ async function procrastinate(it: ChoreItem) {
   await reply('chore-later', [
     `${userName.value}说"${it.label}"晚点再做（这是第 ${m.later ?? 1} 次拖）`,
     `这件没做时你会：${effectLine(it.chore, userName.value) || '不在意'}`,
+    it.extra?.backup ? `这是健康计划里要提前做的${it.extra.meal ? `（给${it.extra.meal}）` : ''}，没来得及做的备案：${it.extra.backup}` : '',
     it.overdue ? '已经过了该做的时间' : '',
     it.missedDays > 1 ? `之前已经 ${it.missedDays} 天没做了` : '',
     remainingText(),
@@ -303,6 +314,8 @@ const doneOpen = ref(false);
 
 onMounted(() => {
   home.tick();
+  // 健康计划里今天要提前做的饭：排的时候家务系统还没开的，这里补发
+  health.syncPrep(persona.value);
   // 离开时那一段写"做完了几件家务"
   chat.setLeaveSummary(her.value.id, () => (doneHere.value.length ? `做完了${doneHere.value.length > 3 ? ` ${doneHere.value.length} 件家务` : `：${doneHere.value.join('、')}`}` : undefined));
 });
@@ -415,6 +428,18 @@ onBeforeUnmount(() => {
       <div v-else-if="mealFor(doing)" class="mt-2.5">
         <MealCard :meal="mealFor(doing)!.meal" :which="mealFor(doing)!.key" open />
       </div>
+      <!-- 要提前做的饭（健康计划发来的）：怎么做、没来得及做的备案 -->
+      <div v-else-if="prepOf(doing)" class="prep-how mt-2.5" data-testid="chore-prep">
+        <div v-if="prepOf(doing)!.meal" class="text-[12.5px] text-ink-3">给{{ prepOf(doing)!.meal }}备的</div>
+        <ol v-if="prepOf(doing)!.steps?.length" class="prep-steps">
+          <li v-for="(x, i) in prepOf(doing)!.steps" :key="i">{{ x }}</li>
+        </ol>
+        <p v-if="prepOf(doing)!.backup" class="prep-backup">
+          <span class="i-lucide-life-buoy text-ink-3" />
+          <span class="flex-1 min-w-0">没来得及做：{{ prepOf(doing)!.backup }}</span>
+          <a v-if="prepOf(doing)!.backupSpot?.mapsUri" :href="prepOf(doing)!.backupSpot!.mapsUri" target="_blank" rel="noopener noreferrer" class="text-accent-ink shrink-0">地图</a>
+        </p>
+      </div>
     </template>
 
     <!-- 今天的清单 -->
@@ -487,6 +512,33 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.prep-how {
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.prep-steps {
+  margin: 6px 0 0;
+  padding-left: 1.3em;
+  list-style: decimal;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+.prep-backup {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+.prep-backup > span:first-child {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
 .pill-btn {
   display: inline-flex;
   align-items: center;
