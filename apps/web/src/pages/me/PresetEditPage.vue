@@ -5,7 +5,9 @@ import {
   IMAGE_MODES,
   IMAGE_MOMENTS,
   isRoleplayCategory,
+  isSoupPreset,
   isTruthDarePreset,
+  LEVEL_PREFIXES,
   LIFE_FLAGS,
   markerName,
   momentLabel,
@@ -13,8 +15,9 @@ import {
   RHYTHM_TASKS,
   ROLEPLAY_CATEGORIES,
   SCENES,
+  blockLevel,
+  SOUP_LEVEL,
   TRUTH_DARE_LEVEL,
-  truthDareLevelOf,
   type PresetCategory,
   type PromptBlock,
 } from '@app/shared';
@@ -131,17 +134,21 @@ function setPosition(b: PromptBlock, absolute: boolean) {
 const ROLEPLAY_FLAGS: Record<string, string> = { ...LIFE_FLAGS, [DEVICE_INLINE_FLAG]: '心跳：连着玩具、她自己写指令' };
 /** 触发条件的中文名：画什么、场景里的时刻、节律的任务、真心话大冒险的尺度；别的（一起做事的场景任务名）原样显示 */
 function triggerLabel(t: string): string {
-  const level = truthDareLevelOf({ triggers: [t] });
+  const level = LEVEL_PREFIXES.map((p) => blockLevel({ triggers: [t] }, p)).find(Boolean);
   if (level) return `尺度"${level}"`;
   return IMAGE_MODES[t as keyof typeof IMAGE_MODES] ?? momentLabel(t) ?? RHYTHM_TASKS[t as keyof typeof RHYTHM_TASKS] ?? HEALTH_TASKS[t as keyof typeof HEALTH_TASKS] ?? ROLEPLAY_FLAGS[t] ?? t;
 }
-/** 真心话大冒险的预设（有 td- 开头的触发条件）：块上能填"真心话大冒险的尺度" */
-const truthDare = computed(() => isTruthDarePreset(preset.value));
-/** 这一块当真心话大冒险的哪个尺度：名字写进触发条件 td-level:名字；清空就不再是尺度 */
-function setTruthDareLevel(b: PromptBlock, name: string) {
-  const rest = (b.triggers ?? []).filter((t) => !t.startsWith(TRUTH_DARE_LEVEL));
+/** 一起游戏的尺度：真心话大冒险、海龟汤的预设里，块上能填"…的尺度"（名字写进触发条件 前缀名字） */
+const LEVEL_FIELDS = [
+  { prefix: TRUTH_DARE_LEVEL, label: '真心话大冒险的尺度', show: isTruthDarePreset },
+  { prefix: SOUP_LEVEL, label: '海龟汤的尺度', show: isSoupPreset },
+];
+const levelFields = computed(() => LEVEL_FIELDS.filter((f) => f.show(preset.value)));
+/** 这一块当哪个尺度：清空就不再是尺度 */
+function setLevel(b: PromptBlock, prefix: string, name: string) {
+  const rest = (b.triggers ?? []).filter((t) => !t.startsWith(prefix));
   const n = name.trim();
-  b.triggers = n ? [...rest, `${TRUTH_DARE_LEVEL}${n}`] : rest.length ? rest : undefined;
+  b.triggers = n ? [...rest, `${prefix}${n}`] : rest.length ? rest : undefined;
   touch();
 }
 /** 生图预设里能选的时刻：按场景分组（只列有时刻的场景） */
@@ -418,15 +425,15 @@ const HINT: Record<PresetCategory, string> = {
           <div class="flex flex-wrap gap-1.5">
             <button v-for="(label, t) in ROLEPLAY_FLAGS" :key="t" type="button" class="opt" :class="{ on: editing.triggers?.includes(t) }" @click="toggleTrigger(editing, t)">{{ label }}</button>
           </div>
-          <template v-if="truthDare">
-            <label class="field-label" for="be-td-level">真心话大冒险的尺度（填了名字，这一块就是一个尺度：开局时按块的顺序列出来，选了它才发送）</label>
+          <template v-for="f in levelFields" :key="f.prefix">
+            <label class="field-label" :for="`be-level-${f.prefix}`">{{ f.label }}（填了名字，这一块就是一个尺度：开始前按块的顺序列出来，选了它才发送）</label>
             <input
-              id="be-td-level"
-              :value="truthDareLevelOf(editing)"
+              :id="`be-level-${f.prefix}`"
+              :value="blockLevel(editing, f.prefix)"
               class="input"
               autocomplete="off"
               placeholder="不是尺度就空着"
-              @change="setTruthDareLevel(editing, ($event.target as HTMLInputElement).value)"
+              @change="setLevel(editing, f.prefix, ($event.target as HTMLInputElement).value)"
             />
           </template>
         </template>

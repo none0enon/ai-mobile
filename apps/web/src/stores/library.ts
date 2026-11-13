@@ -218,6 +218,13 @@ const SEED_UPGRADES: SeedUpgrade[] = [
     file: 'rhythm.json',
     replaced: { buildWorld: ["这次的任务：建世界。从下面的角色卡和世界书里找出{{char}}住在哪、在哪读书或工作、常去哪些地方、身边有谁，写出{{char}}的小世界：\n- 地点 5–10 个，分三片：home 住处（至少一个，第一个是{{char}}住的地方）、campus 读书或工作的地方、city 常去的地方。名字用角色卡世界观里的叫法，6 个字以内。\n- 每个地点写 backdrop，只能从这些里选：bedroom 卧室、房间 / library 图书馆、自习室 / dining 食堂、餐厅 / cafe 咖啡店、小店 / park 公园、操场、户外 / seaside 海边、江边 / pool 游泳馆 / gym 健身房、训练场 / cinema 电影院 / night-market 夜市、街边小吃 / gallery 美术馆、博物馆 / aquarium 水族馆 / amusement 游乐园、电玩城 / music 有音乐的地方。\n- 每个地点写在那里能和{{user}}一起做的事 activities，scene 只能从这些里选：study 陪伴学习 / read 一起看书 / meal 一起吃饭 / exercise 健身 / watch 一起看片 / game 海龟汤 / date 约会 / music 一起听歌 / sleep 哄睡 / poke 戳戳乐；label 是在这个地点的说法（例如在咖啡店学习写\"一起自习\"）。\n- 身边的人：角色卡和世界书里提到的家人、室友、同学、同事、朋友，写名字、和{{char}}的关系、出处或一句话。没提到的不要编。\n- 作息模板：从 00:00 排到 24:00，一段接一段、不重叠，写几点到几点、在哪（写地点的 key）、在做什么（6 个字以内）；不能挪的事（固定的课、训练、班）写 \"fixed\": true。\n- 三餐习惯：早饭、午饭、晚饭一般吃什么。\n- 衣柜：4–8 套，至少有日常 daily、运动 sport、睡衣 sleep 各一套，可以有约会 date；每套写中文名和 NovelAI 的英文 tags（只写衣服、鞋、配饰，不写长相）。设定里写了{{char}}常穿什么的，照设定写。\n- 手头的事：{{char}}最近在忙的一件具体的事（陪伴学习时{{char}}的小目标）。\n输出格式：\n{\"name\": \"小世界的名字\", \"blurb\": \"一句话介绍\", \"areas\": {\"home\": \"住处这一片叫什么\", \"campus\": \"读书或工作的那一片叫什么\", \"city\": \"常去的那一片叫什么\"}, \"homeKey\": \"住处的 key\", \"locations\": [{\"key\": \"英文小写 key\", \"name\": \"名字\", \"area\": \"home|campus|city\", \"indoor\": true, \"backdrop\": \"bedroom\", \"blurb\": \"一句话\", \"activities\": [{\"scene\": \"study\", \"label\": \"一起自习\"}]}], \"people\": [{\"name\": \"名字\", \"relation\": \"关系\", \"note\": \"出处或一句话\"}], \"schedule\": [{\"from\": \"00:00\", \"to\": \"07:30\", \"at\": \"地点 key\", \"status\": \"睡觉中\", \"fixed\": false}], \"meals\": {\"breakfast\": \"\", \"lunch\": \"\", \"dinner\": \"\"}, \"wardrobe\": [{\"kind\": \"daily|sport|sleep|date\", \"name\": \"中文名\", \"tags\": \"英文 tags\"}], \"task\": \"手头的事\"}"] },
   },
+  {
+    // 海龟汤的尺度挪进预设：清汤、红汤各一块（soup-level:名字），现编和自检照"尺度"那一块
+    id: 'feature-game:levels',
+    file: 'feature-game.json',
+    replaced: { soupMake: ["出一道原创的海龟汤，尺度和可以用的地点、人物在场景任务里（清汤：不涉及死亡和恐怖）。先想好汤底，再写汤面；汤面要能通过是非题问出汤底。只输出一个 JSON 对象，不要别的文字：{\"title\": \"标题\", \"surface\": \"汤面\", \"truth\": \"汤底\", \"keys\": [\"要问出来的关键点\"], \"difficulty\": 1 到 3}"], soupCheck: ["检查场景任务里这道海龟汤：只看汤面，能不能通过是非题问出汤底？关键点和汤底对得上吗？有没有前后矛盾？只输出一个 JSON 对象，不要别的文字：{\"ok\": true 或 false, \"reason\": \"原因\"}"] },
+    added: ['soupLevelClear', 'soupLevelRed'],
+  },
 ];
 
 /** 按 SEED_UPGRADES 更新本机的自带预设，返回改了的那些 */

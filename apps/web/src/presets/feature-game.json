@@ -7,7 +7,7 @@
   "defaultFor": [
     "scene:game"
   ],
-  "description": "一起玩海龟汤时用：主持、判定、当队友、猜你的题、提示、揭晓、现编和自检，每一步一块，只在做那件事时发送，都可以改。",
+  "description": "一起玩海龟汤时用：尺度（每个尺度一块，现编、自检时只发选的那个）、主持、判定、当队友、猜你的题、提示、揭晓、现编和自检，每一步一块，只在做那件事时发送，都可以改。",
   "blocks": [
     {
       "identifier": "main",
@@ -228,6 +228,36 @@
       }
     },
     {
+      "identifier": "soupLevelClear",
+      "name": "尺度 · 清汤",
+      "role": "system",
+      "content": "【尺度：清汤】只出清汤：不涉及死亡、恐怖和伤害，真相是日常里的误会、巧合和温暖的小事。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 1
+      },
+      "triggers": [
+        "soup-level:清汤"
+      ]
+    },
+    {
+      "identifier": "soupLevelRed",
+      "name": "尺度 · 红汤",
+      "role": "system",
+      "content": "【尺度：红汤】清汤、红汤都可以：可以涉及死亡、恐怖和悬疑，但不写血腥细节。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "absolute",
+        "depth": 1
+      },
+      "triggers": [
+        "soup-level:红汤"
+      ]
+    },
+    {
       "identifier": "soupJudge",
       "name": "她当主持：判定",
       "role": "system",
@@ -359,7 +389,7 @@
       "identifier": "soupMake",
       "name": "现编一道",
       "role": "system",
-      "content": "出一道原创的海龟汤，尺度和可以用的地点、人物在场景任务里（清汤：不涉及死亡和恐怖）。先想好汤底，再写汤面；汤面要能通过是非题问出汤底。只输出一个 JSON 对象，不要别的文字：{\"title\": \"标题\", \"surface\": \"汤面\", \"truth\": \"汤底\", \"keys\": [\"要问出来的关键点\"], \"difficulty\": 1 到 3}",
+      "content": "出一道原创的海龟汤，照\"尺度\"那一块出；可以用的地点在场景任务里。先想好汤底，再写汤面；汤面要能通过是非题问出汤底。只输出一个 JSON 对象，不要别的文字：{\"title\": \"标题\", \"surface\": \"汤面\", \"truth\": \"汤底\", \"keys\": [\"要问出来的关键点\"], \"difficulty\": 1 到 3}",
       "marker": false,
       "enabled": true,
       "injection": {
@@ -375,7 +405,7 @@
       "identifier": "soupCheck",
       "name": "自检",
       "role": "system",
-      "content": "检查场景任务里这道海龟汤：只看汤面，能不能通过是非题问出汤底？关键点和汤底对得上吗？有没有前后矛盾？只输出一个 JSON 对象，不要别的文字：{\"ok\": true 或 false, \"reason\": \"原因\"}",
+      "content": "检查场景任务里这道海龟汤：只看汤面，能不能通过是非题问出汤底？关键点和汤底对得上吗？有没有前后矛盾？合不合\"尺度\"那一块？只输出一个 JSON 对象，不要别的文字：{\"ok\": true 或 false, \"reason\": \"原因\"}",
       "marker": false,
       "enabled": true,
       "injection": {

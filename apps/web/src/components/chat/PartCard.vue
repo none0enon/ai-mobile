@@ -213,6 +213,16 @@ async function playVoice() {
       </div>
     </div>
   </div>
+  <div v-else-if="part.type === 'game' && part.game === 'flight'" class="pcard row-card" style="--tone: #b9a3e6">
+    <span class="icon-wrap" style="color: var(--tone)"><span class="i-lucide-dice-5" /></span>
+    <div class="flex-1 min-w-0">
+      <div class="text-[14.5px] truncate">飞行棋 · {{ part.board }}</div>
+      <div class="text-[12px] text-ink-3">
+        掷了 {{ part.turns }} 次骰子<template v-if="part.winner"> · {{ part.winner === 'you' ? '你' : character.pronoun }}先到终点</template>
+      </div>
+      <div class="text-[12.5px] text-ink-2 mt-0.5">你走到第 {{ part.you }} 格 · {{ character.pronoun }}走到第 {{ part.her }} 格（共 {{ part.size }} 格）</div>
+    </div>
+  </div>
   <div v-else-if="part.type === 'game'" class="pcard row-card" style="--tone: #b9a3e6">
     <span class="icon-wrap" style="color: var(--tone)"><span class="i-lucide-puzzle" /></span>
     <div class="flex-1 min-w-0">

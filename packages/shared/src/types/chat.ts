@@ -149,6 +149,21 @@ export type MessagePart =
       you: TruthDareTally;
       her: TruthDareTally;
     }
+  /** 一起玩的一局：飞行棋（哪张棋盘、掷了几次骰子、你们各走到第几格、谁先到终点） */
+  | {
+      type: 'game';
+      logId: string;
+      game: 'flight';
+      /** 棋盘：用的那个棋盘预设的名字 */
+      board: string;
+      turns: number;
+      you: number;
+      her: number;
+      /** 棋盘一共几格 */
+      size: number;
+      /** 先到终点的；没下完时不写 */
+      winner?: 'you' | 'her';
+    }
   /** 一起观影的票根 */
   | {
       type: 'watch';

@@ -14,8 +14,11 @@ export interface Soup {
   /** 要问出来的关键点 */
   keys: string[];
   difficulty: number;
-  /** 清汤：不涉及死亡和恐怖；红汤：涉及 */
-  kind: '清汤' | '红汤';
+  /**
+   * 尺度：题库文件里写的（清汤、红汤……），不写当清汤。和海龟汤预设里的尺度（soup-level:名字）同名时按尺度筛：
+   * 选了某个尺度，列出它和排在它前面的尺度的题；名字对不上任何尺度的题一直列出来
+   */
+  kind: string;
   style?: '本格' | '变格';
   /** 来自哪个题库文件（可以恢复成文件里的样子） */
   seedFile?: string;
@@ -49,7 +52,7 @@ export function parseSoup(raw: unknown): Omit<Soup, 'id'> & { id?: string } | nu
     truth,
     keys,
     difficulty: Math.min(3, Math.max(1, Number(o.difficulty) || 1)),
-    kind: o.kind === '红汤' ? '红汤' : '清汤',
+    kind: str(o.kind) || '清汤',
     ...(o.style === '本格' || o.style === '变格' ? { style: o.style } : {}),
   };
 }

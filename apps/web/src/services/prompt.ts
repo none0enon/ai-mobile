@@ -96,6 +96,10 @@ function partToText(p: MessagePart, character: Character, user: string, mapText?
         const tally = (t: TruthDareTally) => `真心话 ${t.truth} 次、大冒险 ${t.dare} 次${t.skipped ? `、认罚 ${t.skipped} 次` : ''}`;
         return `[真心话大冒险${p.level ? `（${p.level}）` : ''}：玩了 ${p.rounds} 轮；${user}${tally(p.you)}；${character.name}${tally(p.her)}]`;
       }
+      if (p.game === 'flight') {
+        const won = p.winner ? `；${p.winner === 'you' ? user : character.name}先到了终点` : '';
+        return `[飞行棋「${p.board}」：掷了 ${p.turns} 次骰子；${user}走到第 ${p.you} 格，${character.name}走到第 ${p.her} 格（一共 ${p.size} 格）${won}]`;
+      }
       return `[海龟汤《${p.title}》：${{ solved: '猜出来了', partial: '猜对了一半', 'gave-up': '认输了' }[p.result]}，问了 ${p.questions} 个问题${p.truth ? `；汤底：${p.truth}` : ''}]`;
     case 'watch':
       return `[一起看了《${p.title}》${p.minutes} 分钟${p.yourScore ? `；${user}打 ${p.yourScore}/5` : ''}${p.herScore ? `；${character.name}打 ${p.herScore}/5` : ''}]`;

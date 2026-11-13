@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { isExpression, isTruthDarePreset, parseControlTags, TRUTH_DARE_LEVEL, truthDareLevels, type MessagePart, type PresetUseId, type TruthDareTally } from '@app/shared';
+import { isExpression, isTruthDarePreset, parseControlTags, presetLevels, TRUTH_DARE_LEVEL, type MessagePart, type PresetUseId, type TruthDareTally } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -86,7 +86,7 @@ const tdFirst = (p: { name: string }) => p.name.includes('真心话');
 
 /** 预设里的尺度，说明就是那一块的内容（开头的【…】标题不重复显示） */
 const levels = computed(() =>
-  truthDareLevels(preset.value).map(({ name, block }) => ({
+  presetLevels(preset.value, TRUTH_DARE_LEVEL).map(({ name, block }) => ({
     name,
     desc: block.content.replaceAll('{{user}}', userName.value).replaceAll('{{char}}', her.value.name).replace(/^【[^】]*】\s*/, '').trim(),
   })),
