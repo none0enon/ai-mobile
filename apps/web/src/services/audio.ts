@@ -156,7 +156,7 @@ export type PlayOutcome = { ok: true } | { ok: false; reason: string; blocked?: 
 export function playBytes(
   bytes: Uint8Array<ArrayBuffer>,
   mime: string,
-  opts: { onLevel?(level: number): void; signal?: AbortSignal; rate?: number } = {},
+  opts: { onLevel?(level: number): void; onAudioLevel?(level: number): void; signal?: AbortSignal; rate?: number } = {},
 ): Promise<PlayOutcome> {
   stopAudio();
   const a = element();
@@ -168,22 +168,29 @@ export function playBytes(
     void envelopeOf(bytes).then((e) => (envelope = e));
     let timer: ReturnType<typeof setTimeout> | undefined;
     let done = false;
+    let playing = false;
     const finish = (outcome: PlayOutcome = { ok: true }) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       a.removeEventListener('ended', onEnded);
       a.removeEventListener('error', onError);
+      a.removeEventListener('playing', onPlaying);
+      a.removeEventListener('waiting', onSilence);
+      a.removeEventListener('pause', onSilence);
       opts.signal?.removeEventListener('abort', onAbort);
       a.pause();
       URL.revokeObjectURL(url);
       opts.onLevel?.(0);
+      opts.onAudioLevel?.(0);
       if (stopCurrent === onAbort) stopCurrent = null;
       resolve(outcome);
     };
     const onEnded = () => finish();
     const onAbort = () => finish();
     const onError = () => finish({ ok: false, reason: `浏览器解码不了这段音频（${mime}）` });
+    const onPlaying = () => { playing = true; };
+    const onSilence = () => { playing = false; opts.onAudioLevel?.(0); };
     stopCurrent = onAbort;
     const tick = () => {
       if (done) return;
@@ -192,10 +199,17 @@ export function playBytes(
       else if (envelope?.length) level = envelope[Math.min(envelope.length - 1, Math.floor(a.currentTime / ENVELOPE_STEP))] ?? 0;
       else level = 0.25 + Math.random() * 0.6;
       opts.onLevel?.(level);
+      // Only decoded, actually playing audio drives lips. No synthetic fallback.
+      const measured = playing && !a.paused && !a.muted && a.volume > 0
+        ? envelope?.[Math.floor(a.currentTime / ENVELOPE_STEP)] ?? 0 : 0;
+      opts.onAudioLevel?.(measured > 0.035 ? measured : 0);
       timer = setTimeout(tick, 60);
     };
     a.addEventListener('ended', onEnded);
     a.addEventListener('error', onError);
+    a.addEventListener('playing', onPlaying);
+    a.addEventListener('waiting', onSilence);
+    a.addEventListener('pause', onSilence);
     opts.signal?.addEventListener('abort', onAbort, { once: true });
     a.src = url;
     a.playbackRate = opts.rate ?? 1;

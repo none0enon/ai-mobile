@@ -49,7 +49,9 @@ export const useCharacterStore = defineStore('characters', () => {
   }
 
   function remove(id: string) {
+    const model = byId(id)?.live2d?.assetId;
     list.value = list.value.filter((c) => c.id !== id);
+    if (model && !list.value.some(c => c.live2d?.assetId === model)) void write('live2d', [], [model]);
   }
 
   /** 换预设：下一条回复起按新预设拼提示词，聊天记录不动 */

@@ -58,6 +58,8 @@ export interface SpeechOptions {
   /** 在角色自己的语速上再乘（哄睡时慢一点） */
   speedFactor?: number;
   onLevel?(level: number): void;
+  /** Measured playback only; remains zero during silent captions, buffering and errors. */
+  onAudioLevel?(level: number): void;
   /** 开始说第 index 句（字幕跟着出） */
   onSentence?(text: string, index: number): void;
   /** 合成或播放失败（每个队列只报一次；之后的句子不出声地"说"完） */
@@ -126,6 +128,7 @@ export class SpeechQueue {
     this.items = [];
     stopAudio();
     this.opts.onLevel?.(0);
+    this.opts.onAudioLevel?.(0);
     this.flushWaiters();
   }
 
@@ -190,7 +193,7 @@ export class SpeechQueue {
         this.opts.onSentence?.(head.text, this.index);
         this.index += 1;
         if (audio) {
-          const r = await playBytes(audio.bytes, audio.mime, { onLevel: this.opts.onLevel, signal: this.ctrl.signal });
+          const r = await playBytes(audio.bytes, audio.mime, { onLevel: this.opts.onLevel, onAudioLevel: this.opts.onAudioLevel, signal: this.ctrl.signal });
           if (!r.ok && !this.stopped) {
             this.report(r.reason, r.reason);
             await this.silent(head.text);
@@ -202,12 +205,14 @@ export class SpeechQueue {
     } finally {
       this.playing = false;
       this.opts.onLevel?.(0);
+      this.opts.onAudioLevel?.(0);
       this.settle();
     }
   }
 
   /** 没有声音时按字数停一会儿，让字幕和声波照常走 */
   private async silent(text: string) {
+    this.opts.onAudioLevel?.(0);
     const n = wordCount(prepareTtsText(text)) || wordCount(text);
     const total = Math.max(700, n * 190 / (this.opts.speedFactor ?? 1));
     const started = Date.now();

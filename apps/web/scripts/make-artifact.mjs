@@ -14,12 +14,15 @@ const src = path.resolve(here, '../dist-preview/index.html');
 const outDir = path.resolve(here, '../artifact');
 
 const html = fs.readFileSync(src, 'utf8');
-const head = html.match(/<head>([\s\S]*?)<\/head>/i)?.[1] ?? '';
-const body = html.match(/<body>([\s\S]*?)<\/body>/i)?.[1] ?? '';
-
-const styles = [...head.matchAll(/<style[\s\S]*?<\/style>/gi)].map((m) => m[0]);
-const scripts = [...head.matchAll(/<script[\s\S]*?<\/script>/gi), ...body.matchAll(/<script[\s\S]*?<\/script>/gi)].map((m) => m[0]);
-const bodyMarkup = body.replace(/<script[\s\S]*?<\/script>/gi, '').trim();
+// Inline JS can contain literal </head> / <body> strings (the iframe helper does).
+// Extract raw-text elements before looking for the document's outer shell.
+const styles = [];
+const scripts = [];
+const shell = html.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, (block) => {
+  (/^<script\b/i.test(block) ? scripts : styles).push(block);
+  return '';
+});
+const bodyMarkup = (shell.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? '').trim();
 
 if (!scripts.length || !styles.length) {
   console.error('make-artifact: 没找到内联的脚本或样式，确认是用 --mode preview（vite-plugin-singlefile）构建的');

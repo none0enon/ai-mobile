@@ -145,10 +145,10 @@ async function playVoice() {
 
   <!-- 通话记录 -->
   <div v-else-if="part.type === 'call-log'" class="pcard row-card">
-    <span class="icon-wrap"><span class="i-lucide-phone" /></span>
+    <span class="icon-wrap"><span :class="part.video ? 'i-lucide-video' : 'i-lucide-phone'" /></span>
     <div class="flex-1">
       <div class="text-[14.5px]">
-        {{ part.missed ? (mine ? '已取消' : '未接来电') : '语音通话' }} <span v-if="!part.missed" class="num">{{ clock(part.durationSec) }}</span>
+        {{ part.missed ? (mine ? '已取消' : '未接来电') : part.video ? '视频通话' : '语音通话' }} <span v-if="!part.missed" class="num">{{ clock(part.durationSec) }}</span>
       </div>
       <div v-if="part.scene" class="text-[12px] text-ink-3">{{ part.scene }}</div>
     </div>

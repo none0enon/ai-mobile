@@ -1,5 +1,6 @@
 export * from './types/common.ts';
 export * from './types/character.ts';
+export * from './types/live2d.ts';
 export * from './types/lorebook.ts';
 export * from './types/preset.ts';
 export * from './types/chat.ts';
