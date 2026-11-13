@@ -314,6 +314,8 @@ export interface ChatAssembleOptions {
   use?: PresetUseId;
   /** 重新生成的那条回复：沿用它原来用的记忆 */
   targetId?: string;
+  /** 这一次另外打开的触发条件（心跳连着玩具、指令由她自己写时是 device-inline）：块写了它就发送 */
+  flags?: string[];
 }
 
 /**
@@ -336,7 +338,7 @@ export function assembleForChat(chat: Chat, character: Character, history: Messa
   const recall: RecallForTurn = proactive ? { lines: [], snapshot: undefined, added: 0, reused: false } : recallForTurn(chat, character, userText, opts.targetId);
   const app = appFills(chat, character, history, now, timeZone, recall, proactive);
   // 家务和健康：你人设里开着的系统今天的情况（都没开时没有这一块）
-  const flags = lifeFlags(persona);
+  const flags: string[] = [...lifeFlags(persona), ...(opts.flags ?? [])];
   // 预设里没有"她怎么反应"那一块的，自带的规则接在今天的情况后面
   const home = homeBlock(persona, { preset, characterName: character.name });
   if (home) app.home = home;

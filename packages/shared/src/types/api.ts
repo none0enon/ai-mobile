@@ -135,6 +135,7 @@ export type AgentRole =
   | 'image'
   | 'rhythm'
   | 'health'
+  | 'device'
   | 'proactive'
   | 'vision'
   | 'tts'
@@ -259,6 +260,13 @@ export const AGENT_META: Record<
     capability: 'chat',
     runsOn: 'client',
     icon: 'i-lucide-heart-pulse',
+  },
+  device: {
+    label: '控制指令',
+    desc: '心跳里按她说的话给连着的玩具写指令（Intiface Central）：什么时候震动多强、怎么变速。默认跟随「陪伴 · 快速」，想用别的模型就单独设置',
+    capability: 'chat',
+    runsOn: 'client',
+    icon: 'i-lucide-activity',
   },
   proactive: {
     label: '主动消息',

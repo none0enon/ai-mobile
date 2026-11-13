@@ -13,6 +13,7 @@ import {
   type TogetherMode,
   type AgentRole,
   type ControlTagKind,
+  type ParsedReply,
   type PresetUseId,
 } from '@app/shared';
 import { errorReport, errorText, isAbortError, samplerRequest } from '@app/ai';
@@ -50,6 +51,10 @@ export interface GenerateOptions {
   minTokens?: number;
   /** 要快（通话、哄睡、看片时随口一句）：在认得思考参数的原生接口上把思考关到最少，见 quickReasoning */
   quick?: boolean;
+  /** 这一次另外打开的预设触发条件（心跳连着玩具、她自己写指令时是 device-inline） */
+  flags?: string[];
+  /** 流式时每次、写完时（done）给解析好的正文和标签（标签的位置是在正文里的下标）：心跳按位置执行 <device> 指令 */
+  onParsed?(parsed: ParsedReply, done: boolean): void;
 }
 
 export interface SceneReplyOptions {
@@ -285,7 +290,7 @@ export const useChatStore = defineStore('chat', () => {
     try {
       // 拼提示词（真实发送：推进世界书粘性 / 冷却，保存 {{setvar}} 改过的变量）。
       // 预设按用途选：语音通话用"语音通话"的预设，在场景页里一起做某件事时用那件事的功能预设，聊天里用这个角色的对话预设；一个都选不到时报错
-      const prompt = assembleForChat(chat, character, history, { type: target ? 'swipe' : 'normal', agent, task: opts.task, use: opts.use, targetId: target });
+      const prompt = assembleForChat(chat, character, history, { type: target ? 'swipe' : 'normal', agent, task: opts.task, use: opts.use, targetId: target, flags: opts.flags });
       // 记下这条回复用了哪些记忆（重新生成时沿用）；重新生成不重复记"想起过"
       noteRecallUsed(id, prompt.recall.lines, !prompt.recall.reused);
       if (opts.minTokens || opts.quick) prompt.request = tuneRequest(prompt.request, agent, opts);
@@ -322,6 +327,7 @@ export const useChatStore = defineStore('chat', () => {
             const parsed = parseControlTags(full, allowedTags);
             msg.text = parsed.visible.trimStart();
             msg.parts = [{ type: 'text', text: msg.text }];
+            opts.onParsed?.(parsed, false);
             const expr = [...parsed.tags].reverse().find((t) => t.tag.kind === 'expr')?.tag;
             if (expr && 'value' in expr) {
               chars.setExpression(character.id, expr.value);
@@ -338,6 +344,7 @@ export const useChatStore = defineStore('chat', () => {
       raw = storeRegex(chat, character, result.text || raw, 'assistant', { preset: prompt.preset });
       const parsed = parseControlTags(raw, allowedTags);
       msg.text = parsed.visible.trim();
+      opts.onParsed?.(parsed, true);
       msg.meta.error = undefined;
       msg.meta.errorDetail = undefined;
       msg.meta.interrupted = undefined;

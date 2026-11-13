@@ -15,6 +15,7 @@ export * from './types/life.ts';
 export * from './timezone.ts';
 export * from './timeQuery.ts';
 export * from './tags.ts';
+export * from './device.ts';
 export * from './expressions.ts';
 export * from './scenes.ts';
 export * from './locations.ts';

@@ -230,6 +230,10 @@ function onAction(id: string) {
       // 共同的家：今天的家务（在你的家）
       void router.push('/scene/home?at=real:home');
       break;
+    case 'heart':
+      // 心跳：打字或连麦，连着玩具时她的话传到你身上（默认连线：她在她那边）
+      void router.push('/scene/heart');
+      break;
     case 'cg':
       // 直接调生图：选画什么、写一句画面（可以不写），不经过聊天模型
       drawOpen.value = true;

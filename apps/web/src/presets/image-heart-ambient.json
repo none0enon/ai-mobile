@@ -1,0 +1,163 @@
+{
+  "format": "ai-mobile-preset",
+  "version": 1,
+  "id": "preset-image-heart",
+  "category": "image",
+  "name": "生图 · 心跳 · 氛围",
+  "defaultFor": [
+    "image:heart"
+  ],
+  "description": "心跳的背景（默认）：暖色的夜、柔光、浅景深，画到暧昧为止。开场、这一刻两块按时刻只发一块；长相由程序按角色加在最前面，画幅是铺满屏幕的竖图。",
+  "blocks": [
+    {
+      "identifier": "main",
+      "name": "任务",
+      "role": "system",
+      "content": "你是 NovelAI V4.5 的提示词写手，给\"心跳\"画背景：{{char}}和{{user}}两个人的亲密时间，这张图铺满手机屏幕，是整个画面的中心。把要画的那一刻写成 Danbooru 风格的英文 tags。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "rules",
+      "name": "规则",
+      "role": "system",
+      "content": "规则：\n- tags 顺序：人数（1girl / 1boy）→ 构图与镜头 → 表情与动作 → 服装 → 场景与背景 → 光线、时段 → 氛围。\n- 不要写{{char}}的长相（发色、瞳色、发型、体型），程序会把长相加在最前面。\n- 衣服按\"要画的画面\"和最近的对话写：没换就照\"{{char}}今天穿\"写，对话里换了、脱了就照对话。\n- 不要写画师名和质量词（masterpiece、best quality 之类程序会加）。\n- 画面里只有{{char}}一个人（solo）；{{char}}是成年人，不写任何显得年幼的 tags。\n- 竖图 portrait：这张图铺满整个手机屏幕，是画面的中心；人物在中间偏上，下面三分之一会压着对话和心跳，别把脸放在那里。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "sceneRule",
+      "name": "这个场景",
+      "role": "system",
+      "content": "氛围：私密、温柔、心动。地点按\"地点\"（多半是{{char}}的卧室，或者你们在一起的地方）。夜里是暖色的床头灯、窗外的城市灯光或月光，柔和的阴影，浅景深（depth of field），一点 bokeh 和柔光（soft lighting）。只画到暧昧为止：脸红、靠近、眼神、凌乱的衣领和发丝，不画露骨的内容。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "momentOpen",
+      "name": "时刻 · 开场",
+      "role": "system",
+      "content": "这一刻：{{user}}刚来，{{char}}看着镜头（looking at viewer），坐在床边或者靠在窗边，带着一点害羞的笑，像在等{{user}}。上半身或 cowboy shot。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "open"
+      ]
+    },
+    {
+      "identifier": "momentNow",
+      "name": "时刻 · 这一刻",
+      "role": "system",
+      "content": "这一刻：按\"要画的画面\"和最近的对话，画{{char}}此刻的样子和表情（害羞、动情、撒娇、平静下来的依偎……），镜头近一点（upper body 或 close-up），看向镜头，或者微微别开眼神。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "now"
+      ]
+    },
+    {
+      "identifier": "format",
+      "name": "输出格式（JSON，字段名别改）",
+      "role": "system",
+      "content": "只输出一个 JSON 对象，不要任何其他文字：\n{\"caption\": \"中文短标题（12 字以内）\", \"tags\": \"逗号分隔的英文 tags\", \"negative\": \"额外的负面 tags，可以为空字符串\", \"size\": \"portrait\"}",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "imageSubject",
+      "name": "角色和外观 tags",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "imageScene",
+      "name": "地点、服装、时间天气、表情",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "imageRecent",
+      "name": "最近的对话",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "imageCaption",
+      "name": "要画的画面",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    }
+  ],
+  "sampler": {
+    "temperature": 0.7,
+    "topP": 1,
+    "maxTokens": 800,
+    "contextTokens": 32000,
+    "frequencyPenalty": 0,
+    "presencePenalty": 0,
+    "stream": false
+  },
+  "formats": {
+    "newChatPrompt": "",
+    "newExampleChatPrompt": "",
+    "continueNudgePrompt": "",
+    "impersonationPrompt": "",
+    "sendIfEmpty": "",
+    "wiFormat": "{0}",
+    "scenarioFormat": "{{scenario}}",
+    "personalityFormat": "{{personality}}",
+    "namesBehavior": 0,
+    "squashSystemMessages": false,
+    "preferCharacterPrompt": true,
+    "preferCharacterJailbreak": true
+  },
+  "regex": []
+}

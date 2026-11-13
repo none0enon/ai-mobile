@@ -56,6 +56,8 @@ export interface SceneDrawRequest {
   recent?: string[];
   /** 画幅由程序定；不给按生图预设（模型写的） */
   size?: ImageShape;
+  /** 衣服锁成节律里今天这一套（默认锁）；心跳里不锁，衣服按画面写 */
+  lockOutfit?: boolean;
 }
 
 /** 图库里这张图的画幅（以前没记的都是竖图） */
@@ -165,7 +167,7 @@ export const useGalleryStore = defineStore('gallery', () => {
           use: sceneImageUse(req.sceneId),
           moment: req.moment,
           sceneId: req.sceneId,
-          lockOutfit: true,
+          lockOutfit: req.lockOutfit ?? true,
           place: getLocation(locationId)?.name,
           expression: req.expression,
           recent: req.recent,

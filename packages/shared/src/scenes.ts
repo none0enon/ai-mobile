@@ -2,7 +2,7 @@ import type { Outfit, Pose } from './expressions.ts';
 import type { ControlTagKind } from './tags.ts';
 import type { ProactiveTriggerId } from './types/proactive.ts';
 
-export type SceneId = 'free' | 'exercise' | 'meal' | 'study' | 'sleep' | 'music' | 'date' | 'poke' | 'watch' | 'game' | 'read' | 'home';
+export type SceneId = 'free' | 'exercise' | 'meal' | 'study' | 'sleep' | 'music' | 'date' | 'poke' | 'watch' | 'game' | 'read' | 'home' | 'heart';
 
 export type TimeOfDay = 'dawn' | 'morning' | 'noon' | 'afternoon' | 'dusk' | 'night' | 'late';
 
@@ -210,6 +210,23 @@ export const SCENES: SceneDef[] = [
     allowedTags: ['expr'],
     proactiveTriggers: [],
     dataSources: ['你人设里的家务清单（每天、每周）', '你在这里勾的：做完了、拖着的', '今天的饮食计划（开了健康系统时，做饭照着它）'],
+  },
+  {
+    id: 'heart',
+    name: '心跳',
+    icon: 'i-lucide-heart-pulse',
+    tagline: '只属于你们两个人的时间：打字或连麦，她的话通过 Intiface Central 传到你身上的玩具',
+    backdrop: 'bedroom',
+    ambient: [],
+    outfit: 'pajama',
+    pose: 'sit',
+    tint: '#ff7a93',
+    // 自带的"心跳"功能预设里有自己的场景规则；这里只在功能预设跟随对话预设时用
+    promptFragment:
+      '【场景：心跳】这是只属于你和{{user}}的亲密时间。说话贴近、带着情绪和呼吸感，节奏跟着{{user}}走：{{user}}想慢就慢，想要更多再给更多；{{user}}说停、说不舒服时立刻温柔地停下来。',
+    allowedTags: ['expr'],
+    proactiveTriggers: [],
+    dataSources: ['Intiface Central（Buttplug 协议，本机或局域网的 WebSocket）：连着的玩具和它们能做什么', '"控制指令"预设按她的话写的指令，或者她在回复里写的 <device>', 'NovelAI 画的背景（"生图 · 心跳"的几个预设）'],
   },
 ];
 

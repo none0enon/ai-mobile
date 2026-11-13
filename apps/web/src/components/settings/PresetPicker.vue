@@ -1,17 +1,29 @@
 <script setup lang="ts">
-import { PRESET_CATEGORIES, type PresetCategory } from '@app/shared';
+import { PRESET_CATEGORIES, type Preset, type PresetCategory } from '@app/shared';
 import { computed } from 'vue';
 import { useLibraryStore } from '@/stores/library';
 
 /**
  * 选预设：只列这一类的预设；点一行选它，右边"编辑"进预设编辑页。
  * follow：多一个"跟随…"（选它时值是 null）：一起做事、主动消息跟随对话预设，一起做事时画的图跟随配图（followTitle 改标题）。
- * 聊天页的"⋯ → 预设"、角色编辑页的"预设"、预设页里每个用途的选择共用
+ * 聊天页的"⋯ → 预设"、角色编辑页的"预设"、预设页里每个用途的选择、心跳里的预设共用
  */
-const props = defineProps<{ modelValue: string | null | undefined; category: PresetCategory; follow?: boolean; followTitle?: string; followLabel?: string }>();
+const props = defineProps<{
+  modelValue: string | null | undefined;
+  category: PresetCategory;
+  follow?: boolean;
+  followTitle?: string;
+  followLabel?: string;
+  /** 排在前面的（心跳里先列心跳的几个预设） */
+  first?: (p: Preset) => boolean;
+}>();
 const emit = defineEmits<{ 'update:modelValue': [id: string | null]; edit: [id: string] }>();
 const lib = useLibraryStore();
-const list = computed(() => lib.presetsOf(props.category));
+const list = computed(() => {
+  const all = lib.presetsOf(props.category);
+  const first = props.first;
+  return first ? [...all.filter((p) => first(p)), ...all.filter((p) => !first(p))] : all;
+});
 </script>
 
 <template>
