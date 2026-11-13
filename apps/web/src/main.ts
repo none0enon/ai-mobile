@@ -33,6 +33,7 @@ import { maybeAutoConsolidate } from './services/consolidate';
 import { useServicesStore } from './stores/services';
 import { useRealWorldStore } from './stores/realworld';
 import { useWeatherStore } from './stores/weather';
+import { startup } from './startup';
 
 if (import.meta.env.MODE === 'preview') {
   // Claude Artifact 预览：外层已处理安全区
@@ -52,7 +53,7 @@ initPwa(import.meta.env.PROD && import.meta.env.MODE !== 'preview');
 const app = createApp(App).use(createPinia()).use(router);
 
 // 先读本机数据库（导入的角色、世界书、预设、聊天），再挂载：刷新后直接打开导入角色的聊天也找得到
-// 个别 WebView 里 IndexedDB 可能一直不回应：最多等 1.5 秒，读到的数据之后再补进来
+// 所有 store 仍并发读取；升级阻塞或读取失败时展示恢复入口，不能挂载可编辑的空数据页面。
 const hydrated = Promise.allSettled([
   useAiStore().hydrate(),
   // 地图、天气、音乐的 Key 和地址（真实世界、天气要先读出来）
@@ -73,14 +74,6 @@ const hydrated = Promise.allSettled([
   // 记忆：事实记忆、故事片段、时间线、画像卡
   useMemoryStore().hydrate(),
 ]);
-// 上次在场景页里直接关了 App 的，那件事算结束（等角色也读出来，她才能回到原来的地方）。
-// 排在挂载前面：打开的正好是场景页时，场景页挂载后照常再进入
-void hydrated.then(() => {
-  useChatStore().endLeftoverScenes();
-  // 以前写在聊天上的摘要搬进时间线
-  const chats = useChatStore();
-  useMemoryStore().migrateChatSummaries(chats.chats, chats.list);
-});
 
 // iPhone 上只有用户点过屏幕后"解锁"的 <audio> 才能在网络请求之后播放语音：第一次点屏幕时解锁
 const unlock = () => {
@@ -97,26 +90,21 @@ function followLatestChat() {
   if (latest) useAppStore().activeCharacterId = latest.characterId;
 }
 
-Promise.race([hydrated, new Promise((r) => setTimeout(r, 1500))]).finally(() => {
-  app.mount('#app');
-  // 界面展示排期；云端同步只在所有本机上下文读完后启动，避免上传半份数据。
-  // IndexedDB 卡住时仍显示本机界面，但云端同步等待完整读取。
-  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  void Promise.race([hydrated, wait(5000)]).then(async () => {
-    followLatestChat();
-    // 每分钟按节律更新位置；已连接云端时只同步云端计划，避免重开时重复生成。
-    useRhythmStore().start();
-    // 你的真实世界（定位、家的坐标、附近的地方），然后是真实天气（你那边 + 住在别的城市的她们那边）
-    void useRealWorldStore()
-      .start()
-      .finally(() => useWeatherStore().start());
-    const proactive = useProactiveStore();
-    proactive.start();
-    void hydrated.then((results) => {
-      if (results.every((r) => r.status === 'fulfilled')) useHubStore().start();
-      else useHubStore().error = '本机数据未读完整，云端同步未启动；请重新打开 App';
-      // 没连云端时，距上次整理超过 20 小时的角色在本机补一次记忆整理（连了云端由凌晨 4 点的云端整理）
-      void maybeAutoConsolidate(useHubStore().connected);
-    });
-  });
+app.mount('#app');
+void hydrated.then((results) => {
+  if (results.some((r) => r.status === 'rejected')) {
+    startup.error = true;
+    return;
+  }
+  // 页面还没开放编辑：先结束上次留下的场景，再迁移以前写在聊天上的摘要。
+  const chats = useChatStore();
+  chats.endLeftoverScenes();
+  useMemoryStore().migrateChatSummaries(chats.chats, chats.list);
+  followLatestChat();
+  startup.ready = true;
+  useRhythmStore().start();
+  void useRealWorldStore().start().finally(() => useWeatherStore().start());
+  useProactiveStore().start();
+  useHubStore().start();
+  void maybeAutoConsolidate(useHubStore().connected);
 });

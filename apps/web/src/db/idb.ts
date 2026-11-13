@@ -1,4 +1,4 @@
-import { watch, type WatchSource } from 'vue';
+import { reactive, watch, type WatchSource } from 'vue';
 
 /**
  * 本机数据库（IndexedDB）。导入的角色卡、世界书、预设，以及和导入角色的聊天都存在这里，刷新、离线后还在。
@@ -19,26 +19,64 @@ const VERSION = 6;
 const STORES = ['characters', 'lorebooks', 'presets', 'chats', 'messages', 'settings', 'secrets', 'assets', 'books', 'rhythm', 'gallery', 'memories', 'slices', 'summaries', 'profiles', 'live2d'] as const;
 export type StoreName = (typeof STORES)[number];
 
-let opening: Promise<IDBDatabase | null> | null = null;
+export const databaseState = reactive({ status: 'opening' as 'opening' | 'blocked' | 'ready' | 'error' | 'outdated' });
+let opening: Promise<IDBDatabase> | null = null;
 
-function open(): Promise<IDBDatabase | null> {
+function open(): Promise<IDBDatabase> {
+  // 别的页面已升级：这页的内存快照可能过时，重新加载前不能再写回。
+  if (databaseState.status === 'outdated') return Promise.reject(new Error('请重新打开 App 以读取更新后的本机数据'));
   if (opening) return opening;
-  opening = new Promise((resolve) => {
-    try {
-      const req = indexedDB.open(DB_NAME, VERSION);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        for (const s of STORES) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s);
-      };
-      req.onsuccess = () => resolve(req.result);
-      // 无痕模式、存储被禁用：退回只在内存里
-      req.onerror = () => resolve(null);
-      req.onblocked = () => resolve(null);
-    } catch {
-      resolve(null);
+  databaseState.status = 'opening';
+  const pending = new Promise<IDBDatabase>((resolve, reject) => {
+    function request(version?: number) {
+      try {
+        const req = version === undefined ? indexedDB.open(DB_NAME) : indexedDB.open(DB_NAME, version);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          for (const s of STORES) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s);
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          // 旧缓存页面也能读已经升级的库，但绝不降级、删库或重建已有表。
+          if (STORES.some((s) => !db.objectStoreNames.contains(s))) {
+            db.close();
+            reject(new Error('本机数据需要更新版本的 App 才能读取'));
+            return;
+          }
+          db.onversionchange = () => {
+            db.close();
+            if (opening === pending) opening = null;
+            databaseState.status = 'outdated';
+          };
+          db.onclose = () => {
+            if (opening === pending) {
+              opening = null;
+              databaseState.status = 'error';
+            }
+          };
+          databaseState.status = 'ready';
+          resolve(db);
+        };
+        req.onerror = () => {
+          if (version !== undefined && req.error?.name === 'VersionError') request();
+          else reject(req.error ?? new Error('无法打开本机数据'));
+        };
+        // 占用解除后同一个请求会继续，不能把 blocked 当成一个空数据库。
+        req.onblocked = () => { databaseState.status = 'blocked'; };
+      } catch (error) {
+        reject(error);
+      }
+    }
+    request(VERSION);
+  });
+  opening = pending;
+  void pending.catch(() => {
+    if (opening === pending) {
+      opening = null;
+      databaseState.status = 'error';
     }
   });
-  return opening;
+  return pending;
 }
 
 function done(tx: IDBTransaction): Promise<void> {
@@ -49,59 +87,45 @@ function done(tx: IDBTransaction): Promise<void> {
   });
 }
 
-export async function getAll<T>(store: StoreName): Promise<T[]> {
+/** 读失败必须向上传递；只有成功读完事务才能把不存在的记录当成空数据。 */
+async function read<T>(store: StoreName, request: (os: IDBObjectStore) => () => T): Promise<T> {
   const db = await open();
-  if (!db) return [];
-  return new Promise((resolve) => {
-    try {
-      const req = db.transaction(store, 'readonly').objectStore(store).getAll();
-      req.onsuccess = () => resolve(req.result as T[]);
-      req.onerror = () => resolve([]);
-    } catch {
-      resolve([]);
-    }
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly');
+    const result = request(tx.objectStore(store));
+    tx.oncomplete = () => resolve(result());
+    tx.onerror = () => reject(tx.error ?? new Error('本机数据读取失败'));
+    tx.onabort = () => reject(tx.error ?? new Error('本机数据读取中断'));
   });
 }
 
-export async function getOne<T>(store: StoreName, key: string): Promise<T | undefined> {
-  const db = await open();
-  if (!db) return undefined;
-  return new Promise((resolve) => {
-    try {
-      const req = db.transaction(store, 'readonly').objectStore(store).get(key);
-      req.onsuccess = () => resolve(req.result as T | undefined);
-      req.onerror = () => resolve(undefined);
-    } catch {
-      resolve(undefined);
-    }
+export function getAll<T>(store: StoreName): Promise<T[]> {
+  return read(store, (os) => {
+    const req = os.getAll();
+    return () => req.result as T[];
+  });
+}
+
+export function getOne<T>(store: StoreName, key: string): Promise<T | undefined> {
+  return read(store, (os) => {
+    const req = os.get(key);
+    return () => req.result as T | undefined;
   });
 }
 
 /** 读出整张表：键和值一起（getAll 只给值） */
-export async function getEntries<T>(store: StoreName): Promise<{ key: string; value: T }[]> {
-  const db = await open();
-  if (!db) return [];
-  return new Promise((resolve) => {
-    try {
-      const os = db.transaction(store, 'readonly').objectStore(store);
-      const keysReq = os.getAllKeys();
-      const valuesReq = os.getAll();
-      valuesReq.onsuccess = () => {
-        const keys = (keysReq.result ?? []) as IDBValidKey[];
-        resolve((valuesReq.result as T[]).map((value, i) => ({ key: String(keys[i]), value })));
-      };
-      valuesReq.onerror = () => resolve([]);
-    } catch {
-      resolve([]);
-    }
+export function getEntries<T>(store: StoreName): Promise<{ key: string; value: T }[]> {
+  return read(store, (os) => {
+    const keysReq = os.getAllKeys();
+    const valuesReq = os.getAll();
+    return () => (valuesReq.result as T[]).map((value, i) => ({ key: String(keysReq.result[i]), value }));
   });
 }
 
 export async function write(store: StoreName, puts: { key: string; value: unknown }[], dels: string[] = []): Promise<boolean> {
   if (!puts.length && !dels.length) return true;
-  const db = await open();
-  if (!db) return false;
   try {
+    const db = await open();
     const tx = db.transaction(store, 'readwrite');
     const os = tx.objectStore(store);
     for (const p of puts) os.put(p.value, p.key);
@@ -124,22 +148,38 @@ export function autoSave(store: StoreName, source: () => { key: string; value: u
   const last = new Map<string, string>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let paused = true;
+  let saving = 0;
+  let revision = 0;
+  let committed = 0;
+  const pendingKeys = new Set<string>();
 
   async function flush() {
     clearTimeout(timer);
     timer = undefined;
+    // pagehide / 切后台也会调用 flush，不能绕过 hydrate 前的暂停状态。
+    if (paused || databaseState.status === 'outdated') return;
     const puts: { key: string; value: unknown }[] = [];
-    const seen = new Set<string>();
+    const snapshot = new Map<string, string>();
     for (const { key, value } of source()) {
-      seen.add(key);
       const json = JSON.stringify(value);
-      if (last.get(key) === json) continue;
-      last.set(key, json);
+      snapshot.set(key, json);
+      // 前一次写入未完成时仍提交最新快照，包含用户迅速撤回的改动。
+      if (!saving && last.get(key) === json) continue;
       puts.push({ key, value: JSON.parse(json) });
     }
-    const dels = [...last.keys()].filter((k) => !seen.has(k));
-    for (const k of dels) last.delete(k);
-    await write(store, puts, dels);
+    const dels = [...new Set([...last.keys(), ...pendingKeys])].filter((k) => !snapshot.has(k));
+    if (!puts.length && !dels.length) return;
+    const current = ++revision;
+    saving++;
+    for (const { key } of puts) pendingKeys.add(key);
+    const saved = await write(store, puts, dels);
+    saving--;
+    if (saved && current > committed) {
+      committed = current;
+      last.clear();
+      for (const [key, json] of snapshot) last.set(key, json);
+    }
+    if (!saving) pendingKeys.clear();
   }
 
   watch(

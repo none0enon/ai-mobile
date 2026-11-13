@@ -19,15 +19,6 @@ AI 继续使用现有 `[expr:smile]` 等情绪标签。自动映射模型实际�
 ```sh
 pnpm typecheck
 pnpm build
-pnpm --filter @app/web test
-pnpm test
-LIVE2D_TEST_ZIP=/path/to/Madara-Live2D-v19-complete-interactive.zip pnpm --filter @app/web test:e2e
 ```
-
-Playwright 使用本地浏览器。需要时先执行 `pnpm --filter @app/web exec playwright install chromium`。未设置 `LIVE2D_TEST_ZIP` 时仅跳过需要实际模型的用例，音频回归仍执行。
-
-可另外设置 `LIVE2D_TEST_FOLDER=/path/to/Hiyori` 检查普通 SDK 模型的文件夹上传、移除和 WebGL 丢失后重试。将单文件预览构建在本机启动后，设置 `LIVE2D_PREVIEW_URL=http://127.0.0.1:5176` 可同时检查构建产物中的 Core/Framework 加载顺序。所有浏览器用例可以并行运行。
-
-实测包：`Madara-Live2D-v19-complete-interactive.zip`，选取 20 个引用文件（含参数显示名称），共 140,551,510 字节（134.0 MiB）。测试涵盖完整 ZIP 上传、刷新恢复、眨眼参数、表情与连续手势、角色节律背景变化、音频有声/静音段嘴型、TTS 失败时闭嘴、视频/语音切换及挂断；另验证半身/全身模型实际像素贴底、横竖屏等比取景、人物大小保存、铠甲/族服预览、节律匹配和默认回退、两套服装下的动作。端到端通话使用本地模拟 LLM/TTS 接口和带静音段的 PCM 音频，经过应用原有请求与播放链路；不依赖用户的付费 API。手机真机和外部服务商需在配置好语音后验收。
 
 模型不打包进仓库或站点。SDK 构建来源和重建方式见 `apps/web/src/vendor/cubism/NOTICE.md`。

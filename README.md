@@ -63,7 +63,6 @@ docs/DESIGN.md       完整设计
 pnpm install
 pnpm dev            # http://localhost:5173
 pnpm typecheck      # vue-tsc + tsc
-pnpm test           # 云端主动消息：workerd + D1、并发/幂等/重试/时区、Service Worker
 pnpm build          # 正式构建 → apps/web/dist（hash 路由，可放在任意静态目录）
 pnpm build:preview  # 单文件预览页 → apps/web/artifact/index.html
 ```
