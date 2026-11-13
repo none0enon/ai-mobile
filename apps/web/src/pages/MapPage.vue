@@ -149,15 +149,10 @@ const suggestion = computed(() => {
   return { loc, activity, text: `「${t.text}」` };
 });
 
-// —— 共同的家：今天的家务（在你的家） ——
+// —— 共同的家：她的世界"一起做点什么"里，紧挨着打电话，一直在（地点是你的家） ——
 const homeStore = useHomeStore();
 const me = computed(() => usePersonaStore().defaultPersona);
 const chores = computed(() => homeStore.itemsFor(me.value));
-const homeWhere = computed(() => {
-  if (!me.value.housework?.enabled) return '家务系统没开';
-  const n = chores.value.length;
-  return n ? `今天的家务 ${chores.value.filter((c) => c.mark.status === 'done').length}/${n}` : '今天没有家务';
-});
 /** 格子里的小字要短：开了家务写"家务 2/5"，没开写"和她" */
 function homeTileWhere(name: string): string {
   const n = chores.value.length;
@@ -338,14 +333,6 @@ watch(
           </div>
           <RouterLink to="/me/environment" class="mini-btn">{{ real.address ? '修改' : '设置' }}</RouterLink>
         </div>
-        <button class="home-card together mx-4 mt-2 press" data-act="home" @click="goHome(app.activeCharacterId)">
-          <span class="home-icon"><span class="i-lucide-house-heart" /></span>
-          <div class="flex-1 min-w-0 text-left">
-            <div class="text-[15px] font-600 truncate">共同的家</div>
-            <div class="text-[12.5px] text-ink-3 truncate">{{ homeWhere }}{{ me.housework?.enabled ? '' : ' · 去人设里打开' }}</div>
-          </div>
-          <span class="i-lucide-chevron-right text-ink-3" />
-        </button>
 
         <div class="mx-4 mt-3 relative">
           <RealMap
@@ -720,9 +707,6 @@ watch(
   border-radius: 20px;
   background: var(--surface);
   border: 1px solid var(--border);
-}
-.home-card.together {
-  width: calc(100% - 32px);
 }
 .home-icon {
   display: inline-flex;
