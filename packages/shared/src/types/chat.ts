@@ -164,6 +164,18 @@ export type MessagePart =
       /** 先到终点的；没下完时不写 */
       winner?: 'you' | 'her';
     }
+  /** 一起玩的一局：装修小屋（屋子叫什么、现在摆了几件、这一次添了几件、其中她放了几件、收工时拍的照片） */
+  | {
+      type: 'game';
+      logId: string;
+      game: 'decor';
+      room: string;
+      items: number;
+      added: number;
+      herAdded: number;
+      /** 收工时拍的屋子：本机素材库的 key */
+      photo?: string;
+    }
   /** 一起观影的票根 */
   | {
       type: 'watch';

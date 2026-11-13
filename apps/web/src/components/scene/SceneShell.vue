@@ -19,6 +19,7 @@ import { useRealWorldStore } from '@/stores/realworld';
  * art：这一刻画好的图（生图）。有图时盖在背景和立绘上面、淡入；还没画好时照常显示立绘（设计文档 §10.3）。点图看大图。
  * drawing：正在画（顶栏右边转圈，文字给读屏和长按提示）。
  * bare：外壳只给背景、立绘和顶栏，她的话、面板、画好的图都由场景自己在 overlay 里摆（陪伴学习的分屏和专注画面）。
+ * back：左上角返回做什么（一起游戏打开了一个游戏时回游戏列表）；不给时返回上一页。
  */
 const props = withDefaults(
   defineProps<{
@@ -42,8 +43,9 @@ const props = withDefaults(
     art?: { url: string; title?: string } | null;
     drawing?: string | null;
     bare?: boolean;
+    back?: (() => void) | null;
   }>(),
-  { rain: false, dim: 0, typing: false, hideFigure: false, fill: false, pokeable: false, showHotspots: false, art: null, drawing: null, bare: false },
+  { rain: false, dim: 0, typing: false, hideFigure: false, fill: false, pokeable: false, showHotspots: false, art: null, drawing: null, bare: false, back: null },
 );
 const emit = defineEmits<{ (e: 'poke', h: PokeHotspot, kind: 'tap' | 'long'): void }>();
 
@@ -106,7 +108,7 @@ function openArt() {
       </Transition>
       <div class="tint" />
       <header class="scene-top">
-        <button class="pill" aria-label="返回" @click="goBack('/map')"><span class="i-lucide-chevron-left text-[20px]" /></button>
+        <button class="pill" aria-label="返回" @click="back ? back() : goBack('/map')"><span class="i-lucide-chevron-left text-[20px]" /></button>
         <span class="pill title"><span :class="scene.icon" /><span class="truncate">{{ title ?? titleAt(location, sceneId) }}</span></span>
         <span class="flex-1" />
         <button v-if="modeText" class="pill mode" :class="together ?? ''" :disabled="together === 'bring'" :aria-label="`怎么在一起：${modeText}`" @click="toggleMode">

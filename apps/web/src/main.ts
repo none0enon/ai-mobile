@@ -21,6 +21,7 @@ import { useChatStore } from './stores/chat';
 import { useLibraryStore } from './stores/library';
 import { useProactiveStore } from './stores/proactive';
 import { useSoupStore } from './stores/soups';
+import { useDecorStore } from './stores/decor';
 import { useBookStore } from './stores/books';
 import { useHubStore } from './stores/hub';
 import { useEnvironmentStore } from './stores/environment';
@@ -67,6 +68,8 @@ const hydrated = Promise.allSettled([
   useHubStore().hydrate(),
   useEnvironmentStore().hydrate(),
   useSoupStore().hydrate(),
+  // 一起游戏 · 装修小屋：每个角色的小屋和你们俩的小人
+  useDecorStore().hydrate(),
   useBookStore().hydrate(),
   // 节律要先读出来：导入角色"建世界"生成的世界要在打开地图、场景之前登记好
   useRhythmStore().hydrate(),

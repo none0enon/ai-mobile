@@ -9,7 +9,8 @@ import type { Preset, PresetCategory, PromptBlock } from './types/preset.ts';
  * - 小剧场（番外）、总结、配图（image）、节律：选一个对应分类的预设；
  * - 一起做事时画的图（image:study 等）：选一个生图预设，或者"跟随配图"（用配图选的那个）；
  * - 心跳：打字聊用"心跳"（scene:heart），连麦用"心跳 · 语音"（heart-voice），玩具的控制指令用"控制指令"（device），背景图用 image:heart。
- * - 一起游戏：海龟汤用 scene:game，真心话大冒险用"一起游戏 · 真心话大冒险"（game-truthdare），飞行棋用"一起游戏 · 飞行棋"（game-flight，选的预设就是棋盘）。
+ * - 一起游戏：海龟汤用 scene:game，真心话大冒险用"一起游戏 · 真心话大冒险"（game-truthdare），飞行棋用"一起游戏 · 飞行棋"（game-flight，选的预设就是棋盘），
+ *   装修小屋用"一起游戏 · 装修小屋"（game-decor）。
  */
 export type FeatureSceneId = Exclude<SceneId, 'free'>;
 export type PresetUseId =
@@ -24,6 +25,7 @@ export type PresetUseId =
   | 'heart-voice'
   | 'game-truthdare'
   | 'game-flight'
+  | 'game-decor'
   | 'device'
   | `scene:${FeatureSceneId}`
   | `image:${FeatureSceneId}`;
@@ -90,6 +92,8 @@ export const isTruthDarePreset = (p: Pick<Preset, 'blocks'> | undefined) => hasT
 export const isSoupPreset = (p: Pick<Preset, 'blocks'> | undefined) => hasTasks(p, 'soup-');
 /** 飞行棋的棋盘预设（fly- 开头：设计格子 fly-make、她走到的格子 fly-do……） */
 export const isFlightPreset = (p: Pick<Preset, 'blocks'> | undefined) => hasTasks(p, 'fly-');
+/** 装修小屋的预设（decor- 开头：看看屋子 decor-look、动手布置 decor-plan……）：换成别的功能预设时她的布置方案读不出来 */
+export const isDecorPreset = (p: Pick<Preset, 'blocks'> | undefined) => hasTasks(p, 'decor-');
 
 /** 一起做事的用途里名字、说明和场景名不一样的（一个场景分了好几个用途的） */
 const SCENE_USE_TEXT: Partial<Record<FeatureSceneId, { label?: string; desc: string }>> = {
@@ -118,6 +122,14 @@ export const PRESET_USES: PresetUse[] = [
     label: '一起游戏 · 飞行棋',
     desc: '一起游戏里下双人飞行棋时用的棋盘：照它设计 128 格的任务，她走到的格子怎么做、你做完时她的反应',
     icon: 'i-lucide-dice-5',
+    follow: null,
+  },
+  {
+    id: 'game-decor',
+    category: 'feature',
+    label: '一起游戏 · 装修小屋',
+    desc: '一起游戏里装修小屋时：她看看屋子说想法、自己动手布置、给自己（或者给你）捏小人、边装边聊、收工时的话',
+    icon: 'i-lucide-sofa',
     follow: null,
   },
   { id: 'proactive', category: 'proactive', label: '主动消息', desc: '到点时角色先发来的那条', icon: 'i-lucide-bell-ring', follow: 'chat' },
