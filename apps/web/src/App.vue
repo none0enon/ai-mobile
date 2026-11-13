@@ -32,17 +32,15 @@ const accent = computed(() => {
   return (fromChat ?? fromRoute ?? chars.byId(app.activeCharacterId))?.accent ?? null;
 });
 
-const loadingTitle = computed(() => {
-  if (databaseState.status === 'outdated') return 'App 已在其他页面更新';
-  if (databaseState.status === 'blocked') return '请先关闭其他 AI 陪伴页面';
-  if (startup.error || databaseState.status === 'error') return '本机数据暂时无法读取';
-  return '正在读取本机数据';
-});
-const loadingMessage = computed(() => {
-  if (databaseState.status === 'outdated') return '重新打开本页，继续使用已保存的设置和聊天。';
-  if (databaseState.status === 'blocked') return '旧页面正在占用数据。请关闭其他浏览器标签页和已安装的 App 窗口，本页会自动继续读取。';
-  if (startup.error || databaseState.status === 'error') return '请重新打开后再试。不要清除网站数据，已保存的 Key 和聊天需要从这里读取。';
-  return '正在读取已保存的 Key、设置和聊天，请稍候。';
+/**
+ * 正常打开时不显示开屏画面：本机数据读完之前界面先空着，读完直接进 App。
+ * 只有本机数据出了问题（被旧页面占用、在别的页面更新了、读不出来）才拦住界面，说明怎么办。
+ */
+const notice = computed(() => {
+  if (databaseState.status === 'outdated') return { title: 'App 已在其他页面更新', message: '重新打开本页，继续使用已保存的设置和聊天。' };
+  if (databaseState.status === 'blocked') return { title: '请先关闭其他 AI 陪伴页面', message: '旧页面正在占用数据。请关闭其他浏览器标签页和已安装的 App 窗口，本页会自动继续读取。' };
+  if (startup.error || databaseState.status === 'error') return { title: '本机数据暂时无法读取', message: '请重新打开后再试。不要清除网站数据，已保存的 Key 和聊天需要从这里读取。' };
+  return null;
 });
 const reload = () => window.location.reload();
 </script>
@@ -53,9 +51,9 @@ const reload = () => window.location.reload();
       <RouterView />
       <InAppBanner />
     </template>
-    <section v-else class="startup-status" role="status" aria-live="polite">
-      <h1>{{ loadingTitle }}</h1>
-      <p>{{ loadingMessage }}</p>
+    <section v-else-if="notice" class="startup-status" role="status" aria-live="polite">
+      <h1>{{ notice.title }}</h1>
+      <p>{{ notice.message }}</p>
       <button type="button" @click="reload">重新打开</button>
     </section>
   </AccentScope>
