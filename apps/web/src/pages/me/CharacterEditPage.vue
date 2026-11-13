@@ -272,7 +272,7 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
           <div class="px-4 pt-3">
             <PresetPicker :model-value="presetId" category="chat" @update:model-value="pickPreset" />
             <p class="text-[12px] text-ink-3 mt-2.5 mb-0 leading-relaxed">
-              和{{ character.pronoun }}平时聊天（聊天气泡、剧场模式）按这套对话预设拼提示词，下一条回复起生效；在聊天右上角 ⋯ → 预设 里也能换。一起吃饭、一起运动这些用各自的功能预设，主动消息、番外、总结、配图也各用各的，在
+              和{{ character.pronoun }}平时聊天（聊天气泡、剧场模式）按这套对话预设拼提示词，下一条回复起生效；在聊天右上角 ⋯ → 预设 里也能换。一起吃饭、健身这些用各自的功能预设，主动消息、番外、总结、配图也各用各的，在
               <RouterLink to="/me/presets" class="text-accent-ink">我的 → 预设</RouterLink> 里选。
             </p>
           </div>

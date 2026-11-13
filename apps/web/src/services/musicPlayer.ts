@@ -5,7 +5,7 @@ import { services } from './index';
 import type { SongInfo } from './types';
 
 /**
- * 网易云的播放器（同 SleepTogether 的网易云面板：播放器放在模块里）。一起听歌、哄睡的音乐各用一个，播放列表各存各的：
+ * 网易云的播放器（同 SleepTogether 的网易云面板：播放器放在模块里）。一起听歌、哄睡、共同的家、健身的音乐各用一个，播放列表各存各的：
  * - 一起听歌（player 等导出）：离开"一起听歌"这一页时停（ScenePage 的 leaveScene；去聊天、打电话也算离开）；
  * - 哄睡的音乐（sleepMusic）：离开哄睡这一页时停；不取歌词；她说话时压低（duck），定时到点慢慢变小（fadeOut）；
  * - 歌曲地址播放前现取（约 20 分钟过期），播放出错先重取一次地址接着放，还不行就跳下一首；
@@ -622,6 +622,19 @@ const together = createMusicPlayer({ storageKey: 'ai-mobile:music:queue:v1', lyr
 
 /** 哄睡的音乐：播放列表和一起听歌的分开存，不取歌词，默认小声一点 */
 export const sleepMusic = createMusicPlayer({ storageKey: 'ai-mobile:sleep:music:v1', lyrics: false, volume: 0.7 });
+
+/** 共同的家（做家务时）的音乐：播放列表单独存 */
+export const choreMusic = createMusicPlayer({ storageKey: 'ai-mobile:home:music:v1', lyrics: false, volume: 0.8 });
+
+/** 健身时的音乐：播放列表单独存 */
+export const fitMusic = createMusicPlayer({ storageKey: 'ai-mobile:fit:music:v1', lyrics: false, volume: 0.85 });
+
+/** 一件事自带的几个歌单（components/scene/PlaylistMusic.vue）：按这些词去网易云搜，搜到的歌就是这个歌单 */
+export interface PlaylistSearch {
+  name: string;
+  keyword: string;
+  icon: string;
+}
 
 export const {
   state: player,

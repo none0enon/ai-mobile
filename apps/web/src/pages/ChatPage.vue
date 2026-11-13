@@ -19,7 +19,6 @@ import PresetPicker from '@/components/settings/PresetPicker.vue';
 import StageView from '@/components/stage/StageView.vue';
 import { usePoke } from '@/composables/usePoke';
 import PageHeader from '@/layouts/PageHeader.vue';
-import { mockToday } from '@/mock/activity';
 import { goBack } from '@/router';
 import { services } from '@/services';
 import { assetUrl, putAsset } from '@/services/assets';
@@ -223,12 +222,14 @@ function onAction(id: string) {
       chatStore.postCard(chatId.value, 'user', { type: 'date', place: '游乐园', when: '周日 15:00', status: 'invite' }, '周日一起去游乐园吗？');
       void chatStore.generate(chatId.value);
       break;
-    case 'workout': {
-      const w = mockToday().workout ?? { sport: '步行', distanceKm: 2.1, durationSec: 1500, pace: `11'54"` };
-      chatStore.postCard(chatId.value, 'user', { type: 'workout', logId: 'w-new', sport: w.sport, distanceKm: w.distanceKm, durationSec: w.durationSec, pace: w.pace });
-      void chatStore.generate(chatId.value);
+    case 'workout':
+      // 健身：照今天的计划练，或者随便动动（结束时运动卡片发进聊天）
+      void router.push('/scene/exercise');
       break;
-    }
+    case 'home':
+      // 共同的家：今天的家务（在你的家）
+      void router.push('/scene/home?at=real:home');
+      break;
     case 'cg':
       // 直接调生图：选画什么、写一句画面（可以不写），不经过聊天模型
       drawOpen.value = true;

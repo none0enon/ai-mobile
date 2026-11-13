@@ -29,6 +29,9 @@ import { useRhythmStore } from './stores/rhythm';
 import { useVoiceStore } from './stores/voice';
 import { useMessageSettingsStore } from './stores/messageSettings';
 import { useMemoryStore } from './stores/memory';
+import { usePersonaStore } from './stores/personas';
+import { useHomeStore } from './stores/home';
+import { useHealthStore } from './stores/health';
 import { maybeAutoConsolidate } from './services/consolidate';
 import { useServicesStore } from './stores/services';
 import { useRealWorldStore } from './stores/realworld';
@@ -73,6 +76,10 @@ const hydrated = Promise.allSettled([
   useMessageSettingsStore().hydrate(),
   // 记忆：事实记忆、故事片段、时间线、画像卡
   useMemoryStore().hydrate(),
+  // 我的人设（含家务系统、健康系统的设置）、家务的记录、健康计划和运动记录
+  usePersonaStore().hydrate(),
+  useHomeStore().hydrate(),
+  useHealthStore().hydrate(),
 ]);
 
 // iPhone 上只有用户点过屏幕后"解锁"的 <audio> 才能在网络请求之后播放语音：第一次点屏幕时解锁
@@ -103,6 +110,7 @@ void hydrated.then((results) => {
   followLatestChat();
   startup.ready = true;
   useRhythmStore().start();
+  useHomeStore().start();
   void useRealWorldStore().start().finally(() => useWeatherStore().start());
   useProactiveStore().start();
   useHubStore().start();

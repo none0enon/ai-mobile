@@ -28,6 +28,8 @@ import { useRealWorldStore } from '@/stores/realworld';
 import { useServicesStore } from '@/stores/services';
 import { distanceText } from '@/services/maps';
 import { useRhythmStore } from '@/stores/rhythm';
+import { useHomeStore } from '@/stores/home';
+import { usePersonaStore } from '@/stores/personas';
 import { useWeatherStore } from '@/stores/weather';
 import { hhmm, listTime } from '@/utils/time';
 
@@ -146,6 +148,20 @@ const suggestion = computed(() => {
   const activity = loc.activities.find((a) => a.sceneId === t.scene) ?? loc.activities[0]!;
   return { loc, activity, text: `「${t.text}」` };
 });
+
+// —— 共同的家：今天的家务（在你的家） ——
+const homeStore = useHomeStore();
+const me = computed(() => usePersonaStore().defaultPersona);
+const chores = computed(() => homeStore.itemsFor(me.value));
+const homeWhere = computed(() => {
+  if (!me.value.housework?.enabled) return '家务系统没开';
+  const n = chores.value.length;
+  return n ? `今天的家务 ${chores.value.filter((c) => c.mark.status === 'done').length}/${n}` : '今天没有家务';
+});
+function goHome(characterId: string) {
+  app.activeCharacterId = characterId;
+  void router.push({ path: '/scene/home', query: { at: 'real:home' } });
+}
 
 // —— 一起去 ——
 function go(loc: MapLocation, activity: LocationActivity, characterId: string) {
@@ -291,6 +307,11 @@ watch(
             <span class="act-name">{{ t.scene.name }}</span>
             <span class="act-where">{{ t.where }}</span>
           </button>
+          <button class="act press" style="--tone: #f2c38b" data-act="home" @click="goHome(owner.id)">
+            <span class="act-icon"><span class="i-lucide-house-heart" /></span>
+            <span class="act-name">共同的家</span>
+            <span class="act-where">{{ homeWhere }}</span>
+          </button>
           <RouterLink :to="`/call/${owner.id}`" class="act press" style="--tone: #e8c26a">
             <span class="act-icon"><span class="i-lucide-phone" /></span>
             <span class="act-name">打电话</span>
@@ -311,6 +332,14 @@ watch(
           </div>
           <RouterLink to="/me/environment" class="mini-btn">{{ real.address ? '修改' : '设置' }}</RouterLink>
         </div>
+        <button class="home-card together mx-4 mt-2 press" data-act="home" @click="goHome(app.activeCharacterId)">
+          <span class="home-icon"><span class="i-lucide-house-heart" /></span>
+          <div class="flex-1 min-w-0 text-left">
+            <div class="text-[15px] font-600 truncate">共同的家</div>
+            <div class="text-[12.5px] text-ink-3 truncate">{{ homeWhere }}{{ me.housework?.enabled ? '' : ' · 去人设里打开' }}</div>
+          </div>
+          <span class="i-lucide-chevron-right text-ink-3" />
+        </button>
 
         <div class="mx-4 mt-3 relative">
           <RealMap
@@ -685,6 +714,9 @@ watch(
   border-radius: 20px;
   background: var(--surface);
   border: 1px solid var(--border);
+}
+.home-card.together {
+  width: calc(100% - 32px);
 }
 .home-icon {
   display: inline-flex;

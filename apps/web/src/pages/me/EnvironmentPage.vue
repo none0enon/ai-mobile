@@ -237,7 +237,7 @@ function saveZone() {
         <van-cell title="安卓：计步 / Health Connect" label="安卓壳的原生桥读取" />
         <van-cell title="iPhone：快捷指令" label="把健康数据定时推给你的 Worker（M6 提供快捷指令模板）" />
         <van-cell title="运动截图识别" label="视觉模型读出距离和时长" />
-        <van-cell title="App 内记录" label="一起运动 / 吃饭 / 学习 / 哄睡 场景自动记下" />
+        <van-cell title="App 内记录" label="健身 / 共同的家 / 吃饭 / 学习 / 哄睡 场景自动记下" />
       </van-cell-group>
     </div>
   </div>

@@ -46,7 +46,38 @@ export type MessagePart =
   /** 拍一拍："你拍了拍她的头" / "她拍了拍你" */
   | { type: 'poke'; actor: 'user' | 'char'; target: string }
   | { type: 'call-log'; durationSec: number; scene?: string; missed?: boolean; transcriptId?: string; video?: boolean }
-  | { type: 'workout'; logId: string; sport: string; distanceKm?: number; durationSec: number; pace?: string }
+  /**
+   * 运动记录（"健身"结束时发；以前的卡片只有前几项）。
+   * plan：照着今天的健身计划练的（标题、做完了几个动作）；心率、消耗、步数、距离都是可选的（安卓自动记，别的手机手动填）
+   */
+  | {
+      type: 'workout';
+      logId: string;
+      sport: string;
+      distanceKm?: number;
+      durationSec: number;
+      pace?: string;
+      /** 照计划练 / 随便动动 */
+      mode?: 'plan' | 'free';
+      plan?: { title: string; done: number; total: number; moves?: string[] };
+      heartRate?: { avg?: number; max?: number };
+      kcal?: number;
+      steps?: number;
+      /** 这些数从哪来：auto 安卓自动记的 / manual 手动填的 / estimate 估的 */
+      source?: 'auto' | 'manual' | 'estimate';
+    }
+  /** 家务：在"共同的家"里做完了一件 / 说了晚点再做 */
+  | {
+      type: 'chore';
+      choreId: string;
+      name: string;
+      status: 'done' | 'later';
+      /** 做了几分钟（开始以后点做完的才有） */
+      minutes?: number;
+      /** 拖了几次（含这一次） */
+      later?: number;
+      note?: string;
+    }
   | { type: 'meal'; logId: string; meal: MealSlot; food: string; photo?: string | null }
   | {
       type: 'study';

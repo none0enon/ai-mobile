@@ -27,14 +27,15 @@ import {
 } from '@app/shared';
 import type { LLMChatMessage } from './types';
 import { mockToday, todayLine } from '@/mock/activity';
-import { personas } from '@/mock/characters';
 import { useAiStore } from '@/stores/ai';
+import { usePersonaStore } from '@/stores/personas';
 import { useEnvironmentStore } from '@/stores/environment';
 import { useLibraryStore } from '@/stores/library';
 import { afterSummarized, lastN, useMessageSettingsStore } from '@/stores/messageSettings';
 import { useRealWorldStore } from '@/stores/realworld';
 import { useRhythmStore } from '@/stores/rhythm';
 import { useWeatherStore } from '@/stores/weather';
+import { homeBlock, lifeFlags } from './homeBlock';
 import { memoryBlock, summaryBlock } from './memoryBlocks';
 import { recallForTurn, type RecallForTurn } from './recall';
 
@@ -47,7 +48,7 @@ import { recallForTurn, type RecallForTurn } from './recall';
 export { estimateTokens };
 
 export function personaOf(chat: Chat | undefined): Persona {
-  return personas.find((p) => p.id === chat?.personaId) ?? personas.find((p) => p.isDefault) ?? (personas[0] as Persona);
+  return usePersonaStore().forChat(chat);
 }
 
 function partToText(p: MessagePart, character: Character, user: string, mapText?: (text: string) => string): string {
@@ -67,7 +68,11 @@ function partToText(p: MessagePart, character: Character, user: string, mapText?
     case 'call-log':
       return `[${p.video ? '视频通话' : '语音通话'} ${Math.round(p.durationSec / 60)} 分钟${p.scene ? ` · ${p.scene}` : ''}]`;
     case 'workout':
-      return `[运动记录：${p.sport} ${p.distanceKm ?? ''} 公里，用时 ${Math.round(p.durationSec / 60)} 分钟]`;
+      return `[${workoutText(p)}]`;
+    case 'chore':
+      return p.status === 'done'
+        ? `[家务：${p.name} 做完了${p.minutes ? `，做了 ${p.minutes} 分钟` : ''}${p.later ? `（之前拖了 ${p.later} 次）` : ''}${p.note ? `；${p.note}` : ''}]`
+        : `[家务：${p.name} 说晚点再做（拖了 ${p.later ?? 1} 次）]`;
     case 'meal':
       return `[饭照：${p.food}]`;
     case 'study': {
@@ -94,8 +99,21 @@ function partToText(p: MessagePart, character: Character, user: string, mapText?
   }
 }
 
+/** 运动卡片的一句话："健身：照计划练「上肢 + 核心」做完 5/6 个动作，32 分钟；平均心率 138；约 210 千卡" */
+export function workoutText(p: Extract<MessagePart, { type: 'workout' }>): string {
+  const head = p.mode === 'plan' && p.plan ? `健身：照计划练「${p.plan.title}」，做完 ${p.plan.done}/${p.plan.total} 个动作` : `运动记录：${p.sport}`;
+  const parts = [
+    `用时 ${Math.max(1, Math.round(p.durationSec / 60))} 分钟`,
+    p.distanceKm ? `${p.distanceKm} 公里${p.pace ? `（配速 ${p.pace}）` : ''}` : '',
+    p.steps ? `${p.steps} 步` : '',
+    p.heartRate?.avg ? `平均心率 ${p.heartRate.avg}${p.heartRate.max ? `、最高 ${p.heartRate.max}` : ''}` : '',
+    p.kcal ? `约 ${p.kcal} 千卡` : '',
+  ].filter(Boolean);
+  return `${head}；${parts.join('；')}`;
+}
+
 /** mapText：只改文字部分（正则只改你写的、她说的，不动卡片的描述） */
-export function messageToText(m: Message, character: Character, user = personas[0]?.name ?? '你', mapText?: (text: string) => string): string {
+export function messageToText(m: Message, character: Character, user = usePersonaStore().defaultPersona.name, mapText?: (text: string) => string): string {
   return m.parts.map((p) => partToText(p, character, user, mapText)).join(' ').trim();
 }
 
@@ -157,7 +175,9 @@ function appFills(chat: Chat, character: Character, history: Message[], now: Dat
     ? null
     : chat.togetherAt
       ? isRealPlace(loc)
-        ? `你带${character.name}出门了，你们一起在${loc.name}`
+        ? loc.id === 'real:home'
+          ? `${character.name}在你这边，你们一起在家`
+          : `你带${character.name}出门了，你们一起在${loc.name}`
         : `你在${character.name}的小世界里陪${character.pronoun}，你们一起在${loc.name}`
       : `${character.name}在${character.pronoun}的小世界里的${loc.name}${character.status ? `（${character.status}）` : ''}；${useRealWorldStore().whereLine}`;
 
@@ -315,6 +335,11 @@ export function assembleForChat(chat: Chat, character: Character, history: Messa
   const userText = lastUser ? messageToText(lastUser, character, persona.name) : '';
   const recall: RecallForTurn = proactive ? { lines: [], snapshot: undefined, added: 0, reused: false } : recallForTurn(chat, character, userText, opts.targetId);
   const app = appFills(chat, character, history, now, timeZone, recall, proactive);
+  // 家务和健康：你人设里开着的系统今天的情况（都没开时没有这一块）
+  const flags = lifeFlags(persona);
+  // 预设里没有"她怎么反应"那一块的，自带的规则接在今天的情况后面
+  const home = homeBlock(persona, { preset, characterName: character.name });
+  if (home) app.home = home;
   if (opts.quiet) app.proactive = { content: opts.quiet, source: '主动消息：这一次要她做的事' };
   if (opts.task) app.sceneTask = { content: opts.task.input, source: `场景任务：${opts.task.name}` };
   // 功能预设里写了自己的"场景规则"：程序那块只填能用的标签和表情，不再重复场景规则
@@ -342,10 +367,17 @@ export function assembleForChat(chat: Chat, character: Character, history: Messa
     dryRun: opts.dryRun,
     model,
     task: opts.task?.name,
+    flags,
   });
   if (opts.quiet && !result.blocks.some((b) => b.identifier === 'proactive' && b.sent)) {
     result.messages.push({ role: 'system', content: opts.quiet, source: 'quiet', label: '主动消息：这一次要她做的事（预设里没有这一块，接在最后）' });
     result.tokens += estimateTokens(opts.quiet);
+  }
+  // 预设里没有"家务和健康"这一块（以前导入的 SillyTavern 预设、以前复制的）：今天的情况（和补上的规则）接在最后。
+  // 有这一块但你关掉了的不补
+  if (home && !preset.blocks.some((b) => b.identifier === 'home')) {
+    result.messages.push({ role: 'system', content: home.content, source: 'home', label: '家务和健康（预设里没有这一块，接在最后）' });
+    result.tokens += estimateTokens(home.content);
   }
   if (opts.task && opts.task.input.trim() && !result.blocks.some((b) => b.identifier === 'sceneTask' && b.sent)) {
     result.messages.push({ role: 'system', content: opts.task.input, source: 'sceneTask', label: '场景任务：这一次的输入（预设里没有这一块，接在最后）' });

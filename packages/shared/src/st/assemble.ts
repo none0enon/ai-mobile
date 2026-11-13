@@ -48,6 +48,11 @@ export interface AssembleInput {
    * 没写触发条件的块照常发送
    */
   task?: string;
+  /**
+   * 你人设里开着的系统（housework 家务、health 健康，见 LIFE_FLAGS）：触发条件里写了它们的块只在开着时发送
+   * （"家务：你怎么反应"那一块，没开家务系统时不发）
+   */
+  flags?: string[];
   now?: Date;
   timeZone?: string;
   idleMs?: number | null;
@@ -109,6 +114,8 @@ const TYPE_LABEL: Record<string, string> = {
   swipe: '换一条',
   regenerate: '重新生成',
   quiet: '后台',
+  housework: '开了家务系统',
+  health: '开了健康系统',
 };
 
 function stringFormat(format: string, value: string): string {
@@ -285,7 +292,7 @@ export function assemblePrompt(input: AssembleInput): AssembleResult {
       }
       continue;
     }
-    if (b.triggers?.length && !b.triggers.includes(type) && !(input.task && b.triggers.includes(input.task))) {
+    if (b.triggers?.length && !b.triggers.includes(type) && !(input.task && b.triggers.includes(input.task)) && !input.flags?.some((f) => b.triggers!.includes(f))) {
       report.note = `只在 ${b.triggers.map((t) => TYPE_LABEL[t] ?? t).join(' / ')} 时发送`;
       continue;
     }

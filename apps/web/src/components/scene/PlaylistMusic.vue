@@ -7,31 +7,24 @@ import { songs as demoSongs } from '@/mock/music';
 import { services, type SongInfo, type SongList } from '@/services';
 import { extractId } from '@/services/music';
 import { musicLibrary, saveList } from '@/services/musicLibrary';
-import { sleepMusic, type PlayMode, type QueueSource } from '@/services/musicPlayer';
+import type { MusicPlayer, PlaylistSearch, PlayMode, QueueSource } from '@/services/musicPlayer';
 import { useServicesStore } from '@/stores/services';
 import { clock } from '@/utils/time';
 
 /**
- * 哄睡的音乐：挑一个歌单放（services/musicPlayer.ts 的 sleepMusic，和一起听歌的播放列表分开存，下次打开还在）。
- * - 助眠：按"助眠 钢琴曲"这样的词去网易云搜，搜到的歌就是这个歌单；
+ * 挑一个歌单放（哄睡、共同的家、健身各用自己的播放器 services/musicPlayer.ts，播放列表各存各的，下次打开还在）：
+ * - 这件事自带的几个（searches）：哄睡是"助眠 钢琴曲"这类，做家务是轻快的，健身是有节奏的；
  * - 我们的歌单：一起听歌时点 ♡ 的歌、存下来的网易云歌单 / 专辑（services/musicLibrary.ts，和一起听歌共用）；
  * - 更多：自己搜一个词、贴网易云歌单 / 专辑的链接（能存进我们的歌单）。
- * 再点正在放的歌单是接着放。她说话时音乐压低一点，定时到点慢慢变小（SleepScene 管）。
+ * 再点正在放的歌单是接着放。她说话时音乐压低一点（场景管），哄睡定时到点慢慢变小。
  * 没填网易云 Worker 时只有示例歌单（虚构的歌、不出声）。
  */
+const props = withDefaults(defineProps<{ player: MusicPlayer; searches: PlaylistSearch[]; testId?: string }>(), { testId: 'playlist-music' });
+const music = props.player;
 const svc = useServicesStore();
-const player = sleepMusic.state;
+const player = music.state;
 const real = computed(() => svc.musicReady);
-const song = computed(() => sleepMusic.current());
-
-/** 助眠的歌单：按这些词去网易云搜 */
-const SLEEP_SEARCHES = [
-  { name: '睡前钢琴', keyword: '助眠 钢琴曲', icon: 'i-lucide-piano' },
-  { name: '纯音乐', keyword: '睡前 纯音乐', icon: 'i-lucide-feather' },
-  { name: '摇篮曲', keyword: '摇篮曲 八音盒', icon: 'i-lucide-moon-star' },
-  { name: '冥想', keyword: '冥想 助眠', icon: 'i-lucide-leaf' },
-  { name: '安静的民谣', keyword: '安静 民谣', icon: 'i-lucide-guitar' },
-];
+const song = computed(() => music.current());
 
 interface Pick {
   key: string;
@@ -44,7 +37,7 @@ interface Pick {
 
 const picks = computed<Pick[]>(() => {
   if (!real.value) return [{ key: 'demo', name: '示例歌单', icon: 'i-lucide-disc-3', count: demoSongs.length, load: async () => demoSongs }];
-  const out: Pick[] = SLEEP_SEARCHES.map((s) => ({ key: `q:${s.keyword}`, name: s.name, icon: s.icon, load: () => services.music.search(s.keyword, 30) }));
+  const out: Pick[] = props.searches.map((s) => ({ key: `q:${s.keyword}`, name: s.name, icon: s.icon, load: () => services.music.search(s.keyword, 30) }));
   const liked = musicLibrary.liked;
   if (liked.length) out.push({ key: 'liked', name: '一起喜欢的歌', icon: 'i-lucide-heart', count: liked.length, load: async () => liked });
   for (const l of musicLibrary.lists) out.push({ key: l.key, name: l.name, cover: l.cover, count: l.songs.length, load: async () => l.songs });
@@ -59,7 +52,7 @@ const picks = computed<Pick[]>(() => {
 
 onMounted(() => {
   // 接上网易云以后，列表里留着的示例歌放不出来：清掉
-  if (real.value && player.queue.some((s) => demoSongs.some((d) => d.id === s.id))) sleepMusic.clearQueue();
+  if (real.value && player.queue.some((s) => demoSongs.some((d) => d.id === s.id))) music.clearQueue();
 });
 
 // —— 挑歌单 ——
@@ -70,15 +63,15 @@ let pickRun = 0;
 /** 换成这个列表放（随机播放时从随机的一首开始） */
 function playSongs(songs: SongInfo[], source: QueueSource, start?: number) {
   const i = start ?? (player.mode === 'shuffle' ? Math.floor(Math.random() * songs.length) : 0);
-  void sleepMusic.playList(songs, i, source);
+  void music.playList(songs, i, source);
 }
 
 async function choose(p: Pick) {
   // 在点击里先解锁 <audio>：iPhone 上取完歌单、地址以后才能出声
-  sleepMusic.prime();
+  music.prime();
   pickError.value = '';
   if (player.source?.key === p.key && player.queue.length) {
-    if (!player.playing || player.fading) void sleepMusic.toggle(true);
+    if (!player.playing || player.fading) void music.toggle(true);
     return;
   }
   const run = (pickRun += 1);
@@ -97,18 +90,18 @@ async function choose(p: Pick) {
 
 // —— 播放控制（在点击里先解锁 <audio>） ——
 function onToggle() {
-  sleepMusic.prime();
+  music.prime();
   if (!player.queue.length) {
     const first = picks.value[0];
     if (first) void choose(first);
     return;
   }
   // 渐弱时点播放：不再变小，接着放
-  void sleepMusic.toggle(player.fading ? true : undefined);
+  void music.toggle(player.fading ? true : undefined);
 }
 function onNext() {
-  sleepMusic.prime();
-  void sleepMusic.next();
+  music.prime();
+  void music.next();
 }
 const MODES: Record<PlayMode, { icon: string; label: string }> = {
   list: { icon: 'i-lucide-repeat', label: '顺序播放' },
@@ -117,11 +110,11 @@ const MODES: Record<PlayMode, { icon: string; label: string }> = {
 };
 function cycleMode() {
   const order: PlayMode[] = ['list', 'shuffle', 'single'];
-  sleepMusic.setMode(order[(order.indexOf(player.mode) + 1) % order.length]!);
+  music.setMode(order[(order.indexOf(player.mode) + 1) % order.length]!);
 }
 const volume = computed({
   get: () => Math.round(player.volume * 100),
-  set: (v: number) => sleepMusic.setVolume(v / 100),
+  set: (v: number) => music.setVolume(v / 100),
 });
 const subtitle = computed(() => {
   if (player.fading) return '慢慢变小……';
@@ -157,7 +150,7 @@ async function search() {
 /** 搜到的歌就是一个歌单：从点的那首开始放 */
 function playResults(start?: number) {
   if (!results.value.length) return;
-  sleepMusic.prime();
+  music.prime();
   pickError.value = '';
   playSongs(results.value, { key: `q:${searched.value}`, name: searched.value ? `搜"${searched.value}"` : '搜到的歌' }, start);
   moreOpen.value = false;
@@ -191,7 +184,7 @@ async function doImport() {
 function playImported() {
   const l = imported.value;
   if (!l?.songs.length) return;
-  sleepMusic.prime();
+  music.prime();
   pickError.value = '';
   playSongs(l.songs, { key: l.key, name: l.name });
   moreOpen.value = false;
@@ -203,7 +196,7 @@ function saveImported() {
 </script>
 
 <template>
-  <div class="mt-3" data-testid="sleep-music">
+  <div class="mt-3" :data-testid="testId">
     <div class="now">
       <span class="disc" :class="{ spin: player.playing && !player.fading }" :style="{ '--hue': song?.hue ?? 255 }">
         <img v-if="song?.cover" :src="`${song.cover}?param=100y100`" alt="" referrerpolicy="no-referrer" />

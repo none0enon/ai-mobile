@@ -41,7 +41,7 @@ import { useLibraryStore } from './library';
 import { useEnvironmentStore } from './environment';
 import { useHubStore } from './hub';
 import { autoSave, getEntries, write } from '@/db/idb';
-import { personas } from '@/mock/characters';
+import { usePersonaStore } from './personas';
 import { uid } from '@/utils/id';
 
 /**
@@ -293,7 +293,7 @@ export const useRhythmStore = defineStore('rhythm', () => {
 
   function userName(characterId: string): string {
     const chat = useChatStore().chatOfCharacter(characterId);
-    return personas.find((p) => p.id === chat?.personaId)?.name ?? personas.find((p) => p.isDefault)?.name ?? '你';
+    return usePersonaStore().forChat(chat).name;
   }
 
   /** Upload only rhythm inputs; volatile location/presence changes do not invalidate a running plan. */

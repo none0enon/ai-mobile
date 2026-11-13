@@ -21,12 +21,13 @@ const component = computed(() => SCENE_COMPONENTS[sceneId.value]);
 /**
  * 在哪儿：?at= 指定的地点（她小世界里的，或你真实世界里的）→ 已经和她在一起的地方（那里能做这件事的话）
  * → 她的世界里做这件事的默认地点。
- * 约会没指定地点时先让你挑，由 DateScene 自己决定。
+ * 约会没指定地点时先让你挑，由 DateScene 自己决定；共同的家就在你的家（真实世界的家）。
  */
 function resolveLocation(): MapLocation | null {
   const at = getLocation(route.query.at as string | undefined);
   if (at) return at;
   if (sceneId.value === 'date') return null;
+  if (sceneId.value === 'home') return getLocation('real:home') ?? null;
   const current = getLocation(chat.chatOfCharacter(app.activeCharacterId)?.togetherAt);
   if (current?.activities.some((a) => a.sceneId === sceneId.value)) return current;
   return defaultLocationFor(sceneId.value, app.activeCharacterId);

@@ -157,12 +157,28 @@ async function playVoice() {
   <!-- 运动 -->
   <div v-else-if="part.type === 'workout'" class="pcard activity" style="--tone: #7fd1b1">
     <div class="flex items-center gap-2 text-[12.5px] text-ink-2">
-      <span class="i-lucide-footprints" style="color: var(--tone)" />运动记录 · {{ part.sport }}
+      <span :class="part.mode === 'plan' ? 'i-lucide-dumbbell' : 'i-lucide-footprints'" style="color: var(--tone)" />
+      <span class="truncate">{{ part.mode === 'plan' && part.plan ? `健身 · ${part.plan.title}` : `运动记录 · ${part.sport}` }}</span>
     </div>
     <div class="grid grid-cols-3 gap-2 mt-2">
-      <div><div class="big num">{{ part.distanceKm }}</div><div class="label">公里</div></div>
       <div><div class="big num">{{ clock(part.durationSec) }}</div><div class="label">用时</div></div>
-      <div><div class="big num">{{ part.pace }}</div><div class="label">配速</div></div>
+      <div v-if="part.plan"><div class="big num">{{ part.plan.done }}/{{ part.plan.total }}</div><div class="label">动作</div></div>
+      <div v-if="part.distanceKm != null"><div class="big num">{{ part.distanceKm }}</div><div class="label">公里</div></div>
+      <div v-if="part.pace && part.distanceKm"><div class="big num">{{ part.pace }}</div><div class="label">配速</div></div>
+      <div v-if="part.kcal"><div class="big num">{{ part.kcal }}</div><div class="label">千卡</div></div>
+      <div v-if="part.heartRate?.avg"><div class="big num">{{ part.heartRate.avg }}</div><div class="label">平均心率{{ part.heartRate.max ? ` · 最高 ${part.heartRate.max}` : '' }}</div></div>
+      <div v-if="part.steps"><div class="big num">{{ part.steps.toLocaleString('zh-CN') }}</div><div class="label">步</div></div>
+    </div>
+  </div>
+
+  <!-- 家务（共同的家） -->
+  <div v-else-if="part.type === 'chore'" class="pcard row-card" style="--tone: #f2c38b">
+    <span class="icon-wrap" style="color: var(--tone)"><span :class="part.status === 'done' ? 'i-lucide-circle-check' : 'i-lucide-hourglass'" /></span>
+    <div class="flex-1 min-w-0">
+      <div class="text-[14.5px] truncate">{{ part.status === 'done' ? `做完了：${part.name}` : `晚点再做：${part.name}` }}</div>
+      <div class="text-[12px] text-ink-3 truncate">
+        共同的家<template v-if="part.minutes"> · 做了 {{ part.minutes }} 分钟</template><template v-if="part.later"> · {{ part.status === 'done' ? `之前拖了 ${part.later} 次` : `拖了 ${part.later} 次` }}</template>
+      </div>
     </div>
   </div>
 

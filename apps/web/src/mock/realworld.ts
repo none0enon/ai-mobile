@@ -26,6 +26,7 @@ export function realHome(address: string, at?: { lat: number; lng: number } | nu
     distanceKm: 0,
     ...(at ? { lat: at.lat, lng: at.lng } : {}),
     activities: [
+      { sceneId: 'home', label: '共同的家' },
       { sceneId: 'sleep', label: '哄睡' },
       { sceneId: 'meal', label: '在家吃饭' },
       { sceneId: 'music', label: '一起听歌' },

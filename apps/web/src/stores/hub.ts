@@ -1,11 +1,12 @@
 import { apiKeyId, DEFAULT_PROACTIVE_RULES, type HubInbox, type HubMemoryResults, type HubStatus, type HubTouchpoint,
-  type HubRhythms, type Message, type NotificationPreview, type ProactiveContext, type ProactiveCredentials } from '@app/shared';
+  type Character, type HubRhythms, type Message, type NotificationPreview, type ProactiveContext, type ProactiveCredentials } from '@app/shared';
 import { defineStore } from 'pinia';
 import { computed, reactive, ref, watch } from 'vue';
 import { getOne, write } from '@/db/idb';
 import { applyMemoryOps, packConsolidation } from '@/services/consolidate';
 import { alwaysOn, memoryBlock, summaryBlock } from '@/services/memoryBlocks';
 import { personaOf } from '@/services/prompt';
+import { homeBlock, lifeFlags } from '@/services/homeBlock';
 import { useAiStore } from './ai';
 import { useAppStore } from './app';
 import { useCharacterStore } from './characters';
@@ -126,6 +127,12 @@ export const useHubStore = defineStore('hub', () => {
     return [...keep.values()].slice(0, 120).map(({ id, content, dueAt, type }) => ({ id, content, ...(dueAt ? { dueAt } : {}), type }));
   }
 
+  /** 家务和健康：上传云端的那份（时间按半小时取整，免得每分钟都要重新上传）；主动消息预设里没有"她怎么反应"的块时带上自带的 */
+  function homeSnapshot(persona: ReturnType<typeof personaOf>, character: Character): { home?: string } {
+    const b = homeBlock(persona, { stepMin: 30, preset: useLibraryStore().presetForUse('proactive', character), characterName: character.name });
+    return b ? { home: b.content } : {};
+  }
+
   function contexts(): ProactiveContext[] {
     const chars = useCharacterStore();
     const chats = useChatStore();
@@ -146,7 +153,13 @@ export const useHubStore = defineStore('hub', () => {
         ).slice(-200),
         // 只传排期要用的待跟进、每次都带的和最重要的几十条，记忆再多也不会超长
         memories: cloudMemories(character.id),
-        memoryBlocks: { summary: summaryBlock(chat, character, timeZone).content, memory: memoryBlock(character, [], Date.now(), timeZone, { proactive: true }).content },
+        memoryBlocks: {
+          summary: summaryBlock(chat, character, timeZone).content,
+          memory: memoryBlock(character, [], Date.now(), timeZone, { proactive: true }).content,
+          // 家务和健康：上传那一刻的（写着"截至几点"）；没开这两套系统时没有
+          ...homeSnapshot(personaOf(chat), character),
+        },
+        flags: lifeFlags(personaOf(chat)),
         environment: useEnvironmentStore().settings, rules: DEFAULT_PROACTIVE_RULES,
         busyUntil: ['study', 'sleep'].includes(chat.currentScene ?? '') ? chat.lastMessageAt + 4 * 3_600_000 : 0,
         preview: config.preview }];

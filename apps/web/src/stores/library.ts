@@ -42,7 +42,7 @@ function readSeeds(): Seed[] {
     }
   }
   // 先对话、再功能……同一类按文件名
-  const order: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image', 'rhythm'];
+  const order: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image', 'rhythm', 'health'];
   return out.sort((a, b) => order.indexOf(a.preset.category) - order.indexOf(b.preset.category) || a.file.localeCompare(b.file));
 }
 
@@ -66,9 +66,13 @@ const DEMO_BOOK_IDS = new Set(demoLorebooks.map((b) => b.id));
  */
 interface SeedUpgrade {
   id: string;
-  file: string;
+  /** 一个预设文件，或者好几个（同样的改动） */
+  file?: string;
+  files?: string[];
   replaced?: Record<string, string[]>;
   added?: string[];
+  /** 改名：预设的名字、块的名字还是旧的默认名时换成新的 */
+  renamed?: { preset?: [string, string]; blocks?: Record<string, [string, string]> };
 }
 const SEED_UPGRADES: SeedUpgrade[] = [
   {
@@ -156,6 +160,46 @@ const SEED_UPGRADES: SeedUpgrade[] = [
     file: 'feature-sleep.json',
     added: ['sleepCall'],
   },
+  {
+    // 家务系统、健康系统：角色扮演的预设加上"家务和健康"（程序填你今天的情况）和她怎么反应的两块（只在你开了那套系统时发送）
+    id: 'life:blocks',
+    files: [
+      'chat-call.json',
+      'chat-daily.json',
+      'chat-stage.json',
+      'proactive.json',
+      'feature-date.json',
+      'feature-game.json',
+      'feature-meal.json',
+      'feature-music.json',
+      'feature-poke.json',
+      'feature-read.json',
+      'feature-sleep.json',
+      'feature-study.json',
+      'feature-watch.json',
+    ],
+    added: ['home', 'homeRules', 'healthRules'],
+  },
+  {
+    // 一起运动改成"健身"：照计划练 / 随便动动，开练、做完一个动作、练了一段时间、边练边聊、结束各一块，加上程序填这一次输入的"场景任务"
+    id: 'feature-exercise:fitness',
+    file: 'feature-exercise.json',
+    replaced: { sceneRule: ['【场景：一起运动】你和{{user}}正在一起跑步或散步。说话要短，适合边跑边听；每公里给一句鼓励或吐槽；结束后对这次运动具体地评价。'], jailbreak: ['边跑边说：每次一两句短句，适合边跑边听；不写大段动作描写。'] },
+    renamed: { preset: ['一起运动', '健身'], blocks: { sceneRule: ['场景规则 · 一起运动', '场景规则 · 健身'] } },
+    added: ['home', 'homeRules', 'healthRules', 'fitStart', 'fitMove', 'fitCheer', 'fitChat', 'fitEnd', 'sceneTask'],
+  },
+  {
+    // 总结：家务卡片、运动记录记成习惯和变化（不是每次打卡都记）
+    id: 'summary:life',
+    file: 'summary.json',
+    replaced: { rules: ['规则：\n- 片段按话题切，一件事一段，通常 1–5 段；零碎的闲聊合成一段"日常"。from / to 写聊天记录里的 # 行号。\n- 记忆只写以后用得上的：{{user}}的事实、偏好、约定、要跟进的事、情绪变化、关系里程碑；闲聊不记。\n- 一条只写一件事；写名字，不写"他""她"；时间写具体日期（按聊天记录里的时间换算，"明天"写成几月几号）。\n- 和已有记忆重复的不再写；有变化的写新的一条，并在 supersedes 里写旧的 id。\n- "周三下午两点面试"这类带时间的事写成 followup，dueAt 写事情结束后适合问结果的时间。\n- 好感变化克制：普通聊天 0，明显的感动或冲突才 ±1～3。'] },
+  },
+  {
+    // 节律建世界：能一起做的事里"一起运动"改叫"健身"
+    id: 'rhythm:fitness',
+    file: 'rhythm.json',
+    replaced: { buildWorld: ['这次的任务：建世界。从下面的角色卡和世界书里找出{{char}}住在哪、在哪读书或工作、常去哪些地方、身边有谁，写出{{char}}的小世界：\n- 地点 5–10 个，分三片：home 住处（至少一个，第一个是{{char}}住的地方）、campus 读书或工作的地方、city 常去的地方。名字用角色卡世界观里的叫法，6 个字以内。\n- 每个地点写 backdrop，只能从这些里选：bedroom 卧室、房间 / library 图书馆、自习室 / dining 食堂、餐厅 / cafe 咖啡店、小店 / park 公园、操场、户外 / seaside 海边、江边 / pool 游泳馆 / gym 健身房、训练场 / cinema 电影院 / night-market 夜市、街边小吃 / gallery 美术馆、博物馆 / aquarium 水族馆 / amusement 游乐园、电玩城 / music 有音乐的地方。\n- 每个地点写在那里能和{{user}}一起做的事 activities，scene 只能从这些里选：study 陪伴学习 / read 一起看书 / meal 一起吃饭 / exercise 一起运动 / watch 一起看片 / game 海龟汤 / date 约会 / music 一起听歌 / sleep 哄睡 / poke 戳戳乐；label 是在这个地点的说法（例如在咖啡店学习写"一起自习"）。\n- 身边的人：角色卡和世界书里提到的家人、室友、同学、同事、朋友，写名字、和{{char}}的关系、出处或一句话。没提到的不要编。\n- 作息模板：从 00:00 排到 24:00，一段接一段、不重叠，写几点到几点、在哪（写地点的 key）、在做什么（6 个字以内）；不能挪的事（固定的课、训练、班）写 "fixed": true。\n- 三餐习惯：早饭、午饭、晚饭一般吃什么。\n- 衣柜：4–8 套，至少有日常 daily、运动 sport、睡衣 sleep 各一套，可以有约会 date；每套写中文名和 NovelAI 的英文 tags（只写衣服、鞋、配饰，不写长相）。设定里写了{{char}}常穿什么的，照设定写。\n- 手头的事：{{char}}最近在忙的一件具体的事（陪伴学习时{{char}}的小目标）。\n输出格式：\n{"name": "小世界的名字", "blurb": "一句话介绍", "areas": {"home": "住处这一片叫什么", "campus": "读书或工作的那一片叫什么", "city": "常去的那一片叫什么"}, "homeKey": "住处的 key", "locations": [{"key": "英文小写 key", "name": "名字", "area": "home|campus|city", "indoor": true, "backdrop": "bedroom", "blurb": "一句话", "activities": [{"scene": "study", "label": "一起自习"}]}], "people": [{"name": "名字", "relation": "关系", "note": "出处或一句话"}], "schedule": [{"from": "00:00", "to": "07:30", "at": "地点 key", "status": "睡觉中", "fixed": false}], "meals": {"breakfast": "", "lunch": "", "dinner": ""}, "wardrobe": [{"kind": "daily|sport|sleep|date", "name": "中文名", "tags": "英文 tags"}], "task": "手头的事"}'] },
+  },
 ];
 
 /** 按 SEED_UPGRADES 更新本机的自带预设，返回改了的那些 */
@@ -164,31 +208,49 @@ function upgradeSeeded(list: Preset[], done: Set<string>): Preset[] {
   for (const u of SEED_UPGRADES) {
     if (done.has(u.id)) continue;
     done.add(u.id);
-    const seed = SEEDS.find((s) => s.file === u.file)?.preset;
-    if (!seed) continue;
-    for (const p of list) {
-      if (p.seedFile !== u.file) continue;
-      for (const [id, olds] of Object.entries(u.replaced ?? {})) {
-        const mine = p.blocks.find((b) => b.identifier === id);
-        const now = seed.blocks.find((b) => b.identifier === id);
-        if (mine && now && mine.content !== now.content && olds.includes(mine.content.trim())) {
-          mine.content = now.content;
-          changed.add(p);
-        }
-      }
-      for (const id of u.added ?? []) {
-        const at = seed.blocks.findIndex((b) => b.identifier === id);
-        if (at < 0 || p.blocks.some((b) => b.identifier === id)) continue;
-        // 插在文件里它前面那一块的后面；那一块你删了就放最后
-        const prev = seed.blocks[at - 1]?.identifier;
-        const i = prev ? p.blocks.findIndex((b) => b.identifier === prev) : -1;
-        p.blocks.splice(i >= 0 ? i + 1 : p.blocks.length, 0, clone(seed.blocks[at]!));
-        changed.add(p);
-      }
-    }
+    for (const file of u.files ?? (u.file ? [u.file] : [])) upgradeFile(list, u, file, changed);
   }
   for (const p of changed) p.updatedAt = Date.now();
   return [...changed];
+}
+
+/** 一个预设文件的一条升级：本机从这个文件放进来的那份（你没改过的地方）跟上 */
+function upgradeFile(list: Preset[], u: SeedUpgrade, file: string, changed: Set<Preset>) {
+  const seed = SEEDS.find((s) => s.file === file)?.preset;
+  if (!seed) return;
+  for (const p of list) {
+    if (p.seedFile !== file) continue;
+    const [fromName, toName] = u.renamed?.preset ?? [];
+    if (fromName && toName && p.name === fromName) {
+      p.name = toName;
+      if (seed.description) p.description = seed.description;
+      changed.add(p);
+    }
+    for (const [id, [from, to]] of Object.entries(u.renamed?.blocks ?? {})) {
+      const mine = p.blocks.find((b) => b.identifier === id);
+      if (mine && mine.name === from) {
+        mine.name = to;
+        changed.add(p);
+      }
+    }
+    for (const [id, olds] of Object.entries(u.replaced ?? {})) {
+      const mine = p.blocks.find((b) => b.identifier === id);
+      const now = seed.blocks.find((b) => b.identifier === id);
+      if (mine && now && mine.content !== now.content && olds.includes(mine.content.trim())) {
+        mine.content = now.content;
+        changed.add(p);
+      }
+    }
+    for (const id of u.added ?? []) {
+      const at = seed.blocks.findIndex((b) => b.identifier === id);
+      if (at < 0 || p.blocks.some((b) => b.identifier === id)) continue;
+      // 插在文件里它前面那一块的后面；那一块你删了就放最后
+      const prev = seed.blocks[at - 1]?.identifier;
+      const i = prev ? p.blocks.findIndex((b) => b.identifier === prev) : -1;
+      p.blocks.splice(i >= 0 ? i + 1 : p.blocks.length, 0, clone(seed.blocks[at]!));
+      changed.add(p);
+    }
+  }
 }
 
 /** 演示用的世界书（每次打开重新生成）；预设没有"自带的不能动"这回事 */

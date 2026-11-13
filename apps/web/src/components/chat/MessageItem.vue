@@ -10,9 +10,9 @@ import Avatar from '@/components/common/Avatar.vue';
 import ErrorDetails from '@/components/common/ErrorDetails.vue';
 import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
 import RichText from '@/components/common/RichText.vue';
-import { personas } from '@/mock/characters';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useChatStore } from '@/stores/chat';
+import { usePersonaStore } from '@/stores/personas';
 import { useMessageSettingsStore } from '@/stores/messageSettings';
 import { hashText, isFrontendCode, splitFences } from '@/utils/html';
 
@@ -54,7 +54,8 @@ const mine = computed(() => props.message.role === 'user');
 /** 你上传过头像时，你的消息右边也显示头像（没上传就不占地方） */
 const chatStore = useChatStore();
 const looks = useAppearanceStore();
-const me = computed(() => personas.find((p) => p.id === chatStore.chatById(props.message.chatId)?.personaId) ?? personas[0]);
+const personaStore = usePersonaStore();
+const me = computed(() => personaStore.forChat(chatStore.chatById(props.message.chatId)));
 const showMyAvatar = computed(() => !!me.value && !!looks.imageUrl(looks.avatarKey('persona', me.value.id) ?? me.value.avatar));
 const narrator = computed(() => props.message.role === 'narrator' || props.message.role === 'system');
 const textParts = computed(() => props.message.parts.filter((p) => p.type === 'text' && p.text));

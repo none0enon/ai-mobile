@@ -61,3 +61,4 @@ export * from './agents/recall.ts';
 export * from './agents/consolidate.ts';
 export * from './agents/illustrate.ts';
 export * from './agents/rhythm.ts';
+export * from './agents/health.ts';

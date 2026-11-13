@@ -5,7 +5,6 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
 import PersonTabs from '@/components/common/PersonTabs.vue';
-import { personas } from '@/mock/characters';
 import { pwa } from '@/pwa';
 import { useLibraryStore } from '@/stores/library';
 import { album } from '@/mock/memories';
@@ -15,6 +14,7 @@ import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { usePersonaStore } from '@/stores/personas';
 import { useProactiveStore } from '@/stores/proactive';
 import { useRhythmStore } from '@/stores/rhythm';
 import { useHubStore } from '@/stores/hub';
@@ -29,7 +29,8 @@ const chat = useChatStore();
 const lib = useLibraryStore();
 const ai = useAiStore();
 const liveAgents = computed(() => (Object.keys(AGENT_META) as AgentRole[]).filter((r) => ai.isLive(r)).length);
-const me = personas.find((p) => p.isDefault) ?? personas[0]!;
+const personaStore = usePersonaStore();
+const me = computed(() => personaStore.defaultPersona);
 const proactive = useProactiveStore();
 /** 今天所有打开了主动消息的角色加起来还会来找你几次 */
 const upcoming = computed(() => proactive.upcoming());
@@ -56,7 +57,7 @@ const groups = computed(() => [
     title: '角色与设定',
     rows: [
       { icon: 'i-lucide-contact-round', label: '角色卡', value: `${chars.list.length} 个`, to: '/me/characters' },
-      { icon: 'i-lucide-id-card', label: '我的人设', value: me.name, to: '/me/personas' },
+      { icon: 'i-lucide-id-card', label: '我的人设', value: me.value.name, to: '/me/personas' },
       { icon: 'i-lucide-library-big', label: '世界书', value: `${lib.lorebooks.length} 本`, to: '/me/lorebooks' },
       { icon: 'i-lucide-sliders-horizontal', label: '预设', value: `${lib.presets.length} 套`, to: '/me/presets' },
       { icon: 'i-lucide-messages-square', label: '消息设置', value: '', to: '/me/messages' },
@@ -81,6 +82,7 @@ const groups = computed(() => [
         to: '/me/proactive',
       },
       { icon: 'i-lucide-calendar-clock', label: '节律', value: rhythmValue.value, to: '/me/rhythm' },
+      { icon: 'i-lucide-heart-pulse', label: '健康计划', value: me.value.health?.enabled ? '' : '健康系统没开', to: '/me/health' },
       { icon: weather.mine?.icon ?? 'i-lucide-cloud-sun', label: '环境与作息', value: envValue.value, to: '/me/environment' },
     ],
   },
@@ -134,7 +136,7 @@ async function runSidestory() {
   const id = chat.chatOfCharacter(c.id)?.id;
   showLoadingToast({ message: `${c.name}那边……`, duration: 0, forbidClick: true });
   try {
-    story.value = await writeSidestory(c.id, { recentChat: id ? chat.recentLines(id, 8) : [], userName: me.name });
+    story.value = await writeSidestory(c.id, { recentChat: id ? chat.recentLines(id, 8) : [], userName: me.value.name });
     closeToast();
   } catch (e) {
     closeToast();
