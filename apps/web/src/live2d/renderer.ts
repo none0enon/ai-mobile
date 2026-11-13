@@ -1,8 +1,10 @@
-import type { CharacterLive2D } from '@app/shared';
+import type { CharacterLive2D, DayOutfit, Live2DOutfit, Live2DParameter } from '@app/shared';
 import coreUrl from '../vendor/cubism/live2dcubismcore.min.js?url';
 import { dialogueCue, gestureFor, mouthLevel } from './cues';
 import { GestureMotion, type Gesture } from './gesture';
 import type { ModelPackage } from './model';
+import { alphaBounds, fitSilhouette, validBounds, type Bounds } from './framing';
+import { isMadaraRig, selectOutfit, suggestedOutfits } from './outfits';
 
 type SDK = typeof import('../vendor/cubism/framework');
 let ready: Promise<SDK> | undefined;
@@ -65,7 +67,13 @@ export class Live2DRenderer {
   private gesture = new GestureMotion();
   private gestureUntil = 0;
   private madara = false;
-  private matrix: any;
+  private parameters: Live2DParameter[] = [];
+  private suggestions: Live2DOutfit[] = [];
+  private outfit?: Live2DOutfit;
+  private outfitValues: Record<string, number> = {};
+  private outfitKey = '';
+  private bounds: Bounds = { left: -1, right: 1, bottom: -1, top: 1 };
+  private boundsCache = new Map<string, Bounds>();
 
   private constructor(private canvas: HTMLCanvasElement, private api: SDK, private config: CharacterLive2D, private error: (message: string) => void) {
     const gl = canvas.getContext('webgl2', { alpha: true, antialias: true, premultipliedAlpha: true }) ?? canvas.getContext('webgl', { alpha: true, antialias: true, premultipliedAlpha: true });
@@ -97,9 +105,13 @@ export class Live2DRenderer {
     if (!this.moc) throw new Error('MOC3 未通过 Cubism 完整性检查');
     this.model = this.moc.createModel();
     if (!this.model) throw new Error('无法创建 Live2D 模型');
+    // DisplayInfo is optional, including for models already stored before this feature.
+    const display = refs.DisplayInfo && pack.files[refs.DisplayInfo] ? JSON.parse(await pack.files[refs.DisplayInfo]!.text()) : undefined;
+    const names = new Map<string, string>((Array.isArray(display?.Parameters) ? display.Parameters : []).filter((p: any) => typeof p.Id === 'string' && typeof p.Name === 'string').map((p: any) => [p.Id, p.Name]));
     for (let i = 0; i < this.model.getParameterCount(); i++) {
       const id = this.model.getParameterId(i);
       this.ids.set(id.getString(), id);
+      this.parameters.push({ id: id.getString(), name: names.get(id.getString()) ?? id.getString(), min: this.model.getParameterMinimumValue(i), max: this.model.getParameterMaximumValue(i), default: this.model.getParameterDefaultValue(i) });
     }
     const group = (name: string, fallback: string[]) => {
       const ids = pack.manifest.Groups?.find(g => g.Name === name && g.Target === 'Parameter')?.Ids;
@@ -107,9 +119,8 @@ export class Live2DRenderer {
     };
     this.eyeIds = group('EyeBlink', ['ParamEyeLOpen', 'ParamEyeROpen']);
     this.lipIds = group('LipSync', ['ParamMouthOpenY']);
-    this.madara = ['ParamGestureLive', 'ParamGestureRaise', 'ParamGestureFold', 'ParamOutfitPose'].every(id => this.ids.has(id));
-    this.matrix = new api.CubismModelMatrix(this.model.getCanvasWidth(), this.model.getCanvasHeight());
-    if (pack.manifest.Layout) this.matrix.setupFromLayout(new Map(Object.entries(pack.manifest.Layout)));
+    this.madara = isMadaraRig(this.parameters);
+    this.suggestions = suggestedOutfits(this.parameters);
     this.renderer = new api.CubismRenderer_WebGL();
     this.renderer.initialize(this.model);
     this.renderer.startUp(gl);
@@ -160,6 +171,7 @@ export class Live2DRenderer {
     const failure = loads.find(r => r.status === 'rejected');
     if (failure?.status === 'rejected') throw failure.reason;
     this.model.saveParameters();
+    this.setOutfit();
     this.setCue('neutral');
     this.resize();
     this.raf = requestAnimationFrame(this.frame);
@@ -171,6 +183,91 @@ export class Live2DRenderer {
     if (!this.level) {
       this.mouth = 0;
       for (const id of this.lipIds) this.set(id, 0);
+    }
+  }
+
+  /** New clothing takes effect immediately; expressions and gestures remain independent. */
+  setOutfit(desired?: DayOutfit, previewId?: string) {
+    const outfits = this.config.outfits?.length ? this.config.outfits : this.suggestions;
+    this.outfit = outfits.find(o => o.id === previewId) ?? selectOutfit(this.config, desired, this.suggestions);
+    const controlled = new Set(outfits.flatMap(o => Object.keys(o.parameters)));
+    this.outfitValues = Object.fromEntries(this.parameters.filter(p => controlled.has(p.id)).map(p => {
+      const value = this.outfit?.parameters[p.id] ?? p.default;
+      return [p.id, Number.isFinite(value) ? Math.max(p.min, Math.min(p.max, value)) : p.default];
+    }));
+    const key = JSON.stringify(this.outfitValues);
+    if (key === this.outfitKey) return;
+    this.outfitKey = key;
+    let bounds = this.boundsCache.get(key);
+    if (!bounds) {
+      bounds = this.measureSilhouette();
+      // A user editing a slider must not grow an unbounded cache.
+      if (this.boundsCache.size >= 24) this.boundsCache.clear();
+      this.boundsCache.set(key, bounds);
+    }
+    this.bounds = bounds;
+  }
+
+  settings(): Pick<CharacterLive2D, 'parameters' | 'outfits' | 'defaultOutfit'> {
+    const outfits = this.config.outfits?.length ? this.config.outfits : this.suggestions;
+    return { parameters: this.parameters, outfits, defaultOutfit: outfits.some(o => o.id === this.config.defaultOutfit) ? this.config.defaultOutfit : outfits[0]?.id };
+  }
+
+  private applyOutfit() {
+    for (const [id, value] of Object.entries(this.outfitValues)) this.set(id, value);
+  }
+
+  /** Calibrate once per outfit in a neutral pose, never track each animated frame. */
+  private measureSilhouette(): Bounds {
+    const saved = this.parameters.map(p => this.model.getParameterValueById(this.ids.get(p.id)) as number);
+    const { canvas, gl } = this;
+    const width = canvas.width, height = canvas.height;
+    try {
+      for (const p of this.parameters) this.set(p.id, p.default);
+      this.applyOutfit();
+      if (this.madara) {
+        this.set('ParamGestureLive', 1);
+        this.set('ParamGestureRaise', 0);
+        this.set('ParamGestureFold', 0);
+        this.set('ParamGestureStyle', 0);
+        this.set('ParamOutfitPose', (this.outfitValues.ParamOutfitPose ?? 0) >= 3 ? 3 : 0);
+      }
+      this.model.update();
+      const geometry = { left: Infinity, right: -Infinity, bottom: Infinity, top: -Infinity };
+      for (let i = 0; i < this.model.getDrawableCount(); i++) {
+        if (this.model.getDrawableOpacity(i) < 0.01) continue;
+        const vertices = this.model.getDrawableVertexPositions(i) as Float32Array;
+        for (let j = 0; j < vertices.length; j += 2) {
+          const x = vertices[j]!, y = vertices[j + 1]!;
+          if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+          geometry.left = Math.min(geometry.left, x); geometry.right = Math.max(geometry.right, x);
+          geometry.bottom = Math.min(geometry.bottom, y); geometry.top = Math.max(geometry.top, y);
+        }
+      }
+      if (!validBounds(geometry)) throw new Error('模型没有可见的人物轮廓');
+      // Alpha readback removes transparent texture/mesh margins, including off-centre exports.
+      const size = 256;
+      canvas.width = canvas.height = size;
+      const scale = Math.min(1.9 / (geometry.right - geometry.left), 1.9 / (geometry.top - geometry.bottom));
+      const tx = -(geometry.left + geometry.right) * scale / 2;
+      const ty = -(geometry.bottom + geometry.top) * scale / 2;
+      const matrix = new this.api.CubismMatrix44();
+      matrix.scale(scale, scale); matrix.translate(tx, ty);
+      this.draw(matrix);
+      const pixels = new Uint8Array(size * size * 4);
+      gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      const visible = alphaBounds(pixels, size, size);
+      if (!visible) return geometry;
+      return {
+        left: (visible.left / size * 2 - 1 - tx) / scale,
+        right: (visible.right / size * 2 - 1 - tx) / scale,
+        bottom: (visible.bottom / size * 2 - 1 - ty) / scale,
+        top: (visible.top / size * 2 - 1 - ty) / scale,
+      };
+    } finally {
+      canvas.width = width; canvas.height = height;
+      this.parameters.forEach((p, i) => this.set(p.id, saved[i]!));
+      this.model.update();
     }
   }
 
@@ -244,6 +341,7 @@ export class Live2DRenderer {
       this.motions.updateMotion(this.model, dt);
       this.model.saveParameters();
       this.expressions.updateMotion(this.model, dt);
+      this.applyOutfit();
       if (this.elapsed >= this.nextBlink) {
         this.blinkStart = this.elapsed;
         this.nextBlink = this.elapsed + 2.8 + Math.random() * 2.8;
@@ -260,7 +358,7 @@ export class Live2DRenderer {
         this.set('ParamGestureFold', g.fold);
         this.set('ParamSleeveLag', g.sleeveLag);
         this.set('ParamGestureStyle', ['rest', 'wave', 'crossed'].indexOf(g.target));
-        this.set('ParamOutfitPose', ['rest', 'wave', 'crossed'].indexOf(g.target));
+        this.set('ParamOutfitPose', ((this.outfitValues.ParamOutfitPose ?? 0) >= 3 ? 3 : 0) + ['rest', 'wave', 'crossed'].indexOf(g.target));
       }
       this.physics?.evaluate(this.model, dt);
       this.pose?.updateParameters(this.model, dt);
@@ -269,32 +367,32 @@ export class Live2DRenderer {
       this.mouth = target ? this.mouth + (target - this.mouth) * (1 - Math.exp(-dt * 28)) : 0;
       for (const id of this.lipIds) this.set(id, this.mouth);
       this.model.update();
-      const { gl, canvas } = this;
-      const aspect = canvas.width / canvas.height;
+      const { canvas } = this;
       const matrix = new this.api.CubismMatrix44();
-      // Fit full width on phones, including Madara's shoulder plates and raised hand.
-      if (this.madara) {
-        const fit = Math.min(2 * aspect / (this.model.getCanvasWidth() * 0.95), 2 / this.model.getCanvasHeight()) * 0.985;
-        matrix.scale(fit / aspect, fit);
-      } else {
-        const fit = Math.min(1, aspect / (this.model.getCanvasWidth() / this.model.getCanvasHeight())) * 0.95;
-        matrix.scale(fit / aspect, fit);
-        matrix.multiplyByMatrix(this.matrix);
-      }
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, canvas.width, canvas.height);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      this.renderer.setMvpMatrix(matrix);
-      this.renderer.setRenderState(null, [0, 0, canvas.width, canvas.height]);
-      this.renderer.drawModel();
+      const fit = fitSilhouette(this.bounds, canvas.width, canvas.height, this.config.framing?.zoom);
+      matrix.scale(fit.x, fit.y); matrix.translate(fit.tx, fit.ty);
+      this.draw(matrix);
       this.raf = requestAnimationFrame(this.frame);
     } catch (e) { this.setAudio(0, false); this.error(e instanceof Error ? e.message : 'Live2D 画面播放失败'); }
   };
 
+  private draw(matrix: any) {
+    const { gl, canvas } = this;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    this.renderer.setMvpMatrix(matrix);
+    this.renderer.setRenderState(null, [0, 0, canvas.width, canvas.height]);
+    this.renderer.drawModel();
+  }
+
   /** Inspection used by the model preview and regression tests. */
   snapshot() {
-    return { expression: this.expressionName, gesture: this.gesture.target, parameters: Object.fromEntries([...this.ids].map(([name, id]) => [name, this.model.getParameterValueById(id) as number])) };
+    return { expression: this.expressionName, gesture: this.gesture.target, outfit: this.outfit?.id, bounds: this.bounds,
+      fit: fitSilhouette(this.bounds, this.canvas.width, this.canvas.height, this.config.framing?.zoom),
+      viewport: { width: this.canvas.width, height: this.canvas.height },
+      parameters: Object.fromEntries([...this.ids].map(([name, id]) => [name, this.model.getParameterValueById(id) as number])) };
   }
 
   dispose() {

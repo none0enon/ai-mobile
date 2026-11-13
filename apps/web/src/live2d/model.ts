@@ -33,7 +33,7 @@ export function parseManifest(text: string): ModelManifest {
 
 export function referencedFiles(m: ModelManifest): string[] {
   const r = m.FileReferences;
-  return [...new Set([r.Moc, ...r.Textures, r.Physics, r.Pose,
+  return [...new Set([r.Moc, ...r.Textures, r.Physics, r.Pose, r.DisplayInfo,
     ...(r.Expressions ?? []).map(e => e.File),
     ...Object.values(r.Motions ?? {}).flat().map(m => m.File),
   ].filter((p): p is string => !!p))];

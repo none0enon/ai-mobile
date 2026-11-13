@@ -15,6 +15,25 @@ function speechFixture() {
 async function snapshot(page: Page) {
   return page.getByTestId('live2d-avatar').evaluate((el: any) => el.__vueParentComponent.exposed.snapshot());
 }
+async function expectGrounded(page: Page) {
+  const state = await snapshot(page);
+  expect(state.bounds.bottom * state.fit.y + state.fit.ty).toBeCloseTo(-1, 5);
+  expect(state.fit.x * state.viewport.width).toBeCloseTo(state.fit.y * state.viewport.height, 5);
+  // Check actual rendered pixels as well as projection: blank canvas margins must disappear.
+  const pixels = await page.locator('.live2d-avatar canvas').evaluate(async (canvas: HTMLCanvasElement) => {
+    await new Promise(requestAnimationFrame);
+    const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+    const data = new Uint8Array(canvas.width * canvas.height * 4);
+    gl!.readPixels(0, 0, canvas.width, canvas.height, gl!.RGBA, gl!.UNSIGNED_BYTE, data);
+    let bottom = canvas.height, top = 0;
+    for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+      if (data[(y * canvas.width + x) * 4 + 3]! > 24) { bottom = Math.min(bottom, y); top = Math.max(top, y); }
+    }
+    return { bottom, top, height: canvas.height };
+  });
+  expect(pixels.bottom).toBeLessThan(Math.max(12, pixels.height * 0.04));
+  expect(pixels.top - pixels.bottom).toBeGreaterThan(pixels.height * 0.4);
+}
 
 test('standard Cubism model imports as a folder and stays closed during idle motions', async ({ page }, testInfo) => {
   test.skip(!genericFolder, 'Set LIVE2D_TEST_FOLDER to an official SDK model folder');
@@ -25,6 +44,11 @@ test('standard Cubism model imports as a folder and stays closed during idle mot
   await expect(page.getByTestId('live2d-avatar')).toHaveAttribute('data-state', 'ready', { timeout: 60000 });
   expect((await snapshot(page)).parameters.ParamGestureLive).toBeUndefined();
   expect((await snapshot(page)).parameters.ParamMouthOpenY).toBe(0);
+  await expectGrounded(page);
+  await expect(page.getByLabel('默认衣着')).toHaveValue('model-default');
+  await page.setViewportSize({ width: 844, height: 390 });
+  await expectGrounded(page);
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: testInfo.outputPath('generic-model.png'), fullPage: true });
   await page.locator('.live2d-avatar canvas').evaluate((canvas: HTMLCanvasElement) => canvas.getContext('webgl2')!.getExtension('WEBGL_lose_context')!.loseContext());
   await expect(page.getByTestId('live2d-avatar')).toHaveAttribute('data-state', 'error');
@@ -65,6 +89,13 @@ test('Madara ZIP → persisted character preview → rhythm video → hangup', a
   expect((await snapshot(page)).parameters.ParamMouthOpenY).toBe(0);
   // The 426 MB source ZIP includes editor/art history. Only referenced runtime files persist.
   await expect(page.locator('.model-info')).toContainText('134.0 MB');
+  await expectGrounded(page);
+  await page.getByLabel('默认衣着').selectOption('clan');
+  await expect.poll(async () => (await snapshot(page)).outfit).toBe('clan');
+  await expect.poll(async () => (await snapshot(page)).parameters.ParamOutfitPose).toBe(3);
+  await expectGrounded(page);
+  await page.getByLabel('人物大小').fill('110');
+  expect((await snapshot(page)).bounds.bottom * (await snapshot(page)).fit.y + (await snapshot(page)).fit.ty).toBeCloseTo(-1, 5);
   const blink = await page.getByTestId('live2d-avatar').evaluate(async (el: any) => {
     const values: number[] = [];
     const end = performance.now() + 6500;
@@ -79,8 +110,10 @@ test('Madara ZIP → persisted character preview → rhythm video → hangup', a
   await page.getByLabel('预览表情').selectOption('angry');
   await expect.poll(async () => (await snapshot(page)).parameters.ParamGestureFold).toBeGreaterThan(0.8);
   expect((await snapshot(page)).expression).toBe('angry');
+  expect((await snapshot(page)).parameters.ParamOutfitPose).toBe(5);
   await page.getByRole('button', { name: '挥手', exact: true }).click();
   await expect.poll(async () => (await snapshot(page)).parameters.ParamGestureRaise).toBeGreaterThan(0.8);
+  expect((await snapshot(page)).parameters.ParamOutfitPose).toBe(4);
   await page.getByLabel('预览表情').selectOption('smile');
   await expect.poll(async () => (await snapshot(page)).expression).toBe('smirk');
   await page.locator('summary').filter({ hasText: '表情与动作映射' }).click();
@@ -88,22 +121,41 @@ test('Madara ZIP → persisted character preview → rhythm video → hangup', a
   await expect.poll(async () => (await snapshot(page)).parameters.ParamGestureFold).toBeGreaterThan(0.8);
   await page.getByLabel('微笑动作映射').selectOption('');
   await page.locator('summary').filter({ hasText: '表情与动作映射' }).click();
+  await page.locator('.preview').evaluate(el => el.scrollIntoView({ block: 'start' }));
   await page.screenshot({ path: testInfo.outputPath('model-preview.png'), fullPage: true });
   await page.reload();
   await expect(page.getByTestId('live2d-avatar')).toHaveAttribute('data-state', 'ready', { timeout: 60000 });
+  await expect(page.getByLabel('默认衣着')).toHaveValue('clan');
+  await expect(page.getByLabel('人物大小')).toHaveValue('110');
+  await page.getByRole('button', { name: '恢复自动比例' }).click();
+  await page.getByLabel('预览衣着').selectOption('armour');
+  await expect.poll(async () => (await snapshot(page)).parameters.ParamOutfitPose).toBe(0);
+  await expect(page.getByLabel('默认衣着')).toHaveValue('clan');
+  await page.getByLabel('预览衣着').selectOption('');
+  await expect.poll(async () => (await snapshot(page)).parameters.ParamOutfitPose).toBe(3);
   await page.evaluate(async () => {
     const { useRhythmStore } = await import('/src/stores/rhythm.ts');
     const { useVoiceStore } = await import('/src/stores/voice.ts');
     const { useCharacterStore } = await import('/src/stores/characters.ts');
     useVoiceStore().call.input = 'type';
     useCharacterStore().byId('suwan')!.name = '宇智波斑';
-    useRhythmStore().editToday('suwan')!.schedule = [{ from: '00:00', to: '24:00', locationId: 'library', status: '在图书馆读书' }];
+    const day = useRhythmStore().editToday('suwan')!;
+    day.schedule = [{ from: '00:00', to: '24:00', locationId: 'library', status: '在图书馆读书' }];
+    day.outfits.daily = { name: '铠甲', tags: 'red_armor' };
   });
   await page.getByRole('link', { name: '开始视频通话' }).click();
   await expect(page.locator('[data-page="video-call"]')).toBeVisible();
   await expect(page.getByTestId('live2d-avatar')).toHaveAttribute('data-state', 'ready', { timeout: 60000 });
   expect((await snapshot(page)).parameters.ParamMouthOpenY).toBe(0);
   await expect(page.locator('[data-page="video-call"]')).toHaveAttribute('data-backdrop', 'library');
+  await expect.poll(async () => (await snapshot(page)).outfit).toBe('armour');
+  await expectGrounded(page);
+  await page.evaluate(async () => {
+    const { useRhythmStore } = await import('/src/stores/rhythm.ts');
+    useRhythmStore().editToday('suwan')!.outfits.daily = { name: '校服', tags: 'school_uniform' };
+  });
+  await expect.poll(async () => (await snapshot(page)).outfit).toBe('clan');
+  await expectGrounded(page);
   // Exercise the real chat -> SentenceStream -> TTS -> <audio> -> avatar chain with local API fixtures.
   let reply = '[expr:angry]不行，我不同意。';
   let failTts = false;
@@ -131,6 +183,7 @@ test('Madara ZIP → persisted character preview → rhythm video → hangup', a
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await expect.poll(async () => (await snapshot(page)).parameters.ParamMouthOpenY).toBeGreaterThan(0.3);
   expect((await snapshot(page)).expression).toBe('angry');
+  expect((await snapshot(page)).parameters.ParamOutfitPose).toBe(5);
   const lipSamples = await page.getByTestId('live2d-avatar').evaluate(async (el: any) => {
     const samples: { time: number; mouth: number }[] = [];
     const end = performance.now() + 3000;
@@ -147,6 +200,9 @@ test('Madara ZIP → persisted character preview → rhythm video → hangup', a
   await expect.poll(async () => (await snapshot(page)).parameters.ParamMouthOpenY).toBe(0);
   await expect(page.getByTestId('call-status')).toContainText('打字');
   await page.screenshot({ path: testInfo.outputPath('video-call.png'), fullPage: true });
+  await page.setViewportSize({ width: 844, height: 390 });
+  await expectGrounded(page);
+  await page.setViewportSize({ width: 390, height: 844 });
   // Failed synthesis still shows captions but must never animate a speaking mouth.
   failTts = true;
   reply = '[expr:smile]好的，这一次只有字幕，没有声音。';
@@ -162,9 +218,12 @@ test('Madara ZIP → persisted character preview → rhythm video → hangup', a
   expect(silentMouth).toBe(0);
   await page.evaluate(async () => {
     const { useRhythmStore } = await import('/src/stores/rhythm.ts');
-    useRhythmStore().editToday('suwan')!.schedule = [{ from: '00:00', to: '24:00', locationId: 'cafe', status: '在咖啡店' }];
+    const day = useRhythmStore().editToday('suwan')!;
+    day.schedule = [{ from: '00:00', to: '24:00', locationId: 'cafe', status: '约会中' }];
+    day.outfits.date = { name: '约会战甲', tags: 'armor' };
   });
   await expect(page.locator('[data-page="video-call"]')).toHaveAttribute('data-backdrop', 'cafe');
+  await expect.poll(async () => (await snapshot(page)).outfit).toBe('armour');
   await page.getByTestId('toggle-video').click();
   await expect(page.getByTestId('live2d-avatar')).toHaveCount(0);
   await page.getByTestId('toggle-video').click();

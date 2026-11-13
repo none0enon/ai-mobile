@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import type { CharacterLive2D } from '@app/shared';
+import type { CharacterLive2D, DayOutfit } from '@app/shared';
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { getOne } from '@/db/idb';
 import type { ModelPackage } from '@/live2d/model';
 import { Live2DRenderer } from '@/live2d/renderer';
 
-const props = withDefaults(defineProps<{ config: CharacterLive2D; expression?: string; text?: string; sentence?: number; level?: number; audible?: boolean }>(), { expression: 'neutral', text: '', sentence: 0, level: 0, audible: false });
+const props = withDefaults(defineProps<{ config: CharacterLive2D; expression?: string; text?: string; sentence?: number; level?: number; audible?: boolean; outfit?: DayOutfit; previewOutfit?: string }>(), { expression: 'neutral', text: '', sentence: 0, level: 0, audible: false });
+const emit = defineEmits<{ ready: [settings: Pick<CharacterLive2D, 'parameters' | 'outfits' | 'defaultOutfit'>] }>();
 const canvas = ref<HTMLCanvasElement>();
 const canvasKey = ref(0);
 const loading = ref(true);
@@ -16,6 +17,10 @@ let mounted = false;
 
 function syncCue() { avatar?.setCue(props.expression, props.text); }
 function syncAudio() { avatar?.setAudio(props.level, props.audible); }
+function syncOutfit() {
+  try { avatar?.setOutfit(props.outfit, props.previewOutfit); }
+  catch (e) { error.value = e instanceof Error ? e.message : '衣着加载失败'; }
+}
 async function load() {
   const token = ++generation;
   avatar?.dispose();
@@ -35,6 +40,8 @@ async function load() {
     });
     if (token !== generation) { instance.dispose(); return; }
     avatar = instance;
+    emit('ready', instance.settings());
+    syncOutfit();
     syncCue();
     syncAudio();
   } catch (e) { if (token === generation) error.value = e instanceof Error ? e.message : '模型加载失败'; }
@@ -43,6 +50,7 @@ async function load() {
 watch(() => props.config.assetId, () => { if (mounted) void load(); });
 watch(() => [props.expression, props.text, props.sentence, props.config.expressionMap, props.config.motionMap], syncCue, { deep: true });
 watch(() => [props.level, props.audible], syncAudio, { flush: 'sync' });
+watch(() => [props.outfit, props.previewOutfit, props.config.outfits, props.config.defaultOutfit], syncOutfit, { deep: true });
 onMounted(() => { mounted = true; void load(); });
 onBeforeUnmount(() => { generation++; avatar?.dispose(); });
 defineExpose({ snapshot: () => avatar?.snapshot() });

@@ -11,6 +11,7 @@ import type { CallInput } from '@/stores/voice';
 import { useCharacterStore } from '@/stores/characters';
 import { useRhythmStore } from '@/stores/rhythm';
 import { useEnvironmentStore } from '@/stores/environment';
+import { outfitScene } from '@/live2d/outfits';
 import { clock, hhmm } from '@/utils/time';
 
 /**
@@ -46,6 +47,11 @@ const location = computed(() => getLocation(slot.value?.locationId ?? character.
 const backdrop = computed(() => location.value?.backdrop ?? 'room');
 const tod = computed(() => timeOfDay(zonedParts(now.value, environment.settings.timezone).hour));
 const expression = computed(() => chars.expression[character.value.id] ?? 'neutral');
+const outfit = computed(() => {
+  // Refresh today's outfit at the rhythm day boundary as well as on schedule edits.
+  void now.value;
+  return rhythm.outfitFor(character.value.id, outfitScene(slot.value));
+});
 function toggleVideo() { video.value = !video.value; }
 
 const captionsOn = ref(true);
@@ -159,40 +165,44 @@ onBeforeUnmount(() => { clearInterval(sceneTimer); call.dispose(); });
 
     <!-- 呼叫中 / 通话中 -->
     <div v-else class="content">
-      <div class="call-title text-[20px] font-700">{{ character.name }}</div>
-      <div class="text-[14px] text-ink-2 num">{{ video ? '视频 · ' : '' }}{{ state.phase === 'dialing' ? '等待对方接听…' : `通话中 ${clock(state.seconds)}` }}</div>
-      <div v-if="video" class="scene-label">{{ location?.name || '此刻的房间' }}<span v-if="slot?.status"> · {{ slot.status }}</span></div>
-      <div v-if="video" class="video-stage">
-        <Live2DAvatar v-if="character.live2d" :key="character.live2d.assetId" :config="character.live2d" :expression="expression" :text="state.sentence" :sentence="state.sentenceId" :level="state.herAudioLevel" :audible="state.her === 'speaking' && state.phase !== 'ended'" />
-        <div v-else class="missing-model">
-          <Avatar :character="character" :size="100" live />
-          <p>先为{{ character.name }}上传 Live2D 模型</p>
-          <RouterLink :to="`/me/characters/${character.id}?tab=live2d`">去上传模型</RouterLink>
+      <div class="call-scene">
+        <div class="call-title text-[20px] font-700">{{ character.name }}</div>
+        <div class="call-duration text-[14px] text-ink-2 num">{{ video ? '视频 · ' : '' }}{{ state.phase === 'dialing' ? '等待对方接听…' : `通话中 ${clock(state.seconds)}` }}</div>
+        <div v-if="video" class="scene-label">{{ location?.name || '此刻的房间' }}<span v-if="slot?.status"> · {{ slot.status }}</span></div>
+        <div v-if="video" class="video-stage">
+          <Live2DAvatar v-if="character.live2d" :key="character.live2d.assetId" :config="character.live2d" :expression="expression" :text="state.sentence" :sentence="state.sentenceId" :level="state.herAudioLevel" :audible="state.her === 'speaking' && state.phase !== 'ended'" :outfit="outfit" />
+          <div v-else class="missing-model">
+            <Avatar :character="character" :size="100" live />
+            <p>先为{{ character.name }}上传 Live2D 模型</p>
+            <RouterLink :to="`/me/characters/${character.id}?tab=live2d`">去上传模型</RouterLink>
+          </div>
+        </div>
+        <div v-else class="ring-wrap talk" :style="{ '--lv': state.her === 'speaking' ? state.herLevel : 0 }">
+          <template v-if="state.phase === 'dialing'"><span class="pulse" /><span class="pulse delay" /></template>
+          <span v-else class="glow" />
+          <Avatar :character="character" :size="120" live />
+        </div>
+        <div class="call-feedback">
+          <div class="text-[13px]" style="color: var(--accent)" data-testid="call-status">{{ status }}</div>
+          <Waveform v-if="!video" :level="level" :tone="state.her === 'speaking' ? 'var(--accent)' : 'var(--ink-2)'" class="mt-1" />
+
+          <div v-if="issues.length" class="issues">
+            <button v-for="(x, i) in issues" :key="i" type="button" class="issue" @click="router.push(x.to)">
+              <span :class="x.icon" class="shrink-0 mt-[2px]" />
+              <span class="flex-1 min-w-0 text-left">{{ x.text }}</span>
+              <span class="shrink-0 underline">去设置</span>
+            </button>
+          </div>
+
+          <div v-if="captionsOn" class="captions" aria-live="polite">
+            <p v-for="c in state.captions.slice(video ? -2 : -4)" :key="c.id" :class="[c.who, { pending: c.pending }]">
+              <b>{{ c.who === 'her' ? character.name : '我' }}：</b>{{ c.text }}
+            </p>
+            <p v-if="!state.captions.length" class="text-ink-3 text-[13px]">{{ state.phase === 'dialing' ? '接通后这里显示你们说的话' : '……' }}</p>
+          </div>
+          <div v-if="state.hint" class="text-[12.5px] text-ink-2 mt-2">{{ state.hint }}</div>
         </div>
       </div>
-      <div v-else class="ring-wrap talk" :style="{ '--lv': state.her === 'speaking' ? state.herLevel : 0 }">
-        <template v-if="state.phase === 'dialing'"><span class="pulse" /><span class="pulse delay" /></template>
-        <span v-else class="glow" />
-        <Avatar :character="character" :size="120" live />
-      </div>
-      <div class="text-[13px]" style="color: var(--accent)" data-testid="call-status">{{ status }}</div>
-      <Waveform v-if="!video" :level="level" :tone="state.her === 'speaking' ? 'var(--accent)' : 'var(--ink-2)'" class="mt-1" />
-
-      <div v-if="issues.length" class="issues">
-        <button v-for="(x, i) in issues" :key="i" type="button" class="issue" @click="router.push(x.to)">
-          <span :class="x.icon" class="shrink-0 mt-[2px]" />
-          <span class="flex-1 min-w-0 text-left">{{ x.text }}</span>
-          <span class="shrink-0 underline">去设置</span>
-        </button>
-      </div>
-
-      <div v-if="captionsOn" class="captions" aria-live="polite">
-        <p v-for="c in state.captions.slice(video ? -2 : -4)" :key="c.id" :class="[c.who, { pending: c.pending }]">
-          <b>{{ c.who === 'her' ? character.name : '我' }}：</b>{{ c.text }}
-        </p>
-        <p v-if="!state.captions.length" class="text-ink-3 text-[13px]">{{ state.phase === 'dialing' ? '接通后这里显示你们说的话' : '……' }}</p>
-      </div>
-      <div v-if="state.hint" class="text-[12.5px] text-ink-2 mt-2">{{ state.hint }}</div>
 
       <div v-if="!video" class="flex-1" />
 
@@ -245,9 +255,14 @@ onBeforeUnmount(() => { clearInterval(sceneTimer); call.dispose(); });
   --ink-3: rgba(244, 237, 255, 0.55);
 }
 .call-title { margin-top: 7vh; }
+.call-scene, .call-feedback { display: contents; }
 .video .content { overflow-y: auto; }
 .video .call-title { margin-top: 16px; }
-.video-stage { width: 100%; height: clamp(240px, 40dvh, 460px); flex: 1 0 240px; min-height: 240px; }
+.video .call-scene { position: relative; display: flex; flex-direction: column; align-items: center; flex: 1 0 300px; align-self: stretch; margin: 0 -20px; overflow: hidden; isolation: isolate; }
+.video .call-scene::after { content: ''; position: absolute; inset: auto 0 0; height: 130px; background: linear-gradient(transparent, rgba(12, 10, 22, 0.6)); pointer-events: none; }
+.video .call-title, .video .call-duration, .video .scene-label { z-index: 1; text-shadow: 0 1px 8px #171021; }
+.video-stage { position: absolute; inset: 88px 0 0; }
+.video .call-feedback { display: flex; flex-direction: column; align-items: center; position: relative; z-index: 1; margin-top: auto; padding: 12px 20px; width: 100%; max-height: 50%; overflow-y: auto; }
 .scene-label { font-size: 12px; color: var(--ink-2); margin-top: 4px; text-align: center; }
 .missing-model { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 13px; }
 .missing-model a { padding: 8px 16px; border-radius: 18px; background: var(--accent); color: var(--on-accent); }
