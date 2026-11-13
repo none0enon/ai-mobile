@@ -83,7 +83,9 @@ pnpm --filter @app/hub exec wrangler tail --config wrangler.deploy.json
 
 ## 持续部署
 
-`.github/workflows/hub.yml` 支持手动部署，以及 main 更新时部署。仓库 Secrets 设置 `CLOUDFLARE_API_TOKEN`（Worker 编辑 + D1 编辑）；Variables 设置 `CLOUDFLARE_ACCOUNT_ID`、`HUB_D1_ID`，自托管前端再设置 `HUB_APP_URL`。运行时秘密已用上述 secret bulk 写入，不随源码部署覆盖。缺少上述密钥或变量时，工作流会明确失败并列出缺失名称，不再静默跳过。已有本机 Wrangler 登录也可按前述 configure → migrations apply → deploy 更新，保持原有运行时密钥。
+`.github/workflows/hub.yml` 支持手动部署，以及配置好 GitHub 部署后 main 更新时自动部署。仓库 Secrets 设置 `CLOUDFLARE_API_TOKEN`（Worker 编辑 + D1 编辑）；Variables 设置 `CLOUDFLARE_ACCOUNT_ID`、`HUB_D1_ID`，自托管前端再设置 `HUB_APP_URL`。运行时秘密已用上述 secret bulk 写入，不随源码部署覆盖。
+
+未设置 `HUB_D1_ID` 表示没有启用 GitHub 自动部署，main 更新时跳过后台部署，不影响独立的 Pages 网页部署。设置了 `HUB_D1_ID` 或手动触发时，直接执行原有部署步骤。跳过不代表后台已更新。使用本机部署时，沿用已有 Wrangler 登录，按前述 configure → migrations apply → deploy 更新，保持原有运行时密钥。
 
 ## 范围
 
