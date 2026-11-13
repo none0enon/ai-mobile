@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { isExpression, worldOf, type MessagePart } from '@app/shared';
 import { showToast } from 'vant';
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import Segmented from '@/components/common/Segmented.vue';
 import SceneShell from '@/components/scene/SceneShell.vue';
+import TruthDare, { type TruthDarePhase } from '@/components/scene/game/TruthDare.vue';
 import { personaOf } from '@/services/prompt';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
@@ -12,12 +14,19 @@ import { parseSoup, useSoupStore, type Soup } from '@/stores/soups';
 import { uid } from '@/utils/id';
 
 /**
- * 一起游戏：先只做海龟汤（设计文档 §9.11）。
+ * 一起游戏（设计文档 §9.11）：海龟汤（这个文件）和真心话大冒险（components/scene/game/TruthDare.vue），开始前在最上面切换。
+ * 海龟汤：
  * - 她出题你猜：她当主持人，知道汤底，按汤底答"是 / 不是 / 无关 / 是也不是"，偶尔逗你一句（检查过不泄底）；
  * - 一起猜：中立的主持人判定，她是你的队友，她那边的调用里没有汤底，所以她真的不知道；
  * - 你出题她猜：你写汤面（汤底可写可不写），她来问，你点按钮回答。
- * 每一问每一答都存进聊天；汤底揭晓后才存进去。规则、判定格式都在"一起游戏"功能预设里，代码只填这一次的输入。
+ * 每一问每一答都存进聊天；汤底揭晓后才存进去。规则、判定格式都在"一起游戏 · 海龟汤"功能预设里，代码只填这一次的输入。
+ * 一局玩完不结束这件事（还能再来一局、换个游戏）：离开场景页时那一段写这一次玩了哪几局。
  */
+type Game = 'soup' | 'truthdare';
+const GAMES: { value: Game; label: string }[] = [
+  { value: 'soup', label: '海龟汤' },
+  { value: 'truthdare', label: '真心话大冒险' },
+];
 type Mode = 'host' | 'coop' | 'guest';
 type Phase = 'menu' | 'playing' | 'reveal';
 const MODES: { id: Mode; label: string; desc: string }[] = [
@@ -58,6 +67,27 @@ const mySurface = ref('');
 const myTruth = ref('');
 const herQuestion = ref('');
 const herGuess = ref('');
+
+const game = ref<Game>('soup');
+const tdPhase = ref<TruthDarePhase>('menu');
+/** 开始前才能换游戏 */
+const choosing = computed(() => (game.value === 'soup' ? phase.value === 'menu' : tdPhase.value === 'menu'));
+watch(game, () => {
+  herLine.value = '';
+});
+/** 这一次玩完的几局，和正在玩的真心话大冒险：离开时那一段写"一起玩了…" */
+const played = ref<string[]>([]);
+const tdProgress = ref<string | null>(null);
+onMounted(() => {
+  chat.setLeaveSummary(her.value.id, () => {
+    const all = [...played.value, ...(tdProgress.value ? [tdProgress.value] : [])];
+    return all.length ? `一起玩了${all.join('、')}` : undefined;
+  });
+});
+onBeforeUnmount(() => {
+  // 离开时那一段的总结已经在离开前取走了（ScenePage 的 onBeforeRouteLeave）
+  chat.setLeaveSummary(her.value.id, null);
+});
 
 const list = computed(() => soupStore.soups.filter((s) => allowRed.value || s.kind === '清汤'));
 const cue = computed(() => `第 ${qa.value.length + 1} 问`);
@@ -284,7 +314,7 @@ async function reveal() {
   else fail(r);
   const card: MessagePart = { type: 'game', logId: uid('game'), game: 'soup', title: s.title, mode: mode.value, result: result.value ?? 'gave-up', questions: qa.value.length, hints: hints.value, ...(s.truth ? { truth: s.truth } : {}) };
   chat.postCard(chatId.value, 'user', card);
-  chat.leaveScene(her.value.id, `一起玩了海龟汤《${s.title}》`);
+  played.value.push(`海龟汤《${s.title}》`);
 }
 </script>
 
@@ -296,10 +326,15 @@ async function reveal() {
       <button class="text-accent-ink shrink-0" @click="router.push('/me/api?feature=companion')">去设置</button>
     </div>
 
-    <!-- 选玩法、选题 -->
-    <template v-if="phase === 'menu'">
-      <div class="text-[15px] font-600">海龟汤</div>
-      <div class="flex gap-2 mt-2">
+    <!-- 开始前选游戏 -->
+    <Segmented v-if="choosing" v-model="game" :options="GAMES" class="mb-3" />
+
+    <!-- 真心话大冒险 -->
+    <TruthDare v-if="game === 'truthdare'" v-model:line="herLine" v-model:phase="tdPhase" @fail="fail" @progress="(s) => (tdProgress = s)" @done="(s) => played.push(s)" />
+
+    <!-- 海龟汤：选玩法、选题 -->
+    <template v-else-if="phase === 'menu'">
+      <div class="flex gap-2">
         <button v-for="m in MODES" :key="m.id" type="button" class="chip" :class="{ on: mode === m.id }" @click="mode = m.id">{{ m.label }}</button>
       </div>
       <div class="text-[12.5px] text-ink-3 mt-1.5">{{ MODES.find((m) => m.id === mode)?.desc }}</div>
@@ -380,7 +415,8 @@ async function reveal() {
       </div>
     </template>
 
-    <van-popup v-model:show="answerOpen" position="bottom" round>
+    <!-- 放到 body 下：场景面板有 backdrop-filter，弹层留在里面会被关在面板里 -->
+    <van-popup v-model:show="answerOpen" position="bottom" round teleport="body">
       <div class="p-4">
         <div class="text-[15px] font-600 mb-2">说出你的答案</div>
         <textarea v-model="answerText" class="area" rows="3" placeholder="把你推理出来的经过写下来" aria-label="答案" />

@@ -24,6 +24,7 @@ import {
   type Persona,
   type Preset,
   type RegexScript,
+  type TruthDareTally,
 } from '@app/shared';
 import type { LLMChatMessage } from './types';
 import { mockToday, todayLine } from '@/mock/activity';
@@ -91,6 +92,10 @@ function partToText(p: MessagePart, character: Character, user: string, mapText?
     case 'read':
       return `[一起读《${p.title}》：读到${p.chapter}，全书 ${p.progress}%，写了 ${p.notes} 条批注${p.quote ? `；划了"${p.quote}"` : ''}]`;
     case 'game':
+      if (p.game === 'truthdare') {
+        const tally = (t: TruthDareTally) => `真心话 ${t.truth} 次、大冒险 ${t.dare} 次${t.skipped ? `、认罚 ${t.skipped} 次` : ''}`;
+        return `[真心话大冒险（${p.level}）：玩了 ${p.rounds} 轮；${user}${tally(p.you)}；${character.name}${tally(p.her)}]`;
+      }
       return `[海龟汤《${p.title}》：${{ solved: '猜出来了', partial: '猜对了一半', 'gave-up': '认输了' }[p.result]}，问了 ${p.questions} 个问题${p.truth ? `；汤底：${p.truth}` : ''}]`;
     case 'watch':
       return `[一起看了《${p.title}》${p.minutes} 分钟${p.yourScore ? `；${user}打 ${p.yourScore}/5` : ''}${p.herScore ? `；${character.name}打 ${p.herScore}/5` : ''}]`;

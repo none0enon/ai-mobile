@@ -9,6 +9,7 @@ import type { PresetCategory } from './types/preset.ts';
  * - 小剧场（番外）、总结、配图（image）、节律：选一个对应分类的预设；
  * - 一起做事时画的图（image:study 等）：选一个生图预设，或者"跟随配图"（用配图选的那个）；
  * - 心跳：打字聊用"心跳"（scene:heart），连麦用"心跳 · 语音"（heart-voice），玩具的控制指令用"控制指令"（device），背景图用 image:heart。
+ * - 一起游戏：海龟汤用 scene:game，真心话大冒险用"一起游戏 · 真心话大冒险"（game-truthdare）。
  */
 export type FeatureSceneId = Exclude<SceneId, 'free'>;
 export type PresetUseId =
@@ -21,6 +22,7 @@ export type PresetUseId =
   | 'rhythm'
   | 'health'
   | 'heart-voice'
+  | 'game-truthdare'
   | 'device'
   | `scene:${FeatureSceneId}`
   | `image:${FeatureSceneId}`;
@@ -50,10 +52,27 @@ export function momentLabel(moment: string): string | undefined {
   return undefined;
 }
 
+/** 一起做事的用途里名字、说明和场景名不一样的（一个场景分了好几个用途的） */
+const SCENE_USE_TEXT: Partial<Record<FeatureSceneId, { label?: string; desc: string }>> = {
+  heart: { desc: '心跳里打字聊天时她说的话' },
+  game: { label: '一起游戏 · 海龟汤', desc: '一起游戏里玩海龟汤时：主持、判定、当队友、猜你出的题' },
+};
+
 export const PRESET_USES: PresetUse[] = [
   { id: 'call', category: 'chat', label: '语音通话', desc: '打电话时她说的话：短句、口语、不写动作，方便边生成边合成语音', icon: 'i-lucide-phone', follow: 'chat' },
-  ...SCENES.map((s): PresetUse => ({ id: `scene:${s.id as FeatureSceneId}`, category: 'feature', label: s.name, desc: s.id === 'heart' ? '心跳里打字聊天时她说的话' : `${s.name}时的对话`, icon: s.icon, follow: 'chat' })),
+  ...SCENES.map((s): PresetUse => {
+    const text = SCENE_USE_TEXT[s.id as FeatureSceneId];
+    return { id: `scene:${s.id as FeatureSceneId}`, category: 'feature', label: text?.label ?? s.name, desc: text?.desc ?? `${s.name}时的对话`, icon: s.icon, follow: 'chat' };
+  }),
   { id: 'heart-voice', category: 'feature', label: '心跳 · 语音', desc: '心跳里连麦时她说的话：口语、短句、不写动作，边生成边合成语音', icon: 'i-lucide-audio-lines', follow: null },
+  {
+    id: 'game-truthdare',
+    category: 'feature',
+    label: '一起游戏 · 真心话大冒险',
+    desc: '一起游戏里玩真心话大冒险时：她给你出题、选真心话还是大冒险、回答和做挑战、帮你想题',
+    icon: 'i-lucide-bottle-wine',
+    follow: null,
+  },
   { id: 'proactive', category: 'proactive', label: '主动消息', desc: '到点时角色先发来的那条', icon: 'i-lucide-bell-ring', follow: 'chat' },
   { id: 'theater', category: 'theater', label: '番外', desc: '"我的 → 试一试 → 写一段番外"', icon: 'i-lucide-book-heart', follow: null },
   { id: 'summary', category: 'summary', label: '总结聊天', desc: '每攒够几条（"我的 → 消息设置"里改）自动写梗概、故事片段和记忆，聊天 ⋯ 里也能手动整理', icon: 'i-lucide-notebook-pen', follow: null },

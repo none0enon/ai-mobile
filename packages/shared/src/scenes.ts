@@ -167,7 +167,7 @@ export const SCENES: SceneDef[] = [
     id: 'game',
     name: '一起游戏',
     icon: 'i-lucide-puzzle',
-    tagline: '先从海龟汤开始：她出题你猜、一起猜，或者你出题她猜',
+    tagline: '海龟汤：她出题、一起猜、你出题；真心话大冒险：转瓶子，轮流说真心话、做大冒险',
     backdrop: 'room',
     ambient: [],
     outfit: 'daily',
@@ -177,7 +177,7 @@ export const SCENES: SceneDef[] = [
     promptFragment: '',
     allowedTags: ['expr'],
     proactiveTriggers: [],
-    dataSources: ['海龟汤题库（src/soups/ 里的题库文件，可以增删改）', '现编的题'],
+    dataSources: ['海龟汤题库（src/soups/ 里的题库文件，可以增删改）', '现编的题', '真心话大冒险的题：她按尺度、你们的关系和记忆现出'],
   },
   {
     id: 'read',
