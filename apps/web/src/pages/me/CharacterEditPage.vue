@@ -11,6 +11,7 @@ import ImagePick from '@/components/common/ImagePick.vue';
 import Segmented from '@/components/common/Segmented.vue';
 import CharacterFigure from '@/components/figure/CharacterFigure.vue';
 import PresetPicker from '@/components/settings/PresetPicker.vue';
+import Live2DSettings from '@/components/settings/Live2DSettings.vue';
 import StageView from '@/components/stage/StageView.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { FIGURE } from '@/mock/characters';
@@ -130,7 +131,7 @@ onMounted(() => {
   if (route.hash === '#weather') setTimeout(() => document.getElementById('ce-weather')?.scrollIntoView({ block: 'center' }), 300);
 });
 
-const TABS = ['basic', 'persona', 'greeting', 'example', 'lore', 'preset', 'sprite', 'voice', 'proactive', 'look'] as const;
+const TABS = ['basic', 'persona', 'greeting', 'example', 'lore', 'preset', 'sprite', 'live2d', 'voice', 'proactive', 'look'] as const;
 const tab = ref<string>(TABS.includes(route.query.tab as (typeof TABS)[number]) ? (route.query.tab as string) : 'basic');
 const ACCENTS = ['#f5b8a6', '#f39cc0', '#b7a6f5', '#8ec5e8', '#7fd1b1', '#f2c66d'];
 const outfit = ref('daily');
@@ -307,6 +308,9 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
             </div>
             <p class="text-[12px] text-ink-3">点虚线框选中热区；M1 起可以在立绘上直接拖动画多边形。坐标相对立绘，换图分辨率也不用重画。</p>
           </div>
+        </van-tab>
+        <van-tab title="Live2D" name="live2d">
+          <Live2DSettings v-if="tab === 'live2d'" :key="character.id" :character="character" />
         </van-tab>
         <van-tab title="语音" name="voice">
           <div class="px-4">

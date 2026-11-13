@@ -213,6 +213,9 @@ function onAction(id: string) {
     case 'call':
       void router.push(`/call/${c.id}`);
       break;
+    case 'video-call':
+      void router.push(`/call/${c.id}?video=1`);
+      break;
     case 'poke':
       void chatStore.poke(chatId.value, '头');
       break;
@@ -552,6 +555,7 @@ const stageRain = computed(() => isRainy(stageWeather.value?.text) && (!stageLoc
           </div>
         </template>
         <template #right>
+          <RouterLink :to="`/call/${character.id}?video=1`" class="icon-btn" aria-label="视频通话"><span class="i-lucide-video text-[19px]" /></RouterLink>
           <RouterLink :to="`/call/${character.id}`" class="icon-btn" aria-label="语音通话"><span class="i-lucide-phone text-[19px]" /></RouterLink>
           <button class="icon-btn" aria-label="切换到剧场模式" @click="setMode('stage')"><span class="i-lucide-drama text-[20px]" /></button>
           <button class="icon-btn" aria-label="更多" @click="moreOpen = true"><span class="i-lucide-ellipsis text-[20px]" /></button>
@@ -627,6 +631,7 @@ const stageRain = computed(() => isRainy(stageWeather.value?.text) && (!stageLoc
         <span class="chip-btn aff-chip shrink-0 !px-3"><span class="i-lucide-heart text-accent" />{{ character.relationship.affection }}</span>
         <span class="flex-1" />
         <button class="chip-btn" aria-label="切换到聊天模式" @click="setMode('im')"><span class="i-lucide-message-circle text-[19px]" /></button>
+        <RouterLink :to="`/call/${character.id}?video=1`" class="chip-btn" aria-label="视频通话"><span class="i-lucide-video text-[18px]" /></RouterLink>
         <RouterLink :to="`/call/${character.id}`" class="chip-btn" aria-label="语音通话"><span class="i-lucide-phone text-[18px]" /></RouterLink>
       </div>
       <div v-if="firstPoke" class="hint">点她的头、脸、肩膀试试 · 长按是摸头</div>

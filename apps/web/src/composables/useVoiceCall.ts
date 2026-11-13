@@ -31,7 +31,7 @@ export interface Caption {
   pending?: boolean;
 }
 
-export function useVoiceCall(characterId: Ref<string>, opts: { incoming: boolean; reason?: string }) {
+export function useVoiceCall(characterId: Ref<string>, opts: { incoming: boolean; reason?: string; video?: () => boolean }) {
   const chars = useCharacterStore();
   const chat = useChatStore();
   const ai = useAiStore();
@@ -46,6 +46,9 @@ export function useVoiceCall(characterId: Ref<string>, opts: { incoming: boolean
     her: 'idle' as 'idle' | 'thinking' | 'speaking',
     you: 'idle' as 'idle' | 'speaking' | 'recognizing',
     herLevel: 0,
+    herAudioLevel: 0,
+    sentence: '',
+    sentenceId: 0,
     youLevel: 0,
     captions: [] as Caption[],
     /** 这次通话实际用的输入方式（麦克风用不了时退回打字） */
@@ -76,6 +79,9 @@ export function useVoiceCall(characterId: Ref<string>, opts: { incoming: boolean
 
   /** 挂断了没有（await 之后要重新看，所以写成函数） */
   const ended = () => state.phase === 'ended';
+  const callLabel = () => opts.video?.() ? '视频通话' : '语音通话';
+  let hadVideo = !!opts.video?.();
+  watch(() => opts.video?.(), on => { if (on) hadVideo = true; });
 
   function addCaption(who: Caption['who'], text: string, pending = false): Caption {
     const c: Caption = { id: (captionSeq += 1), who, text, pending };
@@ -176,16 +182,17 @@ export function useVoiceCall(characterId: Ref<string>, opts: { incoming: boolean
     if (!t || !chatId.value || state.phase === 'ended') return;
     if (typed) addCaption('you', t);
     if (state.her !== 'idle') await interruptHer();
-    chat.push(chatId.value, 'user', [{ type: 'text', text: t }], { meta: { scene: chat.chatById(chatId.value)?.currentScene ?? undefined, cue: '语音通话' } });
+    chat.push(chatId.value, 'user', [{ type: 'text', text: t }], { meta: { scene: chat.chatById(chatId.value)?.currentScene ?? undefined, cue: callLabel() } });
     await herTurn('reply');
   }
 
   // —— 她说话 ——
   function taskInput(kind: 'open' | 'reply'): string {
     const user = userName.value;
-    if (kind === 'reply') return `语音通话中（已经通话 ${clock(state.seconds)}）。回${user}刚才说的话。`;
-    if (opts.incoming) return `这是一通语音通话：你打电话给${user}，对方刚接起来${opts.reason ? `（你打来是因为：${opts.reason}）` : ''}。先开口说第一句，1–2 个短句。`;
-    return `这是一通语音通话：${user}打电话给你，你刚接起来。先开口打招呼，1–2 个短句。`;
+    const visual = opts.video?.() ? '你的 Live2D 形象在画面中。根据当前情绪在句首写一个表情标签，例如 [expr:smile]。可选值：neutral、smile、laugh、blush、shy、pout、surprised、sad、angry、sleepy、sleep。无需朗读标签；没有用户摄像头画面，不要声称看见用户。' : '';
+    if (kind === 'reply') return `${callLabel()}中（已经通话 ${clock(state.seconds)}）。回${user}刚才说的话。${visual}`;
+    if (opts.incoming) return `这是一通${callLabel()}：你打电话给${user}，对方刚接起来${opts.reason ? `（你打来是因为：${opts.reason}）` : ''}。先开口说第一句，1–2 个短句。${visual}`;
+    return `这是一通${callLabel()}：${user}打电话给你，你刚接起来。先开口打招呼，1–2 个短句。${visual}`;
   }
 
   async function herTurn(kind: 'open' | 'reply') {
@@ -206,9 +213,12 @@ export function useVoiceCall(characterId: Ref<string>, opts: { incoming: boolean
     const q = new SpeechQueue({
       characterId: character.value.id,
       onLevel: (l) => (state.herLevel = l),
+      onAudioLevel: (l) => { state.herAudioLevel = l; if (l > 0) state.ttsIssue = ''; },
       onSentence: (text) => {
         if (state.phase === 'dialing') connectNow();
         state.her = 'speaking';
+        state.sentence = text;
+        state.sentenceId++;
         listener.herSpeaking = true;
         herRecent.push(text);
         if (herRecent.length > 8) herRecent.shift();
@@ -222,7 +232,7 @@ export function useVoiceCall(characterId: Ref<string>, opts: { incoming: boolean
     const run = chat.generate(chatId.value, undefined, {
       use: 'call',
       task: { name: kind === 'open' ? 'call-open' : 'call', input: taskInput(kind) },
-      cue: '语音通话',
+      cue: callLabel(),
       allowedTags: ['expr'],
       // 通话要快：认得思考参数的接口把思考关到最少（会思考的模型另外留了思考的余量，不会再回空话）
       quick: true,
@@ -256,6 +266,8 @@ export function useVoiceCall(characterId: Ref<string>, opts: { incoming: boolean
     replyId = null;
     state.her = 'idle';
     state.herLevel = 0;
+    state.herAudioLevel = 0;
+    state.sentence = '';
     listener.herSpeaking = false;
   }
 
@@ -340,7 +352,7 @@ export function useVoiceCall(characterId: Ref<string>, opts: { incoming: boolean
     await interruptHer();
     if (!id) return;
     if (missed || !wasConnected) {
-      chat.postCard(id, opts.incoming ? 'assistant' : 'user', { type: 'call-log', durationSec: 0, missed: true });
+      chat.postCard(id, opts.incoming ? 'assistant' : 'user', { type: 'call-log', durationSec: 0, missed: true, video: hadVideo });
       // 她打来你没接：让她发条消息（主对话接通时由模型写；没接通就只有未接来电卡片）
       if (opts.incoming && llmStatus.value.live) {
         void chat.generate(id, undefined, { task: { name: 'call-missed', input: `你刚才给${userName.value}打语音电话，对方没接。发一条消息给对方。` } });
@@ -348,7 +360,7 @@ export function useVoiceCall(characterId: Ref<string>, opts: { incoming: boolean
       return;
     }
     // 通话里说的话已经一句句存在聊天里了（卡片上面），卡片只记时长
-    chat.postCard(id, 'user', { type: 'call-log', durationSec: state.seconds });
+    chat.postCard(id, 'user', { type: 'call-log', durationSec: state.seconds, video: hadVideo });
   }
 
   /** 来电时回一句"在忙"：存进聊天，主对话接通时她会回 */
@@ -357,7 +369,7 @@ export function useVoiceCall(characterId: Ref<string>, opts: { incoming: boolean
     state.phase = 'ended';
     const id = chatId.value;
     if (!id) return;
-    chat.postCard(id, 'assistant', { type: 'call-log', durationSec: 0, missed: true });
+    chat.postCard(id, 'assistant', { type: 'call-log', durationSec: 0, missed: true, video: hadVideo });
     chat.push(id, 'user', [{ type: 'text', text }]);
     if (llmStatus.value.live) void chat.generate(id);
   }

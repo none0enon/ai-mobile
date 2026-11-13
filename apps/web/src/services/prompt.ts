@@ -65,7 +65,7 @@ function partToText(p: MessagePart, character: Character, user: string, mapText?
     case 'poke':
       return p.actor === 'user' ? `（${user}拍了拍${character.name}的${p.target}）` : `（${character.name}拍了拍${user}）`;
     case 'call-log':
-      return `[语音通话 ${Math.round(p.durationSec / 60)} 分钟${p.scene ? ` · ${p.scene}` : ''}]`;
+      return `[${p.video ? '视频通话' : '语音通话'} ${Math.round(p.durationSec / 60)} 分钟${p.scene ? ` · ${p.scene}` : ''}]`;
     case 'workout':
       return `[运动记录：${p.sport} ${p.distanceKm ?? ''} 公里，用时 ${Math.round(p.durationSec / 60)} 分钟]`;
     case 'meal':

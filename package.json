@@ -10,7 +10,7 @@
     "build:preview": "pnpm --filter @app/web build:preview",
     "typecheck": "pnpm -r typecheck",
     "build:hub": "pnpm --filter @app/hub build",
-    "test": "pnpm --filter @app/hub build && pnpm --filter @app/hub test"
+    "test": "pnpm --filter @app/hub build && pnpm --parallel --filter @app/web --filter @app/hub test"
   },
   "devDependencies": {
     "typescript": "~6.0.3"

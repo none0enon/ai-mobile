@@ -45,7 +45,7 @@ export type MessagePart =
   | { type: 'music'; songId: string; title: string; artist: string; cover?: string | null }
   /** 拍一拍："你拍了拍她的头" / "她拍了拍你" */
   | { type: 'poke'; actor: 'user' | 'char'; target: string }
-  | { type: 'call-log'; durationSec: number; scene?: string; missed?: boolean; transcriptId?: string }
+  | { type: 'call-log'; durationSec: number; scene?: string; missed?: boolean; transcriptId?: string; video?: boolean }
   | { type: 'workout'; logId: string; sport: string; distanceKm?: number; durationSec: number; pace?: string }
   | { type: 'meal'; logId: string; meal: MealSlot; food: string; photo?: string | null }
   | {

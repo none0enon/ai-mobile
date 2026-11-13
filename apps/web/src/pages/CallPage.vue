@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { getLocation, timeOfDay, zonedParts } from '@app/shared';
 import Waveform from '@/components/call/Waveform.vue';
+import Live2DAvatar from '@/components/call/Live2DAvatar.vue';
 import Avatar from '@/components/common/Avatar.vue';
 import SceneBackdrop from '@/components/figure/SceneBackdrop.vue';
 import { useVoiceCall } from '@/composables/useVoiceCall';
 import type { CallInput } from '@/stores/voice';
+import { useCharacterStore } from '@/stores/characters';
+import { useRhythmStore } from '@/stores/rhythm';
+import { useEnvironmentStore } from '@/stores/environment';
 import { clock, hhmm } from '@/utils/time';
 
 /**
@@ -28,8 +33,20 @@ function reasonOf(): string {
 }
 const reason = reasonOf();
 const charId = computed(() => route.params.charId as string);
-const call = useVoiceCall(charId, { incoming, reason });
+const video = ref(route.query.video === '1');
+const call = useVoiceCall(charId, { incoming, reason, video: () => video.value });
 const { state, character } = call;
+const chars = useCharacterStore();
+const rhythm = useRhythmStore();
+const environment = useEnvironmentStore();
+const now = ref(Date.now());
+let sceneTimer: ReturnType<typeof setInterval> | undefined;
+const slot = computed(() => rhythm.slotNow(character.value.id, new Date(now.value)));
+const location = computed(() => getLocation(slot.value?.locationId ?? character.value.locationId));
+const backdrop = computed(() => location.value?.backdrop ?? 'room');
+const tod = computed(() => timeOfDay(zonedParts(now.value, environment.settings.timezone).hour));
+const expression = computed(() => chars.expression[character.value.id] ?? 'neutral');
+function toggleVideo() { video.value = !video.value; }
 
 const captionsOn = ref(true);
 const typed = ref('');
@@ -110,25 +127,26 @@ const issues = computed(() => {
 });
 
 onMounted(() => {
+  sceneTimer = setInterval(() => { now.value = Date.now(); }, 15000);
   if (!incoming) call.dial();
 });
-onBeforeUnmount(() => call.dispose());
+onBeforeUnmount(() => { clearInterval(sceneTimer); call.dispose(); });
 </script>
 
 <template>
-  <div class="page call" :data-page="state.phase === 'ringing' ? 'call-incoming' : 'call'">
-    <SceneBackdrop kind="bedroom" tod="late" :dim="0.45" />
-    <div class="call-blur" />
+  <div class="page call" :class="{ video }" :data-page="video ? 'video-call' : state.phase === 'ringing' ? 'call-incoming' : 'call'" :data-backdrop="video ? backdrop : 'bedroom'" :data-tod="video ? tod : 'late'">
+    <SceneBackdrop :kind="video ? backdrop : 'bedroom'" :tod="video ? tod : 'late'" :dim="video ? 0.18 : 0.45" />
+    <div v-if="!video" class="call-blur" />
 
     <!-- 来电 -->
     <div v-if="state.phase === 'ringing'" class="content">
-      <div class="text-[13px] text-ink-2 mt-[14vh] num">{{ hhmm(Date.now()) }} · 语音来电</div>
+      <div class="text-[13px] text-ink-2 mt-[14vh] num">{{ hhmm(Date.now()) }} · {{ video ? '视频来电' : '语音来电' }}</div>
       <div class="ring-wrap">
         <span class="pulse" /><span class="pulse delay" />
         <Avatar :character="character" :size="116" live />
       </div>
       <div class="text-[26px] font-700">{{ character.name }}</div>
-      <div class="text-[15px] text-ink-2 mt-1">邀请你语音通话…</div>
+      <div class="text-[15px] text-ink-2 mt-1">邀请你{{ video ? '视频' : '语音' }}通话…</div>
       <div v-if="reason" class="reason">{{ reason }}</div>
       <div class="flex-1" />
       <div class="actions">
@@ -141,15 +159,24 @@ onBeforeUnmount(() => call.dispose());
 
     <!-- 呼叫中 / 通话中 -->
     <div v-else class="content">
-      <div class="mt-[7vh] text-[20px] font-700">{{ character.name }}</div>
-      <div class="text-[14px] text-ink-2 num">{{ state.phase === 'dialing' ? '等待对方接听…' : `通话中 ${clock(state.seconds)}` }}</div>
-      <div class="ring-wrap talk" :style="{ '--lv': state.her === 'speaking' ? state.herLevel : 0 }">
+      <div class="call-title text-[20px] font-700">{{ character.name }}</div>
+      <div class="text-[14px] text-ink-2 num">{{ video ? '视频 · ' : '' }}{{ state.phase === 'dialing' ? '等待对方接听…' : `通话中 ${clock(state.seconds)}` }}</div>
+      <div v-if="video" class="scene-label">{{ location?.name || '此刻的房间' }}<span v-if="slot?.status"> · {{ slot.status }}</span></div>
+      <div v-if="video" class="video-stage">
+        <Live2DAvatar v-if="character.live2d" :key="character.live2d.assetId" :config="character.live2d" :expression="expression" :text="state.sentence" :sentence="state.sentenceId" :level="state.herAudioLevel" :audible="state.her === 'speaking' && state.phase !== 'ended'" />
+        <div v-else class="missing-model">
+          <Avatar :character="character" :size="100" live />
+          <p>先为{{ character.name }}上传 Live2D 模型</p>
+          <RouterLink :to="`/me/characters/${character.id}?tab=live2d`">去上传模型</RouterLink>
+        </div>
+      </div>
+      <div v-else class="ring-wrap talk" :style="{ '--lv': state.her === 'speaking' ? state.herLevel : 0 }">
         <template v-if="state.phase === 'dialing'"><span class="pulse" /><span class="pulse delay" /></template>
         <span v-else class="glow" />
         <Avatar :character="character" :size="120" live />
       </div>
       <div class="text-[13px]" style="color: var(--accent)" data-testid="call-status">{{ status }}</div>
-      <Waveform :level="level" :tone="state.her === 'speaking' ? 'var(--accent)' : 'var(--ink-2)'" class="mt-1" />
+      <Waveform v-if="!video" :level="level" :tone="state.her === 'speaking' ? 'var(--accent)' : 'var(--ink-2)'" class="mt-1" />
 
       <div v-if="issues.length" class="issues">
         <button v-for="(x, i) in issues" :key="i" type="button" class="issue" @click="router.push(x.to)">
@@ -160,14 +187,14 @@ onBeforeUnmount(() => call.dispose());
       </div>
 
       <div v-if="captionsOn" class="captions" aria-live="polite">
-        <p v-for="c in state.captions.slice(-4)" :key="c.id" :class="[c.who, { pending: c.pending }]">
+        <p v-for="c in state.captions.slice(video ? -2 : -4)" :key="c.id" :class="[c.who, { pending: c.pending }]">
           <b>{{ c.who === 'her' ? character.name : '我' }}：</b>{{ c.text }}
         </p>
         <p v-if="!state.captions.length" class="text-ink-3 text-[13px]">{{ state.phase === 'dialing' ? '接通后这里显示你们说的话' : '……' }}</p>
       </div>
       <div v-if="state.hint" class="text-[12.5px] text-ink-2 mt-2">{{ state.hint }}</div>
 
-      <div class="flex-1" />
+      <div v-if="!video" class="flex-1" />
 
       <button v-if="state.needTap && state.input !== 'type'" class="tap" @click="call.tapToListen()">
         <span class="i-lucide-mic" />浏览器要先点一下才能听你说话：点这里
@@ -192,6 +219,9 @@ onBeforeUnmount(() => call.dispose());
       </button>
 
       <div class="ctrls">
+        <button class="ctrl" :class="{ on: video }" aria-label="切换视频通话" data-testid="toggle-video" @click="toggleVideo">
+          <span class="circle"><span :class="video ? 'i-lucide-video' : 'i-lucide-video-off'" /></span>{{ video ? '视频已开' : '开启视频' }}
+        </button>
         <button class="ctrl" :class="{ on: state.muted }" :disabled="state.input === 'type'" @click="call.setMuted(!state.muted)">
           <span class="circle"><span :class="state.muted ? 'i-lucide-mic-off' : 'i-lucide-mic'" /></span>静音
         </button>
@@ -214,6 +244,17 @@ onBeforeUnmount(() => call.dispose());
   --ink-2: rgba(244, 237, 255, 0.75);
   --ink-3: rgba(244, 237, 255, 0.55);
 }
+.call-title { margin-top: 7vh; }
+.video .content { overflow-y: auto; }
+.video .call-title { margin-top: 16px; }
+.video-stage { width: 100%; height: clamp(240px, 40dvh, 460px); flex: 1 0 240px; min-height: 240px; }
+.scene-label { font-size: 12px; color: var(--ink-2); margin-top: 4px; text-align: center; }
+.missing-model { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 13px; }
+.missing-model a { padding: 8px 16px; border-radius: 18px; background: var(--accent); color: var(--on-accent); }
+.video .captions { min-height: 56px; max-height: 16vh; background: rgba(12, 10, 22, 0.5); flex-shrink: 0; }
+.video .type-row, .video .hold { margin-top: 12px; }
+.video .ctrls { margin-top: 12px; }
+.video .issues { flex-shrink: 0; }
 .call-blur {
   position: absolute;
   inset: 0;
@@ -417,10 +458,10 @@ onBeforeUnmount(() => call.dispose());
 }
 .ctrls {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
   width: 100%;
-  max-width: 300px;
+  max-width: 340px;
 }
 .ctrl {
   display: flex;
