@@ -22,6 +22,8 @@ const props = defineProps<{
 }>();
 defineEmits<{ (e: 'stop'): void; (e: 'resume'): void; (e: 'open'): void }>();
 
+/** 实心的心（lucide 只有空心的） */
+const HEART_PATH = 'M12 20.5C6 16 2.5 12.5 2.5 8.6 2.5 5.7 4.8 3.5 7.5 3.5c1.9 0 3.5 1.1 4.5 2.7 1-1.6 2.6-2.7 4.5-2.7 2.7 0 5 2.2 5 5.1 0 3.9-3.5 7.4-9.5 11.9z';
 const SHORT: Record<ToyKind, string> = { vibrate: '震', oscillate: '摆', rotate: '转', constrict: '缩', inflate: '气', linear: '伸' };
 
 const beatMs = computed(() => Math.round(60_000 / Math.max(40, props.bpm)));
@@ -70,7 +72,7 @@ const moving = computed(() => props.intensity > 0);
 <template>
   <div class="pulse" :class="{ hot: intensity >= 60, warm: intensity > 0 && intensity < 60 }" :style="{ '--beat': `${beatMs}ms` }" data-testid="heart-pulse">
     <div class="beat" role="img" :aria-label="`心跳 ${bpm}`">
-      <span class="i-lucide-heart heart" />
+      <svg class="heart" viewBox="0 0 24 24" aria-hidden="true"><path :d="HEART_PATH" /></svg>
       <span class="bpm num">{{ bpm }}</span>
     </div>
     <button type="button" class="mid" aria-label="玩具和画面的设置" @click="$emit('open')">
@@ -129,8 +131,9 @@ const moving = computed(() => props.intensity > 0);
   width: 38px;
 }
 .heart {
-  font-size: 22px;
-  color: var(--tone);
+  width: 22px;
+  height: 22px;
+  fill: var(--tone);
   animation: lubdub var(--beat) infinite;
   filter: drop-shadow(0 0 6px color-mix(in srgb, var(--tone) 55%, transparent));
 }

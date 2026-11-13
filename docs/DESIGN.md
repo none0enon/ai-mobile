@@ -227,8 +227,10 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 | `[call]` | 想打电话（弹出来电横幅） |
 | `[choice:A\|B\|C]` | 约会选项（显示成快捷回复） |
 | `[poke:部位]` | 回戳你 |
+| `<device>"VIBRATE": 40</device>` | 心跳里玩具的控制指令（尖括号、成对，可以跨行；写法见 §9.14） |
 
 - **兼容写法**：全角 `【expr：smile】`、名字不区分大小写。不认识的方括号（例如"[笑]"）原样保留为正文。
+- **`<device>`**：不管在哪个场景都从正文里拿掉（单独一行的连同换行），聊天里不显示、语音不念；只在心跳的白名单里（`allowedTags` 带 `device`）记下位置交给场景执行。流式时还没收完的 `<device>…`、结尾半截的 `<dev` 先藏起来。
 - **两种解析**：
   - `parseControlTags(全文, 场景白名单)`：无状态，每次拿累积全文重新解析，配合 `readAIStream` 的 `onDelta(全文)`。返回每个标签在正文里的位置（剧场模式的打字机打到这里才换表情），结尾半截标签先隐藏（`pending`）。
   - `createTagStripper()`：给只提供增量的流用。
@@ -1015,6 +1017,20 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 >   - 第一次打开今天还没排时自动排一次（这周没排的先排这周）；之后手动"重新排"。存本机（`stores/health.ts`，settings 表的 `health`：6 周的周计划、30 天的日计划、90 条运动记录）。
 > - **用在**："健身"按照计划练（§9.1）；共同的家做饭时看今天的菜谱；她平时聊天知道你的目标、今天练没练（"健康：你怎么反应"那一块，只在开了健康系统时发）。
 
+### 9.14 心跳（`HeartScene.vue`）和 Intiface Central
+
+> **已实现**。参考 SillyTavern 的 Intiface 插件（Enclave0775/Intiface_Central-Sillytavern-plugin）：指令的键沿用它的写法，代码是自己写的。
+> - **入口**：地图上她的世界"一起做点什么"里紧挨着"共同的家"（一直显示，小字写玩具连没连）、聊天 ＋。场景在她世界的住处（默认连线：她在她那边，你在你那边，玩具就是隔着屏幕的那只手；顶栏能切到"坐她旁边"）。她世界的地点上不放心跳（建世界时模型写了也去掉）。节律里穿睡衣那一套，但生图不锁衣服。
+> - **画面**（照陪伴学习的一起专注，背景是视觉中心）：外壳用 `SceneShell` 的 `bare`。背景是 NovelAI 画的竖图铺满整屏（慢慢推近，换图时淡入）；左上只放她的名字和提示；你们说的话像字幕一样在下面三分之一（不挡脸，点她的话展开这一次说过的）；最下面是心跳那条（`heart/HeartPulse.vue`：按心率跳的心、一拍走一格的心电图、每一种玩具的强度、停 / 继续）和打字 / 连麦。心率 = 68 + 她说话时 6 + 0.9 × 最强的那一种，慢慢跟过去；玩具动起来时屏幕边缘跟着心跳泛红、底下的光晕变亮、飘起小心心；强度 ≥ 60 时整张图跟着心跳轻轻一缩。全局的"减少动态效果"会让这些都不动。
+> - **说话**：打字走主对话 + "心跳"功能预设（`scene:heart`，自带"心跳 · 文字"：开场 `heart-open`、打字聊 `heart-chat`）；连麦走 `useMicLink` + 「陪伴 · 快速」+ 新的用途"心跳 · 语音"（`heart-voice`，自带"心跳 · 语音"：连麦回你 `heart-call`、你安静一会儿她轻声说一句 `heart-murmur`）。`useMicLink` 加了 `use`、`flags`、`allowedTags`、`onTurnStart`、`onParsed`、`onReply`；`generate` 加了 `flags`（额外的预设触发条件）和 `onParsed`（流式时、写完时给解析好的正文和标签位置）。说的话都存进聊天，离开时那一段写"心跳 N 分钟 · 最快 …"。没接通时不出演示台词。
+> - **背景**：用途 `image:heart`，时刻 `open`（开场）、`now`（这一刻）。进来时用今天在同一个地方画过的竖图，没有就画开场；之后她每说几句（默认 6，能改成 4 / 8 / 不自动）画一张这一刻，魔杖马上画。`SceneDrawRequest.lockOutfit = false`：衣服按对话写。自带三个生图预设：氛围（默认）、第一视角、亲密（到了亲密的时候加 nsfw 照实画，负面词固定写 loli, child, underage）；在场景的设置里换，也能跟随配图。
+> - **Intiface Central**（`services/intiface.ts`）：自己写的 Buttplug v3 客户端（JSON 走 WebSocket）：`RequestServerInfo`（MessageVersion 3）、`RequestDeviceList` / `DeviceAdded` / `DeviceRemoved`、`StartScanning`（15 秒后停）、`ScalarCmd`（Vibrate / Oscillate / Rotate / Constrict / Inflate / Position）、`LinearCmd`、`RotateCmd`、`StopDeviceCmd` / `StopAllDevices`、`SensorReadCmd`（电量）、服务器要求时按 `MaxPingTime` 的一半发 `Ping`。地址写 `127.0.0.1:12345`、`ws://…`、`wss://…`；页面是 https 时浏览器只让连回环地址和 wss（混合内容），连之前先判断，写明怎么办（同一台设备上开 Intiface，或者给它套 https）；连不上、断开都写原因。连接留着，再进心跳不用重连（连上过就自动连），点"断开"才断。
+> - **指令**（`packages/shared/src/device.ts`）：键沿用插件——`VIBRATE` / `OSCILLATE` / `ROTATE` / `CONSTRICT` / `INFLATE`（0–100、每个马达的数组、`{pattern, interval, loop}`，pattern 的一档也可以是数组；旋转可加 `clockwise`）、`LINEAR` / `LINEAR_SPEED` / `LINEAR_PATTERN`（伸缩）、`STOP`。读法宽松（全角标点、单引号、没加引号的键、注释、分号、同一行接着写下一个键）。两种来源：
+>   - **单独生成**（默认）：新的预设分类"控制指令"（`device`，用途 `device`，自带"控制指令 · 心跳"）和新的 AI 功能「控制指令」（`AgentRole` 加 `device`，默认跟随「陪伴 · 快速」）。她每说完一句，程序填充块（`TASK_MARKERS.device`：连着的玩具和能写的键、强度上限和最快速度、玩具现在在做什么、最近的对话、她这一句）交给预设，输出 `{"steps": [{"at": "她原话里的几个字", "do": {...}}]}`（`parseDeviceSteps`），`placeSteps` 按 at 找位置（不看标点空格、按顺序往后找、找不到用前一半、再找不到夹在前后两步中间）；
+>   - **她自己写**：心跳的功能预设里"她自己写指令"那一块（触发条件 `device-inline`，只在连着玩具、选了这一种时发送），她在回复里写 `<device>`，`parseControlTags` 给出位置。
+> - **执行**（`services/toyPlayer.ts`）：`ReplyTimeline` 一句话一条时间线：打字时按"读多快"（默认每秒 9 个字）往前读、不超过已经写出来的字；连麦时跟着念到第几句，句子里按每字 210 毫秒走、到句末等下一句；来晚了一下子到的几条合成一条（`mergeCommands`，后面的盖过前面的、停下清掉之前的）。她开始说下一句、你打断、离开时，没执行的不再执行，晚到的单独生成也作废。`ToyPlayer` 每一种各放一段：新指令只换掉它写了的那几种；变速按 pattern / interval 走，loop 放完归零；伸缩在两个位置之间来回（幅度按设置的范围映射，不快于"一下最快"）；强度不超过上限；和上一次发的一样不再发；每一档至少 120 毫秒。玩具做不了的键去掉（`fitCommand`）。没连玩具时可以"在心跳上试"：只算强度给界面看。
+> - **安全**（`stores/toys.ts`，设置存本机 `ai-mobile:toys`）：每一种的强度上限、伸缩最快和范围；"停"发 `StopAllDevices`，之后她的指令先不执行、也不再调「控制指令」，点继续才接着来；多久没有新指令就停（默认 10 分钟，能改成不停）；切到后台、锁屏时停（默认开）；离开心跳、断开、连接断了都停。
+
 ---
 
 ## 10. 立绘与 NovelAI
@@ -1397,6 +1413,7 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
   - 打开地图时，坐标会发给 Google，这是用 Google 地图绕不开的；
   - 定位只在打开 App 时取一次，不在后台定位。
 - **数据**：全部在你自己的 Cloudflare 账号里，随时导出（ZIP / SillyTavern 格式）。不接任何第三方统计。
+- **心跳的玩具**：浏览器只连你填的 Intiface Central 地址（通常是本机），指令只在这台设备上发；强度上限、"停"、没有新指令时自动停、切到后台时停、离开时停都在本机执行，不依赖模型听不听话（§9.14）。
 
 ---
 

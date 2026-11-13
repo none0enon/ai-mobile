@@ -84,7 +84,7 @@ function loadSaved(): { input?: string; artEvery?: number } {
 const saved = loadSaved();
 const inputMode = ref<'type' | 'voice'>(saved.input === 'voice' ? 'voice' : 'type');
 /** 她说几句换一张"这一刻"；0 = 不自动换 */
-const artEvery = ref([0, 4, 8].includes(saved.artEvery ?? -1) ? (saved.artEvery as number) : 6);
+const artEvery = ref([0, 4, 6, 8].includes(saved.artEvery ?? -1) ? (saved.artEvery as number) : 6);
 watch([inputMode, artEvery], () => {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({ input: inputMode.value, artEvery: artEvery.value }));
@@ -249,8 +249,11 @@ function newSpeech(o: { onSentence?(text: string, i: number): void } = {}): Spee
     },
   });
   speech = q;
+  // 念完了：剩下的指令都执行；被打断、挂断了：这句剩下的不再执行
   void q.drained().then(() => {
-    if (!q.stopped && timeline === tl) tl?.drained();
+    if (timeline !== tl || !tl) return;
+    if (q.stopped) tl.dispose();
+    else tl.drained();
   });
   return q;
 }
@@ -420,7 +423,8 @@ const beatMs = computed(() => Math.round(60_000 / Math.max(40, bpm.value)));
 /** 屏幕边缘泛红、底下的光晕多亮（0–1） */
 const glow = computed(() => Math.min(1, toys.intensity / 100 + (speaking.value ? 0.12 : 0)));
 
-/** 飘起来的小心心 */
+/** 飘起来的小心心（实心的，lucide 只有空心的） */
+const HEART_PATH = 'M12 20.5C6 16 2.5 12.5 2.5 8.6 2.5 5.7 4.8 3.5 7.5 3.5c1.9 0 3.5 1.1 4.5 2.7 1-1.6 2.6-2.7 4.5-2.7 2.7 0 5 2.2 5 5.1 0 3.9-3.5 7.4-9.5 11.9z';
 const hearts = ref<{ id: number; x: number; size: number; dur: number; drift: number }[]>([]);
 let heartSeq = 0;
 const reduceMotion = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -572,7 +576,9 @@ const figureLayout = { left: 50, bottom: 16, height: 70 };
         <div class="shade top" aria-hidden="true" />
         <div class="shade bottom" aria-hidden="true" />
         <div class="floaters" aria-hidden="true">
-          <span v-for="h in hearts" :key="h.id" class="floater i-lucide-heart" :style="{ left: `${h.x}%`, '--size': `${h.size}px`, '--dur': `${h.dur}ms`, '--drift': `${h.drift}px` }" />
+          <svg v-for="h in hearts" :key="h.id" class="floater" viewBox="0 0 24 24" :style="{ left: `${h.x}%`, '--size': `${h.size}px`, '--dur': `${h.dur}ms`, '--drift': `${h.drift}px` }">
+            <path :d="HEART_PATH" />
+          </svg>
         </div>
 
         <!-- 左上：她是谁、在哪，和没接通之类的提示（话放在下面，不挡脸） -->
@@ -849,7 +855,7 @@ const figureLayout = { left: 50, bottom: 16, height: 70 };
   bottom: calc(var(--safe-bottom) + 112px);
   width: var(--size);
   height: var(--size);
-  color: var(--heart);
+  fill: var(--heart);
   opacity: 0;
   filter: drop-shadow(0 0 6px color-mix(in srgb, var(--heart) 60%, transparent));
   animation: float-heart var(--dur) ease-out forwards;
