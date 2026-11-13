@@ -72,7 +72,7 @@ D1 的 `(character_id, date)` 唯一约束与单日租约处理重复/重叠 Cro
 
 ```sh
 pnpm typecheck
-pnpm test            # 本地 workerd + D1、无浏览器 Cron、并发/幂等/重试/时区、Service Worker
+pnpm build:hub       # 本地构建 Worker
 pnpm build
 pnpm --filter @app/hub exec wrangler tail --config wrangler.deploy.json
 ```

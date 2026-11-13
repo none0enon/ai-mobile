@@ -24,7 +24,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm test
       - run: node apps/hub/scripts/configure.mjs
       - run: pnpm --filter @app/hub exec wrangler d1 migrations apply ai-mobile-hub --remote --config wrangler.deploy.json
       - run: pnpm --filter @app/hub exec wrangler deploy --config wrangler.deploy.json

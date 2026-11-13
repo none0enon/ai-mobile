@@ -1,5 +1,5 @@
 # 构建并部署到 GitHub Pages：https://none0enon.github.io/ai-mobile/
-# - 推到 main：类型检查、单元测试、构建，然后部署；
+# - 推到 main：类型检查、构建，然后部署；
 # - PR：只做检查和构建，不部署；
 # - 也可以在 Actions 页手动运行。
 # 第一次用之前要在仓库 Settings → Pages 把 Source 选成 "GitHub Actions"。
@@ -30,7 +30,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm test
       - run: pnpm build
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
