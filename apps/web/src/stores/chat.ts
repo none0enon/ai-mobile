@@ -72,6 +72,10 @@ export interface SceneReplyOptions {
   allowedTags?: ControlTagKind[];
   minTokens?: number;
   quick?: boolean;
+  /** 按哪个用途选预设（一起游戏里玩真心话大冒险时是 game-truthdare）；不给时用这个场景的功能预设 */
+  use?: PresetUseId;
+  /** 这一次另外打开的预设触发条件（真心话大冒险选的尺度 td-level:名字） */
+  flags?: string[];
 }
 
 export type SceneReplyResult = { ok: true; message: Message } | { ok: false; reason: string; notConnected?: boolean };
@@ -423,6 +427,8 @@ export const useChatStore = defineStore('chat', () => {
       allowedTags: opts.allowedTags,
       minTokens: opts.minTokens,
       quick: opts.quick,
+      use: opts.use,
+      flags: opts.flags,
     });
     const msg = id ? find(chatId, id) : undefined;
     if (!msg) return { ok: false, reason: '没有生成回复' };
@@ -433,14 +439,16 @@ export const useChatStore = defineStore('chat', () => {
   /**
    * 一起做事时要她按格式写一批东西（观影时接下来一段的弹幕、看书时接下来几页的批注……）：
    * 同样用这个场景的功能预设 + 场景任务，交给「陪伴 · 快速」，按 JSON 读回来。不推进世界书的粘性 / 冷却。
-   * 写出来的东西由场景决定什么时候显示、显示时再存进聊天
+   * 写出来的东西由场景决定什么时候显示、显示时再存进聊天。
+   * tune.use：按哪个用途选预设（真心话大冒险是 game-truthdare）；不给时用这个场景的功能预设。
+   * tune.flags：这一次另外打开的预设触发条件（真心话大冒险选的尺度）
    */
   async function sceneJson<T>(
     chatId: string,
     task: { name: string; input: string },
     parse: (value: unknown) => T | null,
     signal?: AbortSignal,
-    tune: { minTokens?: number; quick?: boolean } = {},
+    tune: { minTokens?: number; quick?: boolean; use?: PresetUseId; flags?: string[] } = {},
   ): Promise<{ ok: true; value: T } | { ok: false; reason: string; notConnected?: boolean }> {
     const chat = chatById(chatId);
     const character = useCharacterStore().byId(chat?.characterId);
@@ -449,7 +457,7 @@ export const useChatStore = defineStore('chat', () => {
     const status = ai.status('companion');
     if (!status.live) return { ok: false, reason: `「陪伴 · 快速」还没接通：${status.reason}`, notConnected: true };
     try {
-      const prompt = assembleForChat(chat, character, list(chatId), { agent: 'companion', task, dryRun: true });
+      const prompt = assembleForChat(chat, character, list(chatId), { agent: 'companion', task, dryRun: true, use: tune.use, flags: tune.flags });
       lastPrompt[chatId] = { prompt, at: Date.now() };
       const req = { messages: toLLMMessages(prompt), ...samplerRequest(prompt.preset.sampler) };
       if (tune.minTokens && (req.maxTokens ?? 0) < tune.minTokens) req.maxTokens = tune.minTokens;

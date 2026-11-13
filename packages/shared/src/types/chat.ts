@@ -124,7 +124,7 @@ export type MessagePart =
       /** 你划的一句 */
       quote?: string;
     }
-  /** 一起玩的一局（先只有海龟汤） */
+  /** 一起玩的一局：海龟汤 */
   | {
       type: 'game';
       logId: string;
@@ -137,6 +137,32 @@ export type MessagePart =
       hints: number;
       /** 揭晓后的汤底 */
       truth?: string;
+    }
+  /** 一起玩的一局：真心话大冒险（玩了几轮，你们各做了几次真心话、几次大冒险，你认罚了几次） */
+  | {
+      type: 'game';
+      logId: string;
+      game: 'truthdare';
+      /** 尺度：预设里那一块的名字（TRUTH_DARE_LEVEL）；预设里没有尺度时不写 */
+      level?: string;
+      rounds: number;
+      you: TruthDareTally;
+      her: TruthDareTally;
+    }
+  /** 一起玩的一局：飞行棋（哪张棋盘、掷了几次骰子、你们各走到第几格、谁先到终点） */
+  | {
+      type: 'game';
+      logId: string;
+      game: 'flight';
+      /** 棋盘：用的那个棋盘预设的名字 */
+      board: string;
+      turns: number;
+      you: number;
+      her: number;
+      /** 棋盘一共几格 */
+      size: number;
+      /** 先到终点的；没下完时不写 */
+      winner?: 'you' | 'her';
     }
   /** 一起观影的票根 */
   | {
@@ -168,6 +194,14 @@ export type MessagePart =
       mode?: TogetherMode;
       youAt?: string;
     };
+
+/** 真心话大冒险里一个人这一局：做了几次真心话、几次大冒险（认罚的不算） */
+export interface TruthDareTally {
+  truth: number;
+  dare: number;
+  /** 认罚（不敢答、不敢做）了几次；只有你有，她那边总是答、总是做 */
+  skipped?: number;
+}
 
 /**
  * 怎么在一起：

@@ -1,23 +1,39 @@
 <script setup lang="ts">
-import { isExpression, worldOf, type MessagePart } from '@app/shared';
+import { isExpression, presetLevels, SOUP_LEVEL, worldOf, type MessagePart } from '@app/shared';
 import { showToast } from 'vant';
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import Segmented from '@/components/common/Segmented.vue';
 import SceneShell from '@/components/scene/SceneShell.vue';
+import FlightChess, { type FlightPhase } from '@/components/scene/game/FlightChess.vue';
+import TruthDare, { type TruthDarePhase } from '@/components/scene/game/TruthDare.vue';
 import { personaOf } from '@/services/prompt';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { useLibraryStore } from '@/stores/library';
 import { parseSoup, useSoupStore, type Soup } from '@/stores/soups';
 import { uid } from '@/utils/id';
 
 /**
- * 一起游戏：先只做海龟汤（设计文档 §9.11）。
+ * 一起游戏（设计文档 §9.11）：海龟汤（这个文件）、真心话大冒险（components/scene/game/TruthDare.vue）、
+ * 飞行棋（components/scene/game/FlightChess.vue），开始前在最上面切换。
+ * 海龟汤：
  * - 她出题你猜：她当主持人，知道汤底，按汤底答"是 / 不是 / 无关 / 是也不是"，偶尔逗你一句（检查过不泄底）；
  * - 一起猜：中立的主持人判定，她是你的队友，她那边的调用里没有汤底，所以她真的不知道；
  * - 你出题她猜：你写汤面（汤底可写可不写），她来问，你点按钮回答。
- * 每一问每一答都存进聊天；汤底揭晓后才存进去。规则、判定格式都在"一起游戏"功能预设里，代码只填这一次的输入。
+ * 每一问每一答都存进聊天；汤底揭晓后才存进去。规则、判定格式都在"一起游戏 · 海龟汤"功能预设里，代码只填这一次的输入。
+ * 尺度也在预设里：触发条件写了 soup-level:名字 的块（SOUP_LEVEL），选了哪个，现编和自检时只发那一块，题库按题的尺度筛。
+ * 一局玩完不结束这件事（还能再来一局、换个游戏）：离开场景页时那一段写这一次玩了哪几局。
  */
+type Game = 'soup' | 'truthdare' | 'flight';
+const GAMES: { value: Game; label: string }[] = [
+  { value: 'soup', label: '海龟汤' },
+  { value: 'truthdare', label: '真心话大冒险' },
+  { value: 'flight', label: '飞行棋' },
+];
+/** 上次选的海龟汤尺度（只记在这台设备上） */
+const SOUP_LEVEL_KEY = 'ai-mobile:soup-level';
 type Mode = 'host' | 'coop' | 'guest';
 type Phase = 'menu' | 'playing' | 'reveal';
 const MODES: { id: Mode; label: string; desc: string }[] = [
@@ -32,6 +48,7 @@ const app = useAppStore();
 const chars = useCharacterStore();
 const chat = useChatStore();
 const soupStore = useSoupStore();
+const lib = useLibraryStore();
 const router = useRouter();
 const her = computed(() => chars.byId(app.activeCharacterId) ?? chars.list[0]!);
 const chatId = computed(() => chat.chatOfCharacter(her.value.id)?.id ?? '');
@@ -39,7 +56,6 @@ const userName = computed(() => personaOf(chat.chatById(chatId.value)).name);
 
 const phase = ref<Phase>('menu');
 const mode = ref<Mode>('host');
-const allowRed = ref(false);
 const soup = ref<Soup | null>(null);
 const qa = ref<{ q: string; a: string; by: 'you' | 'her' }[]>([]);
 const hit = ref<number[]>([]);
@@ -59,7 +75,65 @@ const myTruth = ref('');
 const herQuestion = ref('');
 const herGuess = ref('');
 
-const list = computed(() => soupStore.soups.filter((s) => allowRed.value || s.kind === '清汤'));
+const game = ref<Game>('soup');
+const tdPhase = ref<TruthDarePhase>('menu');
+const flyPhase = ref<FlightPhase>('menu');
+/** 开始前才能换游戏 */
+const choosing = computed(() => ({ soup: phase.value, truthdare: tdPhase.value, flight: flyPhase.value })[game.value] === 'menu');
+watch(game, () => {
+  herLine.value = '';
+});
+/** 这一次玩完的几局，和正在玩的真心话大冒险、飞行棋：离开时那一段写"一起玩了…" */
+const played = ref<string[]>([]);
+const tdProgress = ref<string | null>(null);
+const flyProgress = ref<string | null>(null);
+onMounted(() => {
+  chat.setLeaveSummary(her.value.id, () => {
+    const all = [...played.value, ...[tdProgress.value, flyProgress.value].filter((s): s is string => !!s)];
+    return all.length ? `一起玩了${all.join('、')}` : undefined;
+  });
+});
+
+// —— 海龟汤的尺度：预设里的块（soup-level:名字） ——
+const soupLevels = computed(() =>
+  presetLevels(lib.presetForUse('scene:game', her.value), SOUP_LEVEL).map(({ name, block }) => ({
+    name,
+    desc: block.content.replaceAll('{{user}}', userName.value).replaceAll('{{char}}', her.value.name).replace(/^【[^】]*】\s*/, '').trim(),
+  })),
+);
+function savedSoupLevel(): string {
+  try {
+    return localStorage.getItem(SOUP_LEVEL_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+const pickedSoupLevel = ref(savedSoupLevel());
+/** 选中的尺度：上次选的还在预设里就用它，不然用第一个；预设里没有尺度时为空 */
+const soupLevel = computed(() => soupLevels.value.find((l) => l.name === pickedSoupLevel.value)?.name ?? soupLevels.value[0]?.name ?? '');
+const soupLevelIndex = computed(() => soupLevels.value.findIndex((l) => l.name === soupLevel.value));
+function pickSoupLevel(name: string) {
+  pickedSoupLevel.value = name;
+  try {
+    localStorage.setItem(SOUP_LEVEL_KEY, name);
+  } catch {
+    // 浏览器不让存：这次照样用
+  }
+}
+/** 现编、自检时打开选的那个尺度的块 */
+const soupFlags = computed(() => (soupLevel.value ? [`${SOUP_LEVEL}${soupLevel.value}`] : []));
+onBeforeUnmount(() => {
+  // 离开时那一段的总结已经在离开前取走了（ScenePage 的 onBeforeRouteLeave）
+  chat.setLeaveSummary(her.value.id, null);
+});
+
+/** 题库按尺度筛：列出选的尺度和排在它前面的尺度的题；题的尺度对不上预设里任何一个的一直列出来 */
+const list = computed(() =>
+  soupStore.soups.filter((s) => {
+    const i = soupLevels.value.findIndex((l) => l.name === s.kind);
+    return i < 0 || i <= soupLevelIndex.value;
+  }),
+);
 const cue = computed(() => `第 ${qa.value.length + 1} 问`);
 const replying = computed(() => !!chat.streams[chatId.value]);
 
@@ -112,7 +186,7 @@ function begin(s: Soup) {
 function beginMine() {
   const surface = mySurface.value.trim();
   if (!surface) return showToast('先写汤面');
-  begin({ id: uid('soup'), title: surface.slice(0, 12), surface, truth: myTruth.value.trim(), keys: [], difficulty: 1, kind: '清汤', origin: 'mine' });
+  begin({ id: uid('soup'), title: surface.slice(0, 12), surface, truth: myTruth.value.trim(), keys: [], difficulty: 1, kind: '', origin: 'mine' });
 }
 
 // —— 现编一道：先写汤底和汤面，再自检 ——
@@ -121,15 +195,20 @@ async function makeOne() {
   busy.value = true;
   try {
     const places = worldOf(her.value.id).locations.map((l) => l.name).join('、');
-    const made = await chat.sceneJson(chatId.value, { name: 'soup-make', input: [`尺度：${allowRed.value ? '清汤或红汤都可以（红汤也不写血腥细节）' : '清汤'}`, `可以用的地点：${places}`].join('\n') }, parseSoup);
+    // 尺度不写在这里：选的那个尺度的块按触发条件发送
+    const made = await chat.sceneJson(chatId.value, { name: 'soup-make', input: `可以用的地点：${places}` }, parseSoup, undefined, { flags: soupFlags.value });
     if (!made.ok) return fail(made);
-    const check = await chat.sceneJson(chatId.value, { name: 'soup-check', input: JSON.stringify({ surface: made.value.surface, truth: made.value.truth, keys: made.value.keys }) }, (v) =>
-      v && typeof v === 'object' && typeof (v as { ok?: unknown }).ok === 'boolean' ? (v as { ok: boolean; reason?: string }) : null,
+    const check = await chat.sceneJson(
+      chatId.value,
+      { name: 'soup-check', input: JSON.stringify({ surface: made.value.surface, truth: made.value.truth, keys: made.value.keys }) },
+      (v) => (v && typeof v === 'object' && typeof (v as { ok?: unknown }).ok === 'boolean' ? (v as { ok: boolean; reason?: string }) : null),
+      undefined,
+      { flags: soupFlags.value },
     );
     if (!check.ok) return fail(check);
     if (!check.value.ok) return showToast(`这道没通过自检：${check.value.reason ?? ''}，再编一道试试`);
     const { id: _id, ...rest } = made.value;
-    begin(soupStore.add({ ...rest, origin: 'made' }));
+    begin(soupStore.add({ ...rest, kind: soupLevel.value || rest.kind, origin: 'made' }));
   } finally {
     busy.value = false;
   }
@@ -284,7 +363,7 @@ async function reveal() {
   else fail(r);
   const card: MessagePart = { type: 'game', logId: uid('game'), game: 'soup', title: s.title, mode: mode.value, result: result.value ?? 'gave-up', questions: qa.value.length, hints: hints.value, ...(s.truth ? { truth: s.truth } : {}) };
   chat.postCard(chatId.value, 'user', card);
-  chat.leaveScene(her.value.id, `一起玩了海龟汤《${s.title}》`);
+  played.value.push(`海龟汤《${s.title}》`);
 }
 </script>
 
@@ -296,15 +375,31 @@ async function reveal() {
       <button class="text-accent-ink shrink-0" @click="router.push('/me/api?feature=companion')">去设置</button>
     </div>
 
-    <!-- 选玩法、选题 -->
-    <template v-if="phase === 'menu'">
-      <div class="text-[15px] font-600">海龟汤</div>
-      <div class="flex gap-2 mt-2">
+    <!-- 开始前选游戏 -->
+    <Segmented v-if="choosing" v-model="game" :options="GAMES" class="mb-3" />
+
+    <!-- 真心话大冒险 -->
+    <TruthDare v-if="game === 'truthdare'" v-model:line="herLine" v-model:phase="tdPhase" @fail="fail" @progress="(s) => (tdProgress = s)" @done="(s) => played.push(s)" />
+
+    <!-- 飞行棋 -->
+    <FlightChess v-else-if="game === 'flight'" v-model:line="herLine" v-model:phase="flyPhase" @fail="fail" @progress="(s) => (flyProgress = s)" @done="(s) => played.push(s)" />
+
+    <!-- 海龟汤：选玩法、选题 -->
+    <template v-else-if="phase === 'menu'">
+      <div class="flex gap-2">
         <button v-for="m in MODES" :key="m.id" type="button" class="chip" :class="{ on: mode === m.id }" @click="mode = m.id">{{ m.label }}</button>
       </div>
       <div class="text-[12.5px] text-ink-3 mt-1.5">{{ MODES.find((m) => m.id === mode)?.desc }}</div>
       <template v-if="mode !== 'guest'">
-        <label class="flex items-center gap-2 mt-3 text-[13px]"><van-switch v-model="allowRed" size="16px" />也出红汤（涉及死亡、恐怖，不写血腥细节）</label>
+        <template v-if="soupLevels.length">
+          <div class="label">尺度</div>
+          <div class="flex flex-wrap gap-2">
+            <button v-for="l in soupLevels" :key="l.name" type="button" class="chip" :class="{ on: soupLevel === l.name }" :aria-pressed="soupLevel === l.name" @click="pickSoupLevel(l.name)">
+              {{ l.name }}
+            </button>
+          </div>
+          <div class="level-desc">{{ soupLevels.find((l) => l.name === soupLevel)?.desc }}</div>
+        </template>
         <div class="label">题库</div>
         <button v-for="s in list" :key="s.id" type="button" class="soup press" @click="begin(s)">
           <span class="flex-1 min-w-0 text-left">
@@ -380,7 +475,8 @@ async function reveal() {
       </div>
     </template>
 
-    <van-popup v-model:show="answerOpen" position="bottom" round>
+    <!-- 放到 body 下：场景面板有 backdrop-filter，弹层留在里面会被关在面板里 -->
+    <van-popup v-model:show="answerOpen" position="bottom" round teleport="body">
       <div class="p-4">
         <div class="text-[15px] font-600 mb-2">说出你的答案</div>
         <textarea v-model="answerText" class="area" rows="3" placeholder="把你推理出来的经过写下来" aria-label="答案" />
@@ -405,6 +501,16 @@ async function reveal() {
 .label {
   margin: 12px 0 6px;
   font-size: 12.5px;
+  color: var(--ink-3);
+}
+.level-desc {
+  display: -webkit-box;
+  margin-top: 6px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  font-size: 12.5px;
+  line-height: 1.55;
   color: var(--ink-3);
 }
 .chip {
