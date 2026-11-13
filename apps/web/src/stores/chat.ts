@@ -514,6 +514,7 @@ export const useChatStore = defineStore('chat', () => {
   async function summarizeNow(chatId: string): Promise<SummaryOutcome | null> {
     const chat = chatById(chatId);
     if (!chat) return null;
+    if (summarizing[chatId]) return summarizeChat(chat, list(chatId));
     summarizing[chatId] = true;
     try {
       const r = await summarizeChat(chat, list(chatId));

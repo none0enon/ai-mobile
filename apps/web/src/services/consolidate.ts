@@ -175,7 +175,7 @@ export async function applyMemoryOps(ctx: MemoryConsolidationContext, ops: Memor
       applied += 1;
     } else if (op.op === 'rollup') {
       const group = op.ids.map((id) => mem.summaries.find((s) => s.id === id));
-      if (group.some((s) => !s || s.deleted || s.mergedInto)) {
+      if (group.some((s) => !s || s.deleted || s.duplicateOf || s.mergedInto)) {
         skipped += 1;
         continue;
       }

@@ -74,8 +74,9 @@ export interface HubStatus {
   lastCronAt: number | null;
   lastError: string | null;
   configured: boolean;
-  rhythmConfigured: boolean;
-  lastRhythmError: string | null;
+  /** Absent on Workers predating daily rhythm support. */
+  rhythmConfigured?: boolean;
+  lastRhythmError?: string | null;
   /** 云端记忆整理的 API 已上传 */
   memoryConfigured?: boolean;
   lastMemoryError?: string | null;

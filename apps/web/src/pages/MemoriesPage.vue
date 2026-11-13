@@ -11,7 +11,7 @@ import CgArt from '@/components/figure/CgArt.vue';
 import { album, diaries, MEMORY_TYPE_META, timeline, type AlbumItem } from '@/mock/memories';
 import { services } from '@/services';
 import { consolidateNow } from '@/services/consolidate';
-import { backfillChat, pendingForSummary } from '@/services/summary';
+import { backfillChat, pendingForSummary, SUMMARY_KEEP_RECENT } from '@/services/summary';
 import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
@@ -196,6 +196,15 @@ async function runConsolidate() {
 }
 
 const pending = computed(() => (chat.value ? pendingForSummary(chat.value, chats.list(chat.value.id)).length : 0));
+const summarizing = computed(() => !!chat.value && !!chats.summarizing[chat.value.id]);
+async function summarizePending() {
+  const c = chat.value;
+  if (!c || summarizing.value) return;
+  try {
+    const r = await chats.summarizeNow(c.id);
+    showToast(r ? `已整理 ${r.covered} 条聊天，记下 ${r.memories.length} 件事` : '暂时没有可整理的聊天');
+  } catch (e) { showErrorDialog('聊天没整理成', e); }
+}
 const backfill = reactive({ running: false, done: 0, remaining: 0 });
 let backfillAbort: AbortController | null = null;
 async function runBackfill() {
@@ -276,6 +285,17 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
           { value: 'book', label: '记忆本' },
         ]"
       />
+
+      <div v-if="tab === 'timeline' || tab === 'book'" class="card mx-4 my-3">
+        <div class="text-[14px] font-600">待整理聊天 {{ pending }} / {{ msgSettings.summaryEvery() }} 条</div>
+        <p class="text-[12.5px] text-ink-3 my-2">达到 {{ msgSettings.summaryEvery() }} 条定稿消息后自动整理；最近 {{ SUMMARY_KEEP_RECENT }} 条暂不整理。也可以提前整理已有聊天。</p>
+        <RouterLink v-if="!ai.isLive('summary')" to="/me/api" class="text-accent-ink text-[13px]">先接通「总结 / 记忆」API →</RouterLink>
+        <div v-else class="flex flex-wrap gap-2">
+          <van-button size="small" round :disabled="!pending || backfill.running" :loading="summarizing" @click="summarizePending">整理已有聊天</van-button>
+          <van-button v-if="!backfill.running && pending > msgSettings.summaryEvery()" size="small" round :disabled="summarizing" @click="runBackfill">补整理多批聊天</van-button>
+          <van-button v-if="backfill.running" size="small" round type="warning" @click="pauseBackfill">暂停补整理（已整理 {{ backfill.done }} 批）</van-button>
+        </div>
+      </div>
 
       <!-- 时间线 -->
       <div v-if="tab === 'timeline'" class="mt-1">
@@ -367,8 +387,6 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
 
         <div class="flex flex-wrap gap-2 px-4 mt-2.5">
           <van-button size="small" round icon="replay" :loading="consolidating" loading-text="整理中" @click="runConsolidate">立即整理</van-button>
-          <van-button v-if="!backfill.running && pending >= msgSettings.summaryEvery()" size="small" round @click="runBackfill">补整理聊天记录（还有 {{ pending }} 条）</van-button>
-          <van-button v-if="backfill.running" size="small" round type="warning" @click="pauseBackfill">暂停补整理（已整理 {{ backfill.done }} 批，还剩 {{ backfill.remaining }} 条）</van-button>
         </div>
         <p class="note-line">整理会合并重复的记忆、合并时间线、把过期的事改成过去时、修改画像卡；连了云端时每天凌晨 4 点自动整理。</p>
 
@@ -406,7 +424,7 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
               <button v-else class="mini" aria-label="放回去" @click="restore(m)"><span class="i-lucide-undo-2" /></button>
             </div>
           </div>
-          <p v-if="!shown.length" class="text-center text-ink-3 text-[13px] py-6">{{ all.length ? '没有找到' : `还没有记忆：聊够 ${msgSettings.summaryEvery()} 条后会自动整理` }}</p>
+          <p v-if="!shown.length" class="text-center text-ink-3 text-[13px] py-6">{{ all.length ? '没有找到' : '还没有整理出事实记忆；可以先用上方按钮整理已有聊天' }}</p>
         </div>
         <RouterLink to="/me/api" class="embed-note">
           <span class="i-lucide-waypoints" />

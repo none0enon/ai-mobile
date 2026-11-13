@@ -53,10 +53,12 @@ const RULE_LABEL = Object.fromEntries(proactive.rules.map((r) => [r.id, r.label]
 
 /** 一条计划现在的状态：发了 / 没发（为什么）/ 等着 */
 function stateOf(t: PlannedTouchpoint): { label: string; cls: string; note: string } {
-  const hint = substituteMacros(t.hint, { char: c.value?.name ?? '', user: me.value.name });
+  const hint = `${t.previousSchedule ? '按旧设置发送；' : ''}${substituteMacros(t.hint, { char: c.value?.name ?? '', user: me.value.name })}`;
   if (t.log?.status === 'fired') return { label: t.action === 'call' ? '打过来了' : '已发送', cls: 'good', note: t.log.reason ? `${hint}（${t.log.reason}）` : hint };
   if (t.log?.status === 'skipped') return { label: '没发', cls: 'warn', note: t.log.reason ?? '' };
   if (t.status === 'skipped') return { label: '不发', cls: 'warn', note: t.skipReason ?? '' };
+  if (!hub.connected || !hub.config.active) return { label: '云端未开启', cls: 'warn', note: hint };
+  if (!t.synced) return { label: '待同步', cls: 'warn', note: '这是本机计划，云端尚未确认相同的时区和时间；请到云端与同步检查。' };
   if (t.dueAt <= proactive.clock) return { label: hub.config.active ? '待云端检测' : '云端未开启', cls: 'accent', note: ('lastError' in t && typeof t.lastError === 'string') ? t.lastError : hint };
   return { label: '已排期', cls: 'accent', note: hint };
 }
@@ -85,7 +87,7 @@ function toggleRule(id: ProactiveTriggerId, on: boolean) {
 
       <template v-if="c">
         <van-cell-group inset class="!mt-3">
-          <van-cell :title="`${c.name}会主动找你`" :label="c.proactive.enabled ? `今天还会来找你 ${left} 次` : '关着：今天不会来找你'" center>
+          <van-cell :title="`${c.name}会主动找你`" :label="c.proactive.enabled ? `云端已确认今天还有 ${left} 次计划` : '关着：今天不会来找你'" center>
             <template #right-icon><van-switch v-model="c.proactive.enabled" size="22px" :aria-label="`${c.name}会主动找你`" /></template>
           </van-cell>
           <van-cell title="性格">

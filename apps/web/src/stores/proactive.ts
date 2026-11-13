@@ -36,7 +36,7 @@ export interface ProactiveLogEntry {
   messageId?: string;
 }
 
-export type PlannedTouchpoint = Touchpoint & { log?: ProactiveLogEntry };
+export type PlannedTouchpoint = Touchpoint & { log?: ProactiveLogEntry; synced: boolean; previousSchedule?: boolean };
 
 export type FireResult = { ok: true; message?: Message } | { ok: false; reason: string; error?: unknown };
 
@@ -66,12 +66,13 @@ export const useProactiveStore = defineStore('proactive', () => {
     const cloud = new Map(useHubStore().points.map((t) => [t.id, t]));
     return planTouchpoints({ character: c, rules, env, day, followups: followupsOf(c.id) }).map((t) => {
       const remote = cloud.get(t.id);
-      if (!remote) return t;
+      if (!remote) return { ...t, synced: false };
       const reason = remote.lastError || remote.pushError || remote.skipReason;
       const status = ['fired', 'delivered', 'opened'].includes(remote.status) ? 'fired' : remote.status === 'skipped' ? 'skipped' : null;
       // 同步返回旧时区的未发送计划时，先展示当前设置的计划；已发送记录仍然保留。
-      if (status !== 'fired' && (remote.dueAt !== t.dueAt || remote.timezone !== env.timezone)) return t;
-      return { ...remote, ...(status ? { log: { status, at: remote.updatedAt, reason, messageId: remote.messageId } as ProactiveLogEntry } : {}) };
+      const matches = remote.dueAt === t.dueAt && remote.timezone === env.timezone;
+      if (status !== 'fired' && !matches) return { ...t, synced: false };
+      return { ...remote, synced: true, previousSchedule: !matches, ...(status ? { log: { status, at: remote.updatedAt, reason, messageId: remote.messageId } as ProactiveLogEntry } : {}) };
     });
   }
 
@@ -80,7 +81,7 @@ export const useProactiveStore = defineStore('proactive', () => {
     const now = clock.value;
     const chars = useCharacterStore();
     const list = characterId ? [chars.byId(characterId)].filter((c) => !!c) : chars.list;
-    return list.filter((c) => c.proactive.enabled).reduce((n, c) => n + planFor(c.id).filter((t) => t.status === 'planned' && !t.log && t.dueAt > now).length, 0);
+    return list.filter((c) => c.proactive.enabled).reduce((n, c) => n + planFor(c.id).filter((t) => t.synced && t.status === 'planned' && !t.log && t.dueAt > now).length, 0);
   }
 
   function demoLine(c: Character, t: Pick<Touchpoint, 'id' | 'ruleId'>) {

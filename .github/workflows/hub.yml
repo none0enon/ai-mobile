@@ -8,7 +8,6 @@ permissions:
   contents: read
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || vars.HUB_D1_ID != ''
     runs-on: ubuntu-latest
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -16,6 +15,17 @@ jobs:
       HUB_D1_ID: ${{ vars.HUB_D1_ID }}
       HUB_APP_URL: ${{ vars.HUB_APP_URL }}
     steps:
+      - name: Verify deployment configuration
+        shell: bash
+        run: |
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID HUB_D1_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing $name. Configure Cloudflare Hub deployment in repository Settings > Secrets and variables > Actions; see docs/CLOUDFLARE.md."
+              missing=1
+            fi
+          done
+          exit "$missing"
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
