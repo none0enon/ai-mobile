@@ -80,10 +80,20 @@ const mealHow = computed(() => {
   return p.plan ? `共同吃饭 · 按计划${WAY[p.plan.way] ?? ''}` : '共同吃饭';
 });
 
-/** 学习卡片、饭卡里这次画的图：点一张从它开始翻 */
+/** 约会回忆：每种回法选了几次 */
+const datePicks = computed(() => {
+  const p = props.part;
+  if (p.type !== 'date' || !p.picks) return '';
+  return Object.entries(p.picks)
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => `${k} ${n}`)
+    .join(' · ');
+});
+
+/** 学习卡片、饭卡、约会回忆里这次画的图：点一张从它开始翻 */
 async function previewShots(start: number) {
   const p = props.part;
-  if ((p.type !== 'study' && p.type !== 'meal') || !p.images?.length) return;
+  if ((p.type !== 'study' && p.type !== 'meal' && p.type !== 'date') || !p.images?.length) return;
   const urls = await Promise.all(p.images.map(async (i) => (i.assetKey ? await assetUrl(i.assetKey) : (i.url ?? null))));
   const images = urls.filter((u): u is string => !!u);
   if (images.length) showImagePreview({ images, startPosition: Math.min(start, images.length - 1), closeable: true });
@@ -337,7 +347,25 @@ async function playVoice() {
     </div>
   </div>
 
-  <!-- 约会 -->
+  <!-- 约会回忆 -->
+  <div v-else-if="part.type === 'date' && part.status === 'memory'" class="pcard row-card date-memory" style="--tone: #ff9fa8">
+    <span class="icon-wrap self-start" style="color: var(--tone)"><span class="i-lucide-heart-handshake" /></span>
+    <div class="flex-1 min-w-0">
+      <div class="text-[14.5px] truncate">约会回忆 · {{ part.place }}</div>
+      <div class="text-[12px] text-ink-3">
+        {{ part.when }}<template v-if="part.turns"> · 走了 {{ part.turns }} 段</template><template v-if="part.minutes"> · {{ part.minutes }} 分钟</template>
+      </div>
+      <div v-if="datePicks" class="text-[12px] text-ink-2 mt-0.5">{{ datePicks }}</div>
+      <div v-if="part.farewell" class="text-[12.5px] text-ink-2 mt-1">「{{ part.farewell }}」</div>
+      <div v-if="part.images?.length" class="shots">
+        <button v-for="(img, i) in part.images" :key="i" type="button" class="shot" :aria-label="`看大图：${img.title}`" @click="previewShots(i)">
+          <AssetImg :asset-key="img.assetKey" :url="img.url" :alt="img.title" />
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 约会邀请 -->
   <div v-else-if="part.type === 'date'" class="pcard date">
     <div class="flex items-center gap-2">
       <span class="icon-wrap" style="color: #ff9fa8"><span class="i-lucide-heart-handshake" /></span>

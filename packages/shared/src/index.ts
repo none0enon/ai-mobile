@@ -33,3 +33,4 @@ export * from './rhythm.ts';
 export * from './imageTags.ts';
 export * from './housework.ts';
 export * from './health.ts';
+export * from './date.ts';

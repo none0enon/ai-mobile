@@ -91,8 +91,19 @@ function partToText(p: MessagePart, character: Character, user: string, mapText?
       const how = !p.timer || p.timer === 'pomodoro' ? `${p.pomodoros} 个番茄，` : p.timer === 'countdown' ? '倒计时，' : '正计时，';
       return `[陪伴学习：${how}${p.minutes} 分钟${p.together === false ? '，各自专注' : ''}${extra.length ? `；${extra.join('；')}` : ''}]`;
     }
-    case 'date':
-      return `[约会邀请：${p.when} ${p.place}]`;
+    case 'date': {
+      if (p.status !== 'memory') return `[约会邀请：${p.when} ${p.place}]`;
+      const picks = Object.entries(p.picks ?? {})
+        .filter(([, n]) => n > 0)
+        .map(([k, n]) => `${k} ${n} 次`);
+      const extra = [
+        p.turns ? `走了 ${p.turns} 段${p.minutes ? `、${p.minutes} 分钟` : ''}` : '',
+        picks.length ? `${user}的回法：${picks.join('、')}` : '',
+        p.images?.length ? `留了 ${p.images.length} 张图` : '',
+        p.farewell ? `${character.name}最后说：${p.farewell}` : '',
+      ].filter(Boolean);
+      return `[约会回忆 · ${p.place}${extra.length ? `：${extra.join('；')}` : ''}]`;
+    }
     case 'gift':
       return `[礼物：${p.name}]`;
     case 'read':
