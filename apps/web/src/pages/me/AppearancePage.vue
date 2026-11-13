@@ -9,7 +9,7 @@ import Segmented from '@/components/common/Segmented.vue';
 import Wallpaper from '@/components/common/Wallpaper.vue';
 import BackgroundEditor from '@/components/settings/BackgroundEditor.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
-import { personas } from '@/mock/characters';
+import { usePersonaStore } from '@/stores/personas';
 import { useAppStore, type ThemeSetting } from '@/stores/app';
 import { useAppearanceStore, type AvatarOwner } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
@@ -25,7 +25,8 @@ const looks = useAppearanceStore();
 const theme = computed<ThemeSetting>({ get: () => app.themeSetting, set: (v) => app.setTheme(v) });
 const accentFrom = computed({ get: () => looks.settings.accentFrom, set: (v) => looks.setAccentFrom(v) });
 const split = computed({ get: () => looks.settings.splitPalettes, set: (v: boolean) => looks.setSplit(v) });
-const me = personas.find((p) => p.isDefault) ?? personas[0]!;
+const personaStore = usePersonaStore();
+const me = computed(() => personaStore.defaultPersona);
 const her = computed(() => chars.byId(app.activeCharacterId) ?? chars.list[0]!);
 
 type Which = 'both' | 'day' | 'night';

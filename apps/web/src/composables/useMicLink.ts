@@ -11,7 +11,7 @@ import { sleep } from '@/utils/id';
 import { clock } from '@/utils/time';
 
 /**
- * 哄睡的连麦（设计文档 §9.4）：躺着说话她就听得到，她贴着耳机小声回你。
+ * 连麦（设计文档 §9.4；共同的家做家务时也用，§9.12）：说话她就听得到，她用自己的声音回你。下面按哄睡写，别的场景用 tasks / input 换掉：
  * 和语音通话（composables/useVoiceCall.ts）一样：说话检测 → 语音识别 → 她流式回复 → 按句合成、边合成边播；
  * 你一开口她就停（"我的 → 语音"里能关），聊天里只留她说出口的部分。不一样的是：
  * - 她的话由「陪伴 · 快速」按"哄睡"功能预设写：回你是 sleep-call，你安静久了她低语一句是 sleep-whisper（一次比一次隔得久，三句以后就不说了）；
@@ -48,6 +48,10 @@ export interface MicLinkOptions {
   autoWhisper(): boolean;
   /** 连上、有人说话：场景开始计时、不再算"睡着了" */
   onActivity?(): void;
+  /** 这件事里连麦用的任务名：回你、你安静久了她说一句（不给按哄睡：sleep-call / sleep-whisper） */
+  tasks?: { reply: string; whisper?: string };
+  /** 场景任务里这一次的输入怎么写（不给按哄睡：躺在床上、小声） */
+  input?(kind: 'open' | 'reply' | 'whisper', info: { context: string; linked: string; quietMin: number }): string;
 }
 
 /** 你安静多久她低语一句（秒）：一次比一次隔得久，说完这几句就不说了，让你睡 */
@@ -235,6 +239,7 @@ export function useMicLink(opts: MicLinkOptions) {
 
   function taskInput(kind: 'open' | 'reply' | 'whisper'): string {
     const ctx = opts.context();
+    if (opts.input) return opts.input(kind, { context: ctx, linked: clock(state.seconds), quietMin: quietMinutes() });
     const user = opts.userName.value;
     if (kind === 'open') return `${ctx}你们刚连上麦，${user}躺在床上。先小声开口说第一句，1–2 个短句。`;
     if (kind === 'whisper') return `${ctx}连麦中（已经连了 ${clock(state.seconds)}），${user}已经安静了 ${quietMinutes()} 分钟，可能快睡着了。`;
@@ -271,7 +276,7 @@ export function useMicLink(opts: MicLinkOptions) {
     let mine: string | null = null;
     const run = chat.generate(id, undefined, {
       agent: 'companion',
-      task: { name: kind === 'whisper' ? 'sleep-whisper' : 'sleep-call', input: taskInput(kind) },
+      task: { name: kind === 'whisper' ? (opts.tasks?.whisper ?? 'sleep-whisper') : (opts.tasks?.reply ?? 'sleep-call'), input: taskInput(kind) },
       cue: '连麦',
       allowedTags: ['expr'],
       // 要快：认得思考参数的接口把思考关到最少
@@ -393,7 +398,7 @@ export function useMicLink(opts: MicLinkOptions) {
     listener.muted = on;
   }
 
-  /** 离开哄睡时 */
+  /** 离开这件事时 */
   function dispose() {
     void hangUp();
     listener.stop();

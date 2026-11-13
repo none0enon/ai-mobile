@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import {
+  HEALTH_TASKS,
   IMAGE_MODES,
   IMAGE_MOMENTS,
   isRoleplayCategory,
+  LIFE_FLAGS,
   markerName,
   momentLabel,
   PRESET_CATEGORIES,
@@ -123,7 +125,7 @@ function setPosition(b: PromptBlock, absolute: boolean) {
 }
 /** 触发条件的中文名：画什么、场景里的时刻、节律的任务；别的（一起做事的场景任务名）原样显示 */
 function triggerLabel(t: string): string {
-  return IMAGE_MODES[t as keyof typeof IMAGE_MODES] ?? momentLabel(t) ?? RHYTHM_TASKS[t as keyof typeof RHYTHM_TASKS] ?? t;
+  return IMAGE_MODES[t as keyof typeof IMAGE_MODES] ?? momentLabel(t) ?? RHYTHM_TASKS[t as keyof typeof RHYTHM_TASKS] ?? HEALTH_TASKS[t as keyof typeof HEALTH_TASKS] ?? LIFE_FLAGS[t as keyof typeof LIFE_FLAGS] ?? t;
 }
 /** 生图预设里能选的时刻：按场景分组（只列有时刻的场景） */
 const momentGroups = computed(() =>
@@ -225,6 +227,8 @@ const HINT: Record<PresetCategory, string> = {
     '"画什么"几块按这次画的类型只发一块，一起做事时自动画的"时刻"（入座、偷拍、奖励……）也一样（在块里设"只在画这些时发送"）；"程序填充"的块是这一次的输入。块里能用 {{char_appearance}}（她的长相，同人是角色 tag + 作品 tag）、{{char_outfit}}（节律里她今天这个场景穿的那套）、{{user_appearance}}。输出格式里的字段名别改，程序按它读。',
   rhythm:
     '"建世界""排今天"两件任务、穿着的两种做法按触发条件只发这次要做的那几块（在块里设"只在做这些事时发送"）；"程序填充"的块是这一次的输入（角色、世界书、她的世界、模板、衣柜、今天、最近几天）。输出格式里的字段名别改，程序按它读，读完还会检查作息有没有盖满一天、地点在不在她的世界里。',
+  health:
+    '"排这周""排今天"两件任务按触发条件只发这次要做的那几块（在块里设"只在做这些事时发送"）；"程序填充"的块是这一次的输入（你人设里的身体和目标、能练的方式和时间、食材和厨具、今天、这周的计划、最近练了什么）。动作怎么讲（大白话、少用肌肉名称）写在规则里，可以改；输出格式里的字段名别改，程序按它读。',
 };
 </script>
 
@@ -382,6 +386,18 @@ const HINT: Record<PresetCategory, string> = {
           <div class="field-label">只在做这些事时发送（都不选 = 一直发）</div>
           <div class="flex flex-wrap gap-1.5">
             <button v-for="(label, t) in RHYTHM_TASKS" :key="t" type="button" class="opt" :class="{ on: editing.triggers?.includes(t) }" @click="toggleTrigger(editing, t)">{{ label }}</button>
+          </div>
+        </template>
+        <template v-else-if="preset.category === 'health'">
+          <div class="field-label">只在做这些事时发送（都不选 = 一直发）</div>
+          <div class="flex flex-wrap gap-1.5">
+            <button v-for="(label, t) in HEALTH_TASKS" :key="t" type="button" class="opt" :class="{ on: editing.triggers?.includes(t) }" @click="toggleTrigger(editing, t)">{{ label }}</button>
+          </div>
+        </template>
+        <template v-else-if="roleplay && !editing.marker">
+          <div class="field-label">只在你开了这些系统时发送（都不选 = 一直发）</div>
+          <div class="flex flex-wrap gap-1.5">
+            <button v-for="(label, t) in LIFE_FLAGS" :key="t" type="button" class="opt" :class="{ on: editing.triggers?.includes(t) }" @click="toggleTrigger(editing, t)">{{ label }}</button>
           </div>
         </template>
         <div class="flex gap-2.5 mt-5">

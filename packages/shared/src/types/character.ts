@@ -1,4 +1,5 @@
 import type { HHMM, SyncMeta } from './common.ts';
+import type { HealthSettings, HouseworkSettings } from './life.ts';
 import type { WeatherProviderChoice } from '../weather.ts';
 
 /**
@@ -145,4 +146,8 @@ export interface Persona extends SyncMeta {
   avatar: string | null;
   description: string;
   isDefault: boolean;
+  /** 家务系统（可以不开）：每天、每周要做的家务，"共同的家"按它列今天的清单 */
+  housework?: HouseworkSettings;
+  /** 健康系统（可以不开）：身体、目标、能练的方式和时间、食材和厨具，「健康计划」按它排计划 */
+  health?: HealthSettings;
 }

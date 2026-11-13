@@ -2,7 +2,7 @@ import type { Outfit, Pose } from './expressions.ts';
 import type { ControlTagKind } from './tags.ts';
 import type { ProactiveTriggerId } from './types/proactive.ts';
 
-export type SceneId = 'free' | 'exercise' | 'meal' | 'study' | 'sleep' | 'music' | 'date' | 'poke' | 'watch' | 'game' | 'read';
+export type SceneId = 'free' | 'exercise' | 'meal' | 'study' | 'sleep' | 'music' | 'date' | 'poke' | 'watch' | 'game' | 'read' | 'home';
 
 export type TimeOfDay = 'dawn' | 'morning' | 'noon' | 'afternoon' | 'dusk' | 'night' | 'late';
 
@@ -37,19 +37,19 @@ export interface SceneDef {
 export const SCENES: SceneDef[] = [
   {
     id: 'exercise',
-    name: '一起运动',
-    icon: 'i-lucide-footprints',
-    tagline: '她换上运动服陪你跑，每公里给你打气',
-    backdrop: 'park',
+    name: '健身',
+    icon: 'i-lucide-dumbbell',
+    tagline: '照着今天的计划练，或者随便动动；她换上运动服陪你',
+    backdrop: 'gym',
     ambient: ['birds', 'wind'],
     outfit: 'sport',
     pose: 'stand',
     tint: '#7fd1b1',
-    promptFragment:
-      '【场景：一起运动】你和{{user}}正在一起跑步或散步。说话要短，适合边跑边听；每公里给一句鼓励或吐槽；结束后对这次运动具体地评价。',
-    allowedTags: ['expr', 'cg'],
+    // 自带的"健身"功能预设里有自己的场景规则；这里只在功能预设跟随对话预设时用
+    promptFragment: '【场景：健身】你和{{user}}在一起健身，你也换好了运动服在旁边陪着练。说话要短，适合边练边听；鼓励要具体，不说教；{{user}}累了就让{{user}}慢一点。',
+    allowedTags: ['expr'],
     proactiveTriggers: ['sedentary', 'workout-praise'],
-    dataSources: ['App 内实时记录（计时、GPS）', '安卓计步传感器 / Health Connect', 'iPhone 快捷指令推送健康数据', '运动截图识别'],
+    dataSources: ['今天的健身计划（「健康计划」按你的人设排的）', 'App 内计时', '安卓：蓝牙心率带 / 手表的心率广播、手机计步、GPS 距离', '别的手机：结束时手动填手表上的数'],
   },
   {
     id: 'meal',
@@ -194,6 +194,22 @@ export const SCENES: SceneDef[] = [
     allowedTags: ['expr'],
     proactiveTriggers: [],
     dataSources: ['EPUB / TXT / PDF（只存在本机）', '粘贴的文章', '拍下的书页（识图）'],
+  },
+  {
+    id: 'home',
+    name: '共同的家',
+    icon: 'i-lucide-house-heart',
+    tagline: '今天的家务一件件做完，她在旁边陪你聊、给你放歌',
+    backdrop: 'living',
+    ambient: [],
+    outfit: 'daily',
+    pose: 'stand',
+    tint: '#f2c38b',
+    // 自带的"共同的家"功能预设里有自己的场景规则；这里只在功能预设跟随对话预设时用
+    promptFragment: '【场景：共同的家】你和{{user}}在你们共同的家里，{{user}}在做今天的家务（清单和进度在"家务"那一块）。说话生活化、简短，像住在一起的恋人。',
+    allowedTags: ['expr'],
+    proactiveTriggers: [],
+    dataSources: ['你人设里的家务清单（每天、每周）', '你在这里勾的：做完了、拖着的', '今天的饮食计划（开了健康系统时，做饭照着它）'],
   },
 ];
 

@@ -802,6 +802,12 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 一起出门前她在哪、在做什么：去了又什么都没发生时还原。只放内存 */
   const beforeVisit = new Map<string, { locationId: string | null; status: string }>();
+  /** 场景结束时那一段的总结怎么写（共同的家："做完 3 件家务"、健身："练了 30 分钟"）：场景开着时登记，离开时取一次 */
+  const leaveNotes = new Map<string, () => string | undefined>();
+  function setLeaveSummary(characterId: string, fn: (() => string | undefined) | null) {
+    if (fn) leaveNotes.set(characterId, fn);
+    else leaveNotes.delete(characterId);
+  }
 
   /** 没指定怎么在一起时：约会、戳戳乐默认去她那儿，其余默认连线 */
   const DEFAULT_MODE: Record<string, TogetherMode> = { date: 'visit', poke: 'visit' };
@@ -817,8 +823,10 @@ export const useChatStore = defineStore('chat', () => {
     return id === 'real:out' ? undefined : id;
   }
 
-  function enterTitle(mode: TogetherMode, characterName: string, pronoun: string, locName: string, activity: string) {
+  function enterTitle(mode: TogetherMode, characterName: string, pronoun: string, locName: string, activity: string, locationId?: string) {
     if (mode === 'remote') return { title: `和${characterName}连线 · ${activity}`, summary: `你在${yourPlace().name}，${pronoun}在${locName}` };
+    // 你的家（共同的家、在家吃饭……）：她"回家"，不是"带她去家"
+    if (mode === 'bring' && locationId === 'real:home') return { title: `和${characterName}在家 · ${activity}` };
     if (mode === 'bring') return { title: `带${characterName}去${locName} · ${activity}` };
     return { title: `和${characterName}来到${locName} · ${activity}` };
   }
@@ -849,7 +857,7 @@ export const useChatStore = defineStore('chat', () => {
     } else {
       const youAt = how === 'bring' ? locationId : how === 'remote' ? footprintId() : undefined;
       push(chat.id, 'narrator', [
-        { type: 'scene', event: 'enter', sceneId, locationId, mode: how, youAt, ...enterTitle(how, character.name, character.pronoun, loc?.name ?? '', activity) },
+        { type: 'scene', event: 'enter', sceneId, locationId, mode: how, youAt, ...enterTitle(how, character.name, character.pronoun, loc?.name ?? '', activity, locationId) },
       ]);
     }
     if (!beforeVisit.has(characterId)) beforeVisit.set(characterId, { locationId: character.locationId, status: character.status });
@@ -889,6 +897,10 @@ export const useChatStore = defineStore('chat', () => {
       summary ??= musicSummary();
       stopMusic();
     }
+    // 场景自己登记的总结（共同的家做完了几件家务、健身练了多久）
+    const note = leaveNotes.get(characterId);
+    leaveNotes.delete(characterId);
+    if (note) summary ??= note();
     const character = useCharacterStore().byId(characterId);
     // 开始前她在哪、在做什么只记在内存里：上次没结束就关了 App 时不知道，当作哪儿都不在（有作息的会照作息放回去）
     const before = beforeVisit.get(characterId) ?? { locationId: null, status: '' };
@@ -1003,6 +1015,7 @@ export const useChatStore = defineStore('chat', () => {
     poke,
     postCard,
     enterScene,
+    setLeaveSummary,
     leaveScene,
     endLeftoverScenes,
     looking,

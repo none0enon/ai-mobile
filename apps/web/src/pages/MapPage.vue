@@ -28,6 +28,8 @@ import { useRealWorldStore } from '@/stores/realworld';
 import { useServicesStore } from '@/stores/services';
 import { distanceText } from '@/services/maps';
 import { useRhythmStore } from '@/stores/rhythm';
+import { useHomeStore } from '@/stores/home';
+import { usePersonaStore } from '@/stores/personas';
 import { useWeatherStore } from '@/stores/weather';
 import { hhmm, listTime } from '@/utils/time';
 
@@ -146,6 +148,20 @@ const suggestion = computed(() => {
   const activity = loc.activities.find((a) => a.sceneId === t.scene) ?? loc.activities[0]!;
   return { loc, activity, text: `「${t.text}」` };
 });
+
+// —— 共同的家：她的世界"一起做点什么"里，紧挨着打电话，一直在（地点是你的家） ——
+const homeStore = useHomeStore();
+const me = computed(() => usePersonaStore().defaultPersona);
+const chores = computed(() => homeStore.itemsFor(me.value));
+/** 格子里的小字要短：开了家务写"家务 2/5"，没开写"和她" */
+function homeTileWhere(name: string): string {
+  const n = chores.value.length;
+  return me.value.housework?.enabled && n ? `家务 ${chores.value.filter((c) => c.mark.status === 'done').length}/${n}` : `和${name}`;
+}
+function goHome(characterId: string) {
+  app.activeCharacterId = characterId;
+  void router.push({ path: '/scene/home', query: { at: 'real:home' } });
+}
 
 // —— 一起去 ——
 function go(loc: MapLocation, activity: LocationActivity, characterId: string) {
@@ -296,6 +312,12 @@ watch(
             <span class="act-name">打电话</span>
             <span class="act-where">给{{ owner.name }}</span>
           </RouterLink>
+          <!-- 共同的家：一直在，紧挨着打电话 -->
+          <button class="act press" style="--tone: #f2c38b" data-act="home" @click="goHome(owner.id)">
+            <span class="act-icon"><span class="i-lucide-house-heart" /></span>
+            <span class="act-name">共同的家</span>
+            <span class="act-where">{{ homeTileWhere(owner.name) }}</span>
+          </button>
         </div>
       </template>
 

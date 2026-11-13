@@ -3,7 +3,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { showToast } from 'vant';
 import { VoiceRecorder, type VoiceRecording } from '@/services/recorder';
 
-/** 输入栏：文字 / 按住说话 / ＋面板（相册、拍照、一起听歌、约会、戳一戳……） */
+/** 输入栏：文字 / 按住说话 / ＋面板（相册、拍照、一起听歌、约会、戳一戳、健身、共同的家……） */
 const props = withDefaults(defineProps<{ busy?: boolean; voiceBusy?: boolean; placeholder?: string; compact?: boolean }>(), {
   busy: false,
   placeholder: '说点什么…',
@@ -36,7 +36,8 @@ const ACTIONS = [
   { id: 'music', label: '一起听歌', icon: 'i-lucide-music-2' },
   { id: 'date', label: '约会邀请', icon: 'i-lucide-heart-handshake' },
   { id: 'poke', label: '戳一戳', icon: 'i-lucide-pointer' },
-  { id: 'workout', label: '运动记录', icon: 'i-lucide-footprints' },
+  { id: 'workout', label: '健身', icon: 'i-lucide-dumbbell' },
+  { id: 'home', label: '共同的家', icon: 'i-lucide-house-heart' },
   { id: 'meal', label: '饭照', icon: 'i-lucide-utensils' },
   { id: 'cg', label: '生成配图', icon: 'i-lucide-wand-sparkles' },
   { id: 'call', label: '语音通话', icon: 'i-lucide-phone' },

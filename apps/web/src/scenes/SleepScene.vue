@@ -3,12 +3,12 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import Waveform from '@/components/call/Waveform.vue';
 import SceneShell from '@/components/scene/SceneShell.vue';
-import SleepMusic from '@/components/scene/sleep/SleepMusic.vue';
+import PlaylistMusic from '@/components/scene/PlaylistMusic.vue';
 import { useMicLink } from '@/composables/useMicLink';
 import { ttsLiveFor } from '@/services/ai';
 import { personaOf } from '@/services/prompt';
 import { ambience, NOISE_KINDS, NOISE_LABEL, type NoiseMix } from '@/services/ambience';
-import { sleepMusic } from '@/services/musicPlayer';
+import { sleepMusic, type PlaylistSearch } from '@/services/musicPlayer';
 import { SentenceStream, SpeechQueue } from '@/services/speech';
 import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
@@ -22,11 +22,19 @@ import { clock, hhmm } from '@/utils/time';
  * 哄睡（设计文档 §9.4）：暗色卧室。连麦 / 睡前故事 / 白噪音 / 音乐；
  * 定时器到点她说最后一句晚安、挂断连麦、白噪音和音乐慢慢变小、她也睡着；第二天早上她来电叫醒你（主动消息的"叫醒来电"）。
  * - 连麦（composables/useMicLink.ts）：躺着说话她就听得到、小声回你；连上以后换到别的标签也不断；
- * - 白噪音在本机合成（services/ambience.ts），不需要 API；音乐挑一个歌单放（components/scene/sleep/SleepMusic.vue，网易云）；
+ * - 白噪音在本机合成（services/ambience.ts），不需要 API；音乐挑一个歌单放（components/scene/PlaylistMusic.vue，网易云）；
  * - 她说的话（连麦、低语、故事、晚安）都由「陪伴 · 快速」按"哄睡"功能预设写，用"语音合成"的 API 读出来，同一时间只有一段；
  *   她说话时白噪音和音乐压低一点。没接通时写明原因，不出演示台词；语音合成没接通时字幕照常、不出声。
  */
 type Mode = 'mic' | 'story' | 'noise' | 'music';
+/** 助眠的歌单：按这些词去网易云搜 */
+const SLEEP_SEARCHES: PlaylistSearch[] = [
+  { name: '睡前钢琴', keyword: '助眠 钢琴曲', icon: 'i-lucide-piano' },
+  { name: '纯音乐', keyword: '睡前 纯音乐', icon: 'i-lucide-feather' },
+  { name: '摇篮曲', keyword: '摇篮曲 八音盒', icon: 'i-lucide-moon-star' },
+  { name: '冥想', keyword: '冥想 助眠', icon: 'i-lucide-leaf' },
+  { name: '安静的民谣', keyword: '安静 民谣', icon: 'i-lucide-guitar' },
+];
 const MODES: { id: Mode; label: string; icon: string }[] = [
   { id: 'mic', label: '连麦', icon: 'i-lucide-headphones' },
   { id: 'story', label: '故事', icon: 'i-lucide-book-heart' },
@@ -609,7 +617,7 @@ const shownLine = computed(() => {
     </div>
 
     <!-- 音乐：挑一个歌单 -->
-    <SleepMusic v-else />
+    <PlaylistMusic v-else :player="sleepMusic" :searches="SLEEP_SEARCHES" test-id="sleep-music" />
 
     <div class="mt-4">
       <div class="text-[12.5px] text-ink-3 mb-1.5">

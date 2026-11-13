@@ -1,0 +1,175 @@
+{
+  "format": "ai-mobile-preset",
+  "version": 1,
+  "id": "preset-health",
+  "category": "health",
+  "name": "健康 · 健身和饮食计划",
+  "defaultFor": [
+    "health"
+  ],
+  "description": "按你人设里的健康设置排这周（每天练什么、多久，三餐方向，要买的东西）和今天（具体的动作和三顿饭）的计划。两件任务按触发条件只发这次要做的那几块；复杂的动作写清楚怎么做、用大白话、少用肌肉名称，这些要求在\"规则\"里，可以改。",
+  "blocks": [
+    {
+      "identifier": "main",
+      "name": "任务",
+      "role": "system",
+      "content": "你在帮{{user}}安排健身和吃饭。{{user}}的身体和目标、能练的方式和时间、家里的食材和厨具都在下面。计划要具体、做得到、安全：照{{user}}能练的时间和方式排，只用{{user}}有的厨具，优先用家里常有的食材；循序渐进，不追求极端。只输出一个 JSON 对象，不要任何其他文字。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "rules",
+      "name": "规则",
+      "role": "system",
+      "content": "规则：\n- 健身：只用\"能接受的健身方式\"里的；每天练多久不超过那天能练的时间（0 分钟的那天休息）；一周里有轻有重，同一个部位的力量训练隔一天再练；新手从简单的做起。身体情况里写了旧伤、不舒服的，避开会加重的动作，换成温和的。\n- 动作说明：复杂的动作（要几个部位一起配合、容易做错、做错了容易受伤的，比如深蹲、弓步、硬拉、俯卧撑、平板支撑、波比跳、臀桥、划船）在 how 里一步一步写清楚：起始姿势、怎么动、怎么呼吸、做到什么程度停。用大白话说身体哪里怎么动（\"屁股往后坐，像要坐到椅子上\"\"膝盖和脚尖朝同一个方向\"\"背挺直，别弓成虾米\"）；不要用肌肉的学名（股四头肌、臀大肌、腘绳肌、三角肌、竖脊肌、核心肌群这类词不写），实在要说就说\"大腿前面\"\"屁股\"\"大腿后面\"\"肩膀\"\"肚子\"。简单的动作（原地踏步、开合跳、拉伸）how 写一两句或者不写。tips 写最要注意的一点，easier 写做不动时怎么降低难度。\n- 饮食：三顿饭照目标搭配（减脂少油少糖、蛋白质够；增肌多吃一点、蛋白质更多）。自己做的那顿：做饭时间不超过那顿能花的时间，只用有的厨具，食材优先用家里有的，缺的写进这周要买的东西；不自己做的那顿写在食堂、外卖、外面怎么选。避开忌口和过敏的东西。菜谱的步骤写到照着就能做出来。\n- 热量这些数写个大概就行；不评价身材，不劝节食，不推荐药物和补剂。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "planWeek",
+      "name": "排这周",
+      "role": "system",
+      "content": "这次的任务：排这一周。\n输出格式：\n{\"focus\": \"这周的重点（一句话）\", \"days\": [{\"weekday\": 1, \"workout\": \"练什么（例如：上肢力量 + 核心、快走、休息）\", \"minutes\": 30, \"rest\": false, \"meals\": \"这天三餐的方向，一句话\"}], \"shopping\": [\"这周要买的东西，带大概的量\"], \"tips\": [\"一两条这周的小提醒\"]}\ndays 从周一（weekday 1）写到周日（weekday 0），7 天都写；休息的那天 rest 写 true、minutes 写 0。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "plan-week"
+      ]
+    },
+    {
+      "identifier": "planDay",
+      "name": "排今天",
+      "role": "system",
+      "content": "这次的任务：排今天。照\"这周的计划\"里今天那一项排（今天不能练就休息）。\n输出格式：\n{\"rest\": false, \"workout\": {\"title\": \"今天练什么\", \"minutes\": 30, \"intensity\": \"轻松 / 中等 / 有点累\", \"warmup\": [动作], \"items\": [动作], \"cooldown\": [动作]}, \"meals\": {\"breakfast\": 饭, \"lunch\": 饭, \"dinner\": 饭, \"snack\": 饭或 null}, \"tips\": \"一句今天的提醒\"}\n动作：{\"name\": \"动作名\", \"sets\": 组数, \"reps\": \"每组多少，例如 12 次、每边 10 次\", \"seconds\": 按时间做的每组几秒（按次数做的写 0）, \"rest\": 组间休息几秒, \"how\": [\"第一步……\", \"第二步……\"], \"tips\": \"最要注意的一点\", \"easier\": \"做不动时怎么做\"}\n饭：{\"name\": \"吃什么\", \"cook\": 是不是自己做（true / false）, \"minutes\": 做饭要几分钟（不自己做写 0）, \"kcal\": 大概多少千卡, \"ingredients\": [\"食材和用量\"], \"steps\": [\"第一步……\"], \"note\": \"不自己做时怎么选，或者一句提醒\"}\n热身和拉伸也用动作的格式（sets 写 1）。今天休息时 rest 写 true，workout 写 null（三顿饭照样写）。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "plan-day"
+      ]
+    },
+    {
+      "identifier": "healthProfile",
+      "name": "你的身体、目标和身体情况",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "healthTime",
+      "name": "能练的方式和时间",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "healthKitchen",
+      "name": "食材、忌口、做饭时间和厨具",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "healthToday",
+      "name": "今天（日期、星期、天气）",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "healthWeek",
+      "name": "这周的计划（排今天时）",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "healthRecent",
+      "name": "最近练了什么、家务里做了什么饭",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "healthAsk",
+      "name": "这次要排的",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    }
+  ],
+  "sampler": {
+    "temperature": 0.7,
+    "topP": 1,
+    "maxTokens": 6000,
+    "contextTokens": 32000,
+    "frequencyPenalty": 0,
+    "presencePenalty": 0,
+    "stream": false
+  },
+  "formats": {
+    "newChatPrompt": "",
+    "newExampleChatPrompt": "",
+    "continueNudgePrompt": "",
+    "impersonationPrompt": "",
+    "sendIfEmpty": "",
+    "wiFormat": "{0}",
+    "scenarioFormat": "{{scenario}}",
+    "personalityFormat": "{{personality}}",
+    "namesBehavior": 0,
+    "squashSystemMessages": false,
+    "preferCharacterPrompt": true,
+    "preferCharacterJailbreak": true
+  },
+  "regex": []
+}

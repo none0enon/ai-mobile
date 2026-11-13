@@ -99,6 +99,8 @@ export function appBlocks(): { before: PromptBlock[]; after: PromptBlock[] } {
     after: [
       b('memory', { position: 'absolute', depth: 4, order: 100 }),
       b('environment', { position: 'absolute', depth: 2, order: 100 }),
+      // 你开了家务、健康系统时程序填今天的情况；没开时是空的、不发送
+      b('home', { position: 'absolute', depth: 2, order: 110 }),
       b('sceneRules', { position: 'absolute', depth: 1, order: 100 }),
     ],
   };

@@ -10,7 +10,7 @@ import type { PresetCategory } from './types/preset.ts';
  * - 一起做事时画的图（image:study 等）：选一个生图预设，或者"跟随配图"（用配图选的那个）。
  */
 export type FeatureSceneId = Exclude<SceneId, 'free'>;
-export type PresetUseId = 'call' | 'proactive' | 'theater' | 'summary' | 'consolidate' | 'image' | 'rhythm' | `scene:${FeatureSceneId}` | `image:${FeatureSceneId}`;
+export type PresetUseId = 'call' | 'proactive' | 'theater' | 'summary' | 'consolidate' | 'image' | 'rhythm' | 'health' | `scene:${FeatureSceneId}` | `image:${FeatureSceneId}`;
 
 export interface PresetUse {
   id: PresetUseId;
@@ -56,6 +56,7 @@ export const PRESET_USES: PresetUse[] = [
     };
   }),
   { id: 'rhythm', category: 'rhythm', label: '节律', desc: '导入角色后建她的世界；每天排她的作息、三餐和穿着（"我的 → 节律"）', icon: 'i-lucide-calendar-clock', follow: null },
+  { id: 'health', category: 'health', label: '健康计划', desc: '按你人设里的健康设置排这周和今天的健身计划、饮食计划（"我的 → 健康计划"）', icon: 'i-lucide-heart-pulse', follow: null },
 ];
 
 export function presetUse(id: PresetUseId): PresetUse | undefined {

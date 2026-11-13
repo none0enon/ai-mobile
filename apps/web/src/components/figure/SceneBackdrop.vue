@@ -47,6 +47,7 @@ const BASE: Record<string, { day: [string, string]; night: [string, string] }> =
   room: { day: ['#f5e9f3', '#e5d8ef'], night: ['#2a1d3a', '#120b1c'] },
   pool: { day: ['#e3f4fb', '#b4dcee'], night: ['#0f2433', '#050f18'] },
   gym: { day: ['#ece9f1', '#d3cfdc'], night: ['#1f1c26', '#0c0b10'] },
+  living: { day: ['#f6eadb', '#ead6c0'], night: ['#2b2030', '#120c16'] },
 };
 
 const outdoor = computed(() => ['park', 'seaside'].includes(props.kind));
@@ -272,6 +273,36 @@ const books = Array.from({ length: 3 }, (_, row) =>
           <rect x="74" y="500" width="22" height="54" rx="4" />
           <rect x="304" y="500" width="22" height="54" rx="4" />
         </g>
+      </g>
+
+      <!-- 客厅（共同的家）：窗和窗帘、落地灯、沙发、绿植、地毯 -->
+      <g v-else-if="kind === 'living'">
+        <rect x="216" y="90" width="150" height="210" rx="8" :fill="night ? '#1b2650' : sky[0]" />
+        <path d="M291 90 V300 M216 195 H366" :stroke="night ? '#3d3350' : '#d9c3a8'" stroke-width="6" />
+        <rect x="216" y="90" width="150" height="210" rx="8" fill="none" :stroke="night ? '#3d3350' : '#d9c3a8'" stroke-width="8" />
+        <circle v-if="night" cx="330" cy="130" r="16" fill="#f7efd2" />
+        <circle v-else cx="330" cy="132" r="15" fill="#fff3c4" />
+        <path :fill="night ? '#4a3150' : '#e9b8a0'" d="M200 78 Q214 190 204 318 L190 318 L190 78 Z M382 78 Q368 190 378 318 L392 318 L392 78 Z" />
+        <circle cx="70" cy="420" r="160" :fill="`url(#${gid}-glow)`" :opacity="night ? 0.95 : 0.35" />
+        <path d="M50 330 L90 330 L80 300 L60 300 Z" :fill="night ? '#f2c98a' : '#efcf9c'" />
+        <rect x="68" y="330" width="4" height="250" :fill="night ? '#6b5a66' : '#8a6a55'" />
+        <rect x="0" y="600" width="400" height="200" :fill="night ? '#21182a' : '#d8bfa2'" />
+        <ellipse cx="200" cy="700" rx="170" ry="34" :fill="night ? '#3a2a44' : '#eed8c0'" />
+        <g :fill="night ? '#4c3a5c' : '#c99a86'">
+          <rect x="96" y="520" width="230" height="78" rx="18" />
+          <rect x="84" y="500" width="34" height="100" rx="14" />
+          <rect x="304" y="500" width="34" height="100" rx="14" />
+        </g>
+        <g :fill="night ? '#5c4970' : '#e3b9a5'">
+          <rect x="120" y="486" width="88" height="54" rx="14" />
+          <rect x="216" y="486" width="88" height="54" rx="14" />
+        </g>
+        <g :fill="night ? '#1f3a33' : '#7fb48f'">
+          <ellipse cx="356" cy="520" rx="14" ry="30" />
+          <ellipse cx="370" cy="540" rx="12" ry="26" />
+          <ellipse cx="344" cy="548" rx="12" ry="24" />
+        </g>
+        <path d="M340 560 h36 l-6 40 h-24 Z" :fill="night ? '#6b5a66' : '#b98a6c'" />
       </g>
 
       <!-- 默认房间：柔和的圆 -->

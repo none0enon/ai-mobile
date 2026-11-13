@@ -36,8 +36,13 @@ export interface ProactiveContext {
   history: Message[];
   /** 待跟进（排期用）、置顶的和最重要的几十条；不传全部记忆 */
   memories: { id: string; content: string; dueAt?: number; type: string }[];
-  /** 手机拼好的两块记忆：画像卡 + 时间线、每次都带的 + 最重要的 30 条（主动消息不搜） */
-  memoryBlocks?: { summary: string; memory: string };
+  /**
+   * 手机拼好的几块：画像卡 + 时间线、每次都带的 + 最重要的 30 条（主动消息不搜）；
+   * home：你开了家务、健康系统时今天的情况（手机上传那一刻的，写着"截至几点"）
+   */
+  memoryBlocks?: { summary: string; memory: string; home?: string };
+  /** 你人设里开着的系统（housework、health）：预设里触发条件写了它们的块只在开着时发送 */
+  flags?: string[];
   environment: EnvironmentSettings;
   rules: ProactiveRule[];
   /** An active study/sleep session is refreshed by the client and expires if it disappears. */

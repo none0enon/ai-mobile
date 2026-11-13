@@ -6,8 +6,16 @@ import {
 } from '@app/shared';
 
 /** 发给云端模型的一条消息：文字（没有文字时是语音的转写、配图的描述），再加上你发的照片（识图看到的内容） */
+function partText(p: MessagePart): string {
+  if (p.type === 'voice') return p.transcript;
+  if (p.type === 'image' && !p.photo) return `[图片：${p.caption}]`;
+  if (p.type === 'chore') return p.status === 'done' ? `[家务：${p.name} 做完了]` : `[家务：${p.name} 说晚点再做（拖了 ${p.later ?? 1} 次）]`;
+  if (p.type === 'workout') return `[运动记录：${p.mode === 'plan' && p.plan ? `照计划练「${p.plan.title}」` : p.sport} ${Math.max(1, Math.round(p.durationSec / 60))} 分钟${p.kcal ? `，约 ${p.kcal} 千卡` : ''}]`;
+  return '';
+}
+
 function messageText(m: Message): string {
-  const base = m.text || m.parts.map((p) => (p.type === 'voice' ? p.transcript : p.type === 'image' && !p.photo ? `[图片：${p.caption}]` : '')).join(' ');
+  const base = m.text || m.parts.map(partText).join(' ');
   const photos = m.parts.flatMap((p) => (p.type === 'image' && p.photo ? [p.seen ? `[照片：${p.seen}]` : '[照片]'] : []));
   return [base.trim(), ...photos].filter(Boolean).join(' ');
 }
@@ -44,9 +52,16 @@ export function proactivePrompt(context: ProactiveContext, t: Touchpoint, now: n
       environment: { content: formatEnvironmentBlock({ now: date, timeZone }), source: `云端当前时间（${timeZone}）` },
       sceneRules: { content: FREE_SCENE.promptFragment, source: '日常聊天' },
       proactive: { content: quiet, source: '本次主动消息' },
+      // 你开了家务、健康系统时，手机上传那一刻今天的情况
+      ...(context.memoryBlocks?.home ? { home: { content: context.memoryBlocks.home, source: '家务和健康（手机同步）' } } : {}),
     },
-    type: 'quiet', now: date, timeZone, vars: chat.vars, loreState: chat.loreState, dryRun: true, model,
+    type: 'quiet', now: date, timeZone, vars: chat.vars, loreState: chat.loreState, dryRun: true, model, flags: context.flags,
   });
+  // 预设里没有"家务和健康"这一块（导入的预设）：今天的情况接在最后
+  const home = context.memoryBlocks?.home;
+  if (home && !preset.blocks.some((b) => b.identifier === 'home')) {
+    result.messages.push({ role: 'system', content: home, source: 'home', label: '家务和健康（预设里没有这一块，接在最后）' });
+  }
   if (!result.blocks.some((b) => b.identifier === 'proactive' && b.sent)) {
     result.messages.push({ role: 'system', content: quiet, source: 'quiet', label: '本次主动消息' });
   }

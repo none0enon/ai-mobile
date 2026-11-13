@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router';
 import PersonTabs from '@/components/common/PersonTabs.vue';
 import Segmented from '@/components/common/Segmented.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
-import { personas } from '@/mock/characters';
+import { usePersonaStore } from '@/stores/personas';
 import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
@@ -25,7 +25,8 @@ const chars = useCharacterStore();
 const app = useAppStore();
 const ai = useAiStore();
 const proactive = useProactiveStore();
-const me = personas.find((p) => p.isDefault) ?? personas[0];
+const personaStore = usePersonaStore();
+const me = computed(() => personaStore.defaultPersona);
 
 const pickedId = ref((route.query.char as string | undefined) ?? app.activeCharacterId);
 const c = computed(() => chars.byId(pickedId.value) ?? chars.list[0]);
@@ -52,7 +53,7 @@ const RULE_LABEL = Object.fromEntries(proactive.rules.map((r) => [r.id, r.label]
 
 /** 一条计划现在的状态：发了 / 没发（为什么）/ 等着 */
 function stateOf(t: PlannedTouchpoint): { label: string; cls: string; note: string } {
-  const hint = substituteMacros(t.hint, { char: c.value?.name ?? '', user: me?.name ?? '你' });
+  const hint = substituteMacros(t.hint, { char: c.value?.name ?? '', user: me.value.name });
   if (t.log?.status === 'fired') return { label: t.action === 'call' ? '打过来了' : '已发送', cls: 'good', note: t.log.reason ? `${hint}（${t.log.reason}）` : hint };
   if (t.log?.status === 'skipped') return { label: '没发', cls: 'warn', note: t.log.reason ?? '' };
   if (t.status === 'skipped') return { label: '不发', cls: 'warn', note: t.skipReason ?? '' };

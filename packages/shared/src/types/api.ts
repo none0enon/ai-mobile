@@ -134,6 +134,7 @@ export type AgentRole =
   | 'imagePrompt'
   | 'image'
   | 'rhythm'
+  | 'health'
   | 'proactive'
   | 'vision'
   | 'tts'
@@ -251,6 +252,13 @@ export const AGENT_META: Record<
     capability: 'chat',
     runsOn: 'both',
     icon: 'i-lucide-calendar-clock',
+  },
+  health: {
+    label: '健康计划',
+    desc: '按你人设里的身高体重、目标、能练的时间、食材和厨具，排这周和今天的健身计划、饮食计划（动作写清楚怎么做）',
+    capability: 'chat',
+    runsOn: 'client',
+    icon: 'i-lucide-heart-pulse',
   },
   proactive: {
     label: '主动消息',

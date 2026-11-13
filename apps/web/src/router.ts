@@ -19,6 +19,9 @@ import LorebookEditPage from '@/pages/me/LorebookEditPage.vue';
 import LorebooksPage from '@/pages/me/LorebooksPage.vue';
 import MessagesPage from '@/pages/me/MessagesPage.vue';
 import PersonasPage from '@/pages/me/PersonasPage.vue';
+import PersonaHealthPage from '@/pages/me/PersonaHealthPage.vue';
+import PersonaHouseworkPage from '@/pages/me/PersonaHouseworkPage.vue';
+import HealthPlanPage from '@/pages/me/HealthPlanPage.vue';
 import PresetEditPage from '@/pages/me/PresetEditPage.vue';
 import PresetsPage from '@/pages/me/PresetsPage.vue';
 import ProactivePage from '@/pages/me/ProactivePage.vue';
@@ -47,6 +50,9 @@ export const routes: RouteRecordRaw[] = [
   { path: '/me/characters', component: CharactersPage, meta: { title: '角色卡' } },
   { path: '/me/characters/:id', component: CharacterEditPage, meta: { title: '编辑角色' } },
   { path: '/me/personas', component: PersonasPage, meta: { title: '我的人设' } },
+  { path: '/me/personas/:id/housework', component: PersonaHouseworkPage, meta: { title: '家务系统' } },
+  { path: '/me/personas/:id/health', component: PersonaHealthPage, meta: { title: '健康系统' } },
+  { path: '/me/health', component: HealthPlanPage, meta: { title: '健康计划' } },
   { path: '/me/lorebooks', component: LorebooksPage, meta: { title: '世界书' } },
   { path: '/me/lorebooks/:id', component: LorebookEditPage, meta: { title: '编辑世界书' } },
   { path: '/me/presets', component: PresetsPage, meta: { title: '预设' } },
