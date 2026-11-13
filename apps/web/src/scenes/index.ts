@@ -3,6 +3,7 @@ import type { Component } from 'vue';
 import DateScene from './DateScene.vue';
 import FitnessScene from './FitnessScene.vue';
 import GameScene from './GameScene.vue';
+import HeartScene from './HeartScene.vue';
 import HomeScene from './HomeScene.vue';
 import MealScene from './MealScene.vue';
 import MusicScene from './MusicScene.vue';
@@ -25,4 +26,5 @@ export const SCENE_COMPONENTS: Partial<Record<SceneId, Component>> = {
   game: GameScene,
   read: ReadScene,
   home: HomeScene,
+  heart: HeartScene,
 };

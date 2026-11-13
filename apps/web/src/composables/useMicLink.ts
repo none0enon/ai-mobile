@@ -1,5 +1,5 @@
 import { errorText } from '@app/ai';
-import type { Character } from '@app/shared';
+import type { Character, ControlTagKind, ParsedReply, PresetUseId } from '@app/shared';
 import { computed, reactive, watch, type Ref } from 'vue';
 import { services } from '@/services';
 import { CallListener, looksLikeEcho } from '@/services/listener';
@@ -52,6 +52,18 @@ export interface MicLinkOptions {
   tasks?: { reply: string; whisper?: string };
   /** 场景任务里这一次的输入怎么写（不给按哄睡：躺在床上、小声） */
   input?(kind: 'open' | 'reply' | 'whisper', info: { context: string; linked: string; quietMin: number }): string;
+  /** 她的话按哪个用途的预设写（心跳的连麦用"心跳 · 语音"）；不给按场景的功能预设 */
+  use?: PresetUseId;
+  /** 这一次另外打开的预设触发条件（每次她开口前问一次） */
+  flags?(): string[];
+  /** 能执行哪些标签（不给只换表情） */
+  allowedTags?(): ControlTagKind[];
+  /** 她开口前（还没写）：心跳在这里开一条新的指令时间线 */
+  onTurnStart?(): void;
+  /** 流式时每次、写完时给解析好的正文和标签 */
+  onParsed?(parsed: ParsedReply, done: boolean): void;
+  /** 她这句写完了（还在念）：正文和这条消息的 id */
+  onReply?(text: string, messageId: string): void;
 }
 
 /** 你安静多久她低语一句（秒）：一次比一次隔得久，说完这几句就不说了，让你睡 */
@@ -261,6 +273,7 @@ export function useMicLink(opts: MicLinkOptions) {
     if (!state.on || chat.streams[id]) return;
     state.her = 'thinking';
     opts.onActivity?.();
+    opts.onTurnStart?.();
     let cap: LinkCaption | null = null;
     const q = opts.newSpeech({
       onSentence: (text) => {
@@ -278,9 +291,12 @@ export function useMicLink(opts: MicLinkOptions) {
       agent: 'companion',
       task: { name: kind === 'whisper' ? (opts.tasks?.whisper ?? 'sleep-whisper') : (opts.tasks?.reply ?? 'sleep-call'), input: taskInput(kind) },
       cue: '连麦',
-      allowedTags: ['expr'],
+      allowedTags: opts.allowedTags?.() ?? ['expr'],
       // 要快：认得思考参数的接口把思考关到最少
       quick: true,
+      ...(opts.use ? { use: opts.use } : {}),
+      ...(opts.flags ? { flags: opts.flags() } : {}),
+      ...(opts.onParsed ? { onParsed: opts.onParsed } : {}),
       onText: (full) => {
         // 被顶掉了（开始讲故事、定时到了说晚安）：后面不用再写了
         if (q.stopped) {
@@ -305,6 +321,7 @@ export function useMicLink(opts: MicLinkOptions) {
       state.llmIssue = '';
       q.pushAll(stream.flush(msg.text));
       q.end();
+      opts.onReply?.(msg.text, msg.id);
       await q.drained();
     }
     // 说到一半被别的声音顶掉了：聊天里只留说出口的（被你打断的已经在 interruptHer 里留好了）

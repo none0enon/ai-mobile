@@ -11,15 +11,19 @@
  *   [call]                想打电话（界面弹出来电）
  *   [choice:A|B|C]        约会里的选项
  *   [poke:head]           回戳你
+ *   <device>"VIBRATE": 40</device>   心跳里玩具的控制指令（尖括号写法，可以跨行；内容见 device.ts）
  *
  * 兼容全角写法【expr：smile】。不认识的方括号（例如"[笑]"）原样保留为正文。
  */
 export const CONTROL_TAG_KINDS = ['expr', 'pose', 'outfit', 'bg', 'cg', 'music', 'call', 'choice', 'poke'] as const;
 
-export type ControlTagKind = (typeof CONTROL_TAG_KINDS)[number];
+/** 尖括号写法、成对的标签：<device>…</device>（同 SillyTavern 的 Intiface 插件） */
+export const BLOCK_TAG_KINDS = ['device'] as const;
+
+export type ControlTagKind = (typeof CONTROL_TAG_KINDS)[number] | (typeof BLOCK_TAG_KINDS)[number];
 
 export type ControlTag =
-  | { kind: 'expr' | 'pose' | 'outfit' | 'bg' | 'poke' | 'cg'; value: string }
+  | { kind: 'expr' | 'pose' | 'outfit' | 'bg' | 'poke' | 'cg' | 'device'; value: string }
   | { kind: 'music'; title: string; artist: string }
   | { kind: 'call' }
   | { kind: 'choice'; options: string[] };
@@ -43,6 +47,10 @@ export const CONTROL_TAG_DOCS: Record<ControlTagKind, { syntax: string; desc: st
   call: { syntax: '[call]', desc: '想和对方打电话时用' },
   choice: { syntax: '[choice:选项A|选项B]', desc: '给对方几个选项，显示成可以直接点的回复' },
   poke: { syntax: '[poke:部位]', desc: '回戳对方' },
+  device: {
+    syntax: '<device>"VIBRATE": 强度</device>',
+    desc: '对方连着成人玩具时，在发生的那句话后面写控制指令：VIBRATE / OSCILLATE / ROTATE（0–100 或 {"pattern": [..], "interval": [..]}）、LINEAR（{"start_position", "end_position", "duration"}）、"STOP": true',
+  },
 };
 
 const KIND_ALT = CONTROL_TAG_KINDS.join('|');
@@ -96,31 +104,68 @@ export interface ParsedReply {
   pending: boolean;
 }
 
+const DEVICE_RE = /<device\s*>([\s\S]*?)<\/device\s*>/gi;
+
+/** 结尾还没收完的 <device>…（流式时）：返回从哪里开始先藏起来；没有为 -1 */
+function unfinishedBlock(s: string): number {
+  const lower = s.toLowerCase();
+  const open = lower.lastIndexOf('<device');
+  if (open >= 0 && lower.indexOf('</device', open) < 0) return open;
+  // 结尾是 "<"、"<dev" 这样的半截开头
+  const lt = s.lastIndexOf('<');
+  if (lt >= 0 && lt >= s.length - 8 && '<device>'.startsWith(lower.slice(lt))) return lt;
+  return -1;
+}
+
+/** 一段正文里的方括号标签：去掉标签，执行白名单里的；返回接上这一段之后的正文 */
+function stripBrackets(seg: string, allowed: readonly ControlTagKind[] | undefined, visible: string, tags: ParsedReply['tags']): string {
+  let out = visible;
+  let last = 0;
+  for (const m of seg.matchAll(TAG_RE)) {
+    const index = m.index ?? 0;
+    out += seg.slice(last, index);
+    const kind = (m[1] ?? '').toLowerCase() as ControlTagKind;
+    const tag = parseTag(kind, m[2]);
+    if (tag && (!allowed || allowed.includes(kind))) tags.push({ tag, at: out.length });
+    last = index + m[0].length;
+  }
+  return out + seg.slice(last);
+}
+
 /**
  * 无状态解析：每次拿"到目前为止的全文"重新解析一遍。
  * 和 math-reader 的 readAIStream 一样，onDelta 每次给的都是累积全文，所以直接配合使用。
  * allowed 用于场景白名单：不在白名单里的已知标签照样从正文里去掉，但不执行。
+ * <device>…</device> 整段从正文里拿掉（单独一行的连同换行），还没收完的先藏起来。
  */
 export function parseControlTags(raw: string, allowed?: readonly ControlTagKind[]): ParsedReply {
+  let body = raw;
+  let pending = false;
+  const cut = unfinishedBlock(body);
+  if (cut >= 0) {
+    body = body.slice(0, cut);
+    pending = true;
+  }
   let visible = '';
   const tags: ParsedReply['tags'] = [];
   let last = 0;
-  for (const m of raw.matchAll(TAG_RE)) {
+  for (const m of body.matchAll(DEVICE_RE)) {
     const index = m.index ?? 0;
-    visible += raw.slice(last, index);
-    const kind = (m[1] ?? '').toLowerCase() as ControlTagKind;
-    const tag = parseTag(kind, m[2]);
-    if (tag && (!allowed || allowed.includes(kind))) tags.push({ tag, at: visible.length });
+    visible = stripBrackets(body.slice(last, index), allowed, visible, tags);
+    if (!allowed || allowed.includes('device')) tags.push({ tag: { kind: 'device', value: (m[1] ?? '').trim() }, at: visible.length });
     last = index + m[0].length;
+    if (!visible || visible.endsWith('\n')) {
+      if (body.startsWith('\r\n', last)) last += 2;
+      else if (body[last] === '\n') last += 1;
+    }
   }
-  let tail = raw.slice(last);
-  let pending = false;
+  let tail = body.slice(last);
   const open = lastOpenBracket(tail);
   if (open !== -1 && isPartialTag(tail.slice(open))) {
     tail = tail.slice(0, open);
     pending = true;
   }
-  visible += tail;
+  visible = stripBrackets(tail, allowed, visible, tags);
   return { visible, tags, pending };
 }
 

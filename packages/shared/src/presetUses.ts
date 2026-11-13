@@ -7,10 +7,23 @@ import type { PresetCategory } from './types/preset.ts';
  * - 语音通话（call）：选一个对话预设（默认"通话 · 短句"），或者"跟随对话预设"；
  * - 一起做事的每件事（scene:meal 等）、主动消息：选一个对应分类的预设，或者"跟随对话预设"（用这个角色的对话预设）；
  * - 小剧场（番外）、总结、配图（image）、节律：选一个对应分类的预设；
- * - 一起做事时画的图（image:study 等）：选一个生图预设，或者"跟随配图"（用配图选的那个）。
+ * - 一起做事时画的图（image:study 等）：选一个生图预设，或者"跟随配图"（用配图选的那个）；
+ * - 心跳：打字聊用"心跳"（scene:heart），连麦用"心跳 · 语音"（heart-voice），玩具的控制指令用"控制指令"（device），背景图用 image:heart。
  */
 export type FeatureSceneId = Exclude<SceneId, 'free'>;
-export type PresetUseId = 'call' | 'proactive' | 'theater' | 'summary' | 'consolidate' | 'image' | 'rhythm' | 'health' | `scene:${FeatureSceneId}` | `image:${FeatureSceneId}`;
+export type PresetUseId =
+  | 'call'
+  | 'proactive'
+  | 'theater'
+  | 'summary'
+  | 'consolidate'
+  | 'image'
+  | 'rhythm'
+  | 'health'
+  | 'heart-voice'
+  | 'device'
+  | `scene:${FeatureSceneId}`
+  | `image:${FeatureSceneId}`;
 
 export interface PresetUse {
   id: PresetUseId;
@@ -28,6 +41,7 @@ export interface PresetUse {
  */
 export const IMAGE_MOMENTS: Partial<Record<FeatureSceneId, Record<string, string>>> = {
   study: { seat: '入座', peek: '偷拍', reward: '奖励', mine: '你这边' },
+  heart: { open: '开场', now: '这一刻' },
 };
 
 /** 时刻的中文名（所有场景一起查） */
@@ -38,7 +52,8 @@ export function momentLabel(moment: string): string | undefined {
 
 export const PRESET_USES: PresetUse[] = [
   { id: 'call', category: 'chat', label: '语音通话', desc: '打电话时她说的话：短句、口语、不写动作，方便边生成边合成语音', icon: 'i-lucide-phone', follow: 'chat' },
-  ...SCENES.map((s): PresetUse => ({ id: `scene:${s.id as FeatureSceneId}`, category: 'feature', label: s.name, desc: `${s.name}时的对话`, icon: s.icon, follow: 'chat' })),
+  ...SCENES.map((s): PresetUse => ({ id: `scene:${s.id as FeatureSceneId}`, category: 'feature', label: s.name, desc: s.id === 'heart' ? '心跳里打字聊天时她说的话' : `${s.name}时的对话`, icon: s.icon, follow: 'chat' })),
+  { id: 'heart-voice', category: 'feature', label: '心跳 · 语音', desc: '心跳里连麦时她说的话：口语、短句、不写动作，边生成边合成语音', icon: 'i-lucide-audio-lines', follow: null },
   { id: 'proactive', category: 'proactive', label: '主动消息', desc: '到点时角色先发来的那条', icon: 'i-lucide-bell-ring', follow: 'chat' },
   { id: 'theater', category: 'theater', label: '番外', desc: '"我的 → 试一试 → 写一段番外"', icon: 'i-lucide-book-heart', follow: null },
   { id: 'summary', category: 'summary', label: '总结聊天', desc: '每攒够几条（"我的 → 消息设置"里改）自动写梗概、故事片段和记忆，聊天 ⋯ 里也能手动整理', icon: 'i-lucide-notebook-pen', follow: null },
@@ -57,6 +72,7 @@ export const PRESET_USES: PresetUse[] = [
   }),
   { id: 'rhythm', category: 'rhythm', label: '节律', desc: '导入角色后建她的世界；每天排她的作息、三餐和穿着（"我的 → 节律"）', icon: 'i-lucide-calendar-clock', follow: null },
   { id: 'health', category: 'health', label: '健康计划', desc: '按你人设里的健康设置排这周和今天的健身计划、饮食计划（"我的 → 健康计划"）', icon: 'i-lucide-heart-pulse', follow: null },
+  { id: 'device', category: 'device', label: '控制指令', desc: '心跳里按她说的话给连着的玩具写指令（震动、摆动、伸缩……），读到、念到那里时执行', icon: 'i-lucide-activity', follow: null },
 ];
 
 export function presetUse(id: PresetUseId): PresetUse | undefined {

@@ -128,11 +128,12 @@ export interface RegexScript {
  * - summary 总结：整理聊天，写过往摘要、记忆、关系变化；
  * - image 生图：把画面写成 NovelAI tags；
  * - rhythm 节律：建她的世界、排她每天的作息、三餐和穿着；
- * - health 健康：按你人设里的健康设置排这周和今天的健身计划、饮食计划。
+ * - health 健康：按你人设里的健康设置排这周和今天的健身计划、饮食计划；
+ * - device 控制指令：心跳里按她说的话给连着的玩具写指令（Intiface Central）。
  * 前三类是角色扮演，程序填充块和 SillyTavern 的对话预设一样（角色卡、世界书、聊天记录……），可以互相复制；
  * 后几类是一次性的任务，程序填充块是这件任务的输入（要整理的聊天、要画的画面、她的世界……）。
  */
-export type PresetCategory = 'chat' | 'feature' | 'proactive' | 'theater' | 'summary' | 'image' | 'rhythm' | 'health';
+export type PresetCategory = 'chat' | 'feature' | 'proactive' | 'theater' | 'summary' | 'image' | 'rhythm' | 'health' | 'device';
 
 export const PRESET_CATEGORIES: Record<PresetCategory, { label: string; desc: string; icon: string }> = {
   chat: { label: '对话', desc: '主对话：聊天气泡和剧场模式。每个角色选一个（角色设定 → 预设）', icon: 'i-lucide-message-circle-heart' },
@@ -143,9 +144,14 @@ export const PRESET_CATEGORIES: Record<PresetCategory, { label: string; desc: st
   image: { label: '生图', desc: '生图提示词：把要画的画面写成 NovelAI tags。聊天配图一个，一起做事的每件事也各选一个（可以跟随配图）', icon: 'i-lucide-wand-sparkles' },
   rhythm: { label: '节律', desc: '她每天的作息、三餐和穿着：导入角色后"建世界"一次，之后每天"排今天"（每个角色在"我的 → 节律"里选固定还是每天变化）', icon: 'i-lucide-calendar-clock' },
   health: { label: '健康', desc: '你的健身计划和饮食计划：按人设里的身高体重、目标、能练的方式和时间、食材、做饭时间和厨具，排这周和今天的（"我的 → 健康计划"）', icon: 'i-lucide-heart-pulse' },
+  device: {
+    label: '控制指令',
+    desc: '心跳里玩具的控制指令：按她刚说的话、连着的玩具能做什么、你设的强度上限，写什么时候震动多强、怎么变速、伸缩多快（通过 Intiface Central 执行）',
+    icon: 'i-lucide-activity',
+  },
 };
 
-export const PRESET_CATEGORY_ORDER: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image', 'rhythm', 'health'];
+export const PRESET_CATEGORY_ORDER: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image', 'rhythm', 'health', 'device'];
 
 /** 角色扮演类的预设（程序填充块相同，可以互相复制） */
 export const ROLEPLAY_CATEGORIES: PresetCategory[] = ['chat', 'feature', 'proactive'];
@@ -205,7 +211,7 @@ export type LifeFlag = keyof typeof LIFE_FLAGS;
  * 任务类预设（小剧场、总结、生图）的程序填充块：只放这件任务每次的输入（要整理的聊天、要画的画面……）。
  * 说明、规则、输出格式都是预设里的普通块，可以改。
  */
-export const TASK_MARKERS: Record<'theater' | 'summary' | 'image' | 'rhythm' | 'health', Record<string, string>> = {
+export const TASK_MARKERS: Record<'theater' | 'summary' | 'image' | 'rhythm' | 'health' | 'device', Record<string, string>> = {
   theater: {
     storyCharacter: '角色',
     storyWorld: '她的世界（作息、手头的事、身边的人）',
@@ -246,6 +252,13 @@ export const TASK_MARKERS: Record<'theater' | 'summary' | 'image' | 'rhythm' | '
     healthWeek: '这周的计划（排今天时）',
     healthRecent: '最近练了什么、家务里做了什么饭',
     healthAsk: '这次要排的',
+  },
+  device: {
+    deviceToys: '连着的玩具和能写的键',
+    deviceLimits: '强度上限和最快的速度',
+    deviceNow: '玩具现在在做什么',
+    deviceRecent: '最近的对话',
+    deviceLine: '她这一句（要配指令的话）',
   },
 };
 

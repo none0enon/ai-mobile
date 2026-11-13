@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  DEVICE_INLINE_FLAG,
   HEALTH_TASKS,
   IMAGE_MODES,
   IMAGE_MOMENTS,
@@ -123,9 +124,11 @@ function setPosition(b: PromptBlock, absolute: boolean) {
   b.injection = { ...b.injection, position: absolute ? 'absolute' : 'relative' };
   touch();
 }
+/** 角色扮演预设里按开关发送的块：你人设里开着的系统，还有心跳里"连着玩具、她自己写指令" */
+const ROLEPLAY_FLAGS: Record<string, string> = { ...LIFE_FLAGS, [DEVICE_INLINE_FLAG]: '心跳：连着玩具、她自己写指令' };
 /** 触发条件的中文名：画什么、场景里的时刻、节律的任务；别的（一起做事的场景任务名）原样显示 */
 function triggerLabel(t: string): string {
-  return IMAGE_MODES[t as keyof typeof IMAGE_MODES] ?? momentLabel(t) ?? RHYTHM_TASKS[t as keyof typeof RHYTHM_TASKS] ?? HEALTH_TASKS[t as keyof typeof HEALTH_TASKS] ?? LIFE_FLAGS[t as keyof typeof LIFE_FLAGS] ?? t;
+  return IMAGE_MODES[t as keyof typeof IMAGE_MODES] ?? momentLabel(t) ?? RHYTHM_TASKS[t as keyof typeof RHYTHM_TASKS] ?? HEALTH_TASKS[t as keyof typeof HEALTH_TASKS] ?? ROLEPLAY_FLAGS[t] ?? t;
 }
 /** 生图预设里能选的时刻：按场景分组（只列有时刻的场景） */
 const momentGroups = computed(() =>
@@ -229,6 +232,8 @@ const HINT: Record<PresetCategory, string> = {
     '"建世界""排今天"两件任务、穿着的两种做法按触发条件只发这次要做的那几块（在块里设"只在做这些事时发送"）；"程序填充"的块是这一次的输入（角色、世界书、她的世界、模板、衣柜、今天、最近几天）。输出格式里的字段名别改，程序按它读，读完还会检查作息有没有盖满一天、地点在不在她的世界里。',
   health:
     '"排这周""排今天"两件任务按触发条件只发这次要做的那几块（在块里设"只在做这些事时发送"）；"程序填充"的块是这一次的输入（你人设里的身体和目标、能练的方式和时间、食材和厨具、今天、这周的计划、最近练了什么）。动作怎么讲（大白话、少用肌肉名称）写在规则里，可以改；输出格式里的字段名别改，程序按它读。',
+  device:
+    '心跳里她每说完一句，按这个预设给连着的玩具写指令。"程序填充"的块是这一次的输入：连着的玩具和能写的键、你设的强度上限和最快速度、玩具现在在做什么、最近的对话、她这一句。轻重怎么对应剧情写在规则里，可以改；指令的键（VIBRATE、LINEAR……）和输出格式里的字段名别改，程序按它读，读到她原话里 at 写的那几个字时执行。',
 };
 </script>
 
@@ -395,9 +400,9 @@ const HINT: Record<PresetCategory, string> = {
           </div>
         </template>
         <template v-else-if="roleplay && !editing.marker">
-          <div class="field-label">只在你开了这些系统时发送（都不选 = 一直发）</div>
+          <div class="field-label">只在这些开着时发送（都不选 = 一直发）</div>
           <div class="flex flex-wrap gap-1.5">
-            <button v-for="(label, t) in LIFE_FLAGS" :key="t" type="button" class="opt" :class="{ on: editing.triggers?.includes(t) }" @click="toggleTrigger(editing, t)">{{ label }}</button>
+            <button v-for="(label, t) in ROLEPLAY_FLAGS" :key="t" type="button" class="opt" :class="{ on: editing.triggers?.includes(t) }" @click="toggleTrigger(editing, t)">{{ label }}</button>
           </div>
         </template>
         <div class="flex gap-2.5 mt-5">

@@ -42,10 +42,10 @@ export function slotIn<T extends { from: string; to: string }>(schedule: T[], no
   return schedule.find((s) => (toMinutes(s.from) ?? 0) <= t && t < (toMinutes(s.to) ?? 0)) ?? schedule.at(-1);
 }
 
-/** 这个场景该穿哪一套：运动穿运动的，哄睡穿睡衣，约会穿约会装（没有就日常），其余日常 */
+/** 这个场景该穿哪一套：运动穿运动的，哄睡、心跳穿睡衣，约会穿约会装（没有就日常），其余日常 */
 export function outfitKindFor(sceneId: string | null | undefined): OutfitKind {
   if (sceneId === 'exercise') return 'sport';
-  if (sceneId === 'sleep') return 'sleep';
+  if (sceneId === 'sleep' || sceneId === 'heart') return 'sleep';
   if (sceneId === 'date') return 'date';
   return 'daily';
 }
@@ -386,7 +386,8 @@ export function parseBuiltWorld(value: unknown): BuiltWorldSpec | null {
     const area = AREAS.includes(l.area as (typeof AREAS)[number]) ? (l.area as BuiltLocationSpec['area']) : 'city';
     const activities = (Array.isArray(l.activities) ? l.activities : [])
       .map((a) => (isObj(a) ? { sceneId: str(a.scene ?? a.sceneId), label: str(a.label) } : { sceneId: str(a), label: '' }))
-      .filter((a) => SCENE_IDS.has(a.sceneId) && a.sceneId !== 'free')
+      // 共同的家、心跳不放在她世界的地点上（入口在地图"一起做点什么"里，一直都在）
+      .filter((a) => SCENE_IDS.has(a.sceneId) && a.sceneId !== 'free' && a.sceneId !== 'home' && a.sceneId !== 'heart')
       .map((a) => ({ sceneId: a.sceneId as SceneId, label: a.label || (SCENES.find((s) => s.id === a.sceneId)?.name ?? a.sceneId) }));
     const backdrop = BACKDROPS.includes(l.backdrop as BackdropKey) ? (l.backdrop as BackdropKey) : guessBackdrop(area, activities);
     locations.push({ key, name: name.slice(0, 12), area, indoor: l.indoor !== false, backdrop, blurb: str(l.blurb).slice(0, 40), activities });

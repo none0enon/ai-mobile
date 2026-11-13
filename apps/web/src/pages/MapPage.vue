@@ -29,6 +29,7 @@ import { useServicesStore } from '@/stores/services';
 import { distanceText } from '@/services/maps';
 import { useRhythmStore } from '@/stores/rhythm';
 import { useHomeStore } from '@/stores/home';
+import { useToyStore } from '@/stores/toys';
 import { usePersonaStore } from '@/stores/personas';
 import { useWeatherStore } from '@/stores/weather';
 import { hhmm, listTime } from '@/utils/time';
@@ -161,6 +162,13 @@ function homeTileWhere(name: string): string {
 function goHome(characterId: string) {
   app.activeCharacterId = characterId;
   void router.push({ path: '/scene/home', query: { at: 'real:home' } });
+}
+
+// —— 心跳：也一直在，紧挨着共同的家（在她那边，默认连线） ——
+const toys = useToyStore();
+function goHeart(characterId: string) {
+  app.activeCharacterId = characterId;
+  void router.push('/scene/heart');
 }
 
 // —— 一起去 ——
@@ -317,6 +325,12 @@ watch(
             <span class="act-icon"><span class="i-lucide-house-heart" /></span>
             <span class="act-name">共同的家</span>
             <span class="act-where">{{ homeTileWhere(owner.name) }}</span>
+          </button>
+          <!-- 心跳：一直在，紧挨着共同的家 -->
+          <button class="act press" style="--tone: #ff7a93" data-act="heart" @click="goHeart(owner.id)">
+            <span class="act-icon"><span class="i-lucide-heart-pulse" /></span>
+            <span class="act-name">心跳</span>
+            <span class="act-where">{{ toys.ready ? `玩具连着` : `和${owner.name}` }}</span>
           </button>
         </div>
       </template>
