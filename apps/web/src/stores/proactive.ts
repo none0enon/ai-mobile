@@ -1,5 +1,5 @@
 import {
-  dateKey,
+  zonedDateKey,
   DEFAULT_PROACTIVE_RULES,
   FREE_SCENE,
   hashUnit,
@@ -26,7 +26,6 @@ import { useEnvironmentStore } from './environment';
 import { useHubStore } from './hub';
 import { services } from '@/services';
 import { assembleForChat, personaOf, storeRegex, toLLMMessages } from '@/services/prompt';
-import { hhmm } from '@/utils/time';
 
 /** 自动排期、检测和生成由 Cloudflare 执行；本机仅展示计划和手动试一试。 */
 
@@ -64,11 +63,13 @@ export const useProactiveStore = defineStore('proactive', () => {
     if (!c) return [];
     const env = useEnvironmentStore().settings;
     const cloud = new Map(useHubStore().points.map((t) => [t.id, t]));
-    return planTouchpoints({ character: c, rules, env, day, timeZone: env.timezone, followups: followupsOf(c.id) }).map((t) => {
+    return planTouchpoints({ character: c, rules, env, day, followups: followupsOf(c.id) }).map((t) => {
       const remote = cloud.get(t.id);
       if (!remote) return t;
       const reason = remote.lastError || remote.pushError || remote.skipReason;
       const status = ['fired', 'delivered', 'opened'].includes(remote.status) ? 'fired' : remote.status === 'skipped' ? 'skipped' : null;
+      // 同步返回旧时区的未发送计划时，先展示当前设置的计划；已发送记录仍然保留。
+      if (status !== 'fired' && (remote.dueAt !== t.dueAt || remote.timezone !== env.timezone)) return t;
       return { ...remote, ...(status ? { log: { status, at: remote.updatedAt, reason, messageId: remote.messageId } as ProactiveLogEntry } : {}) };
     });
   }
@@ -95,9 +96,13 @@ export const useProactiveStore = defineStore('proactive', () => {
   async function writeWithModel(c: Character, ch: Chat, t: Pick<Touchpoint, 'hint'>) {
     const chat = useChatStore();
     const persona = personaOf(ch);
-    const hint = substituteMacros(t.hint, { char: c.name, user: persona.name });
-    const quiet = `【主动消息】现在是 ${hhmm(Date.now())}，${persona.name}还没有来找你，由${c.name}先开口。这一次要做的事：${hint}。`;
-    const prompt = assembleForChat(ch, c, chat.list(ch.id), { type: 'quiet', dryRun: true, quiet, agent: 'proactive' });
+    const now = new Date();
+    const timeZone = useEnvironmentStore().settings.timezone;
+    const macros = { char: c.name, user: persona.name, now, timeZone };
+    const hint = substituteMacros(t.hint, macros);
+    const time = substituteMacros('{{isodate}} {{time}}', macros);
+    const quiet = `【主动消息】现在是 ${time}（${timeZone}），${persona.name}还没有来找你，由${c.name}先开口。这一次要做的事：${hint}。`;
+    const prompt = assembleForChat(ch, c, chat.list(ch.id), { type: 'quiet', dryRun: true, quiet, agent: 'proactive', now });
     const r = await services.llm.chat({
       agent: 'proactive',
       messages: toLLMMessages(prompt),
@@ -164,7 +169,8 @@ export const useProactiveStore = defineStore('proactive', () => {
       updatedAt: now,
       characterId: c.id,
       ruleId: 'miss-you',
-      date: dateKey(new Date(now)),
+      date: zonedDateKey(now, useEnvironmentStore().settings.timezone),
+      timezone: useEnvironmentStore().settings.timezone,
       dueAt: now,
       action: 'message',
       hint: PROACTIVE_HINTS['miss-you'] ?? '',

@@ -56,6 +56,8 @@ export interface Touchpoint extends SyncMeta {
   characterId: string;
   ruleId: ProactiveTriggerId;
   date: ISODate;
+  /** 排期使用的用户时区；旧版已保存的计划可能没有此字段。 */
+  timezone?: string;
   dueAt: number;
   action: 'message' | 'voice' | 'call' | 'image';
   /** 给主动消息智能体的提示，例如"暗示该吃晚饭了，别直接说" */

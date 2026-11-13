@@ -49,6 +49,7 @@ export interface AssembleInput {
    */
   task?: string;
   now?: Date;
+  timeZone?: string;
   idleMs?: number | null;
   vars?: Record<string, string>;
   loreState?: LoreTimedState;
@@ -179,6 +180,7 @@ export function assemblePrompt(input: AssembleInput): AssembleResult {
     char: character.name,
     user: input.user.name,
     now: input.now,
+    timeZone: input.timeZone,
     idleMs: input.idleMs,
     vars,
     random: input.random,

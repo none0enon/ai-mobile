@@ -134,7 +134,7 @@ function toggleRule(id: ProactiveTriggerId, on: boolean) {
             </div>
           </div>
         </div>
-        <p class="note">云端按你的时区持续排期。勿扰、最近 20 分钟聊过、学习或哄睡、规则冷却、连续未回复退避和你设置的 token 预算都在云端检查。打开 App 只补齐已生成的消息，不会重复生成。</p>
+        <p class="note">计划和勿扰时段使用你在<RouterLink to="/me/environment" class="text-accent-ink">环境与作息</RouterLink>中选择的时区（{{ env.settings.timezone }}）。最近 20 分钟聊过、学习或哄睡、规则冷却、连续未回复退避和你设置的 token 预算都在云端检查。打开 App 只补齐已生成的消息，不会重复生成。</p>
 
         <div class="group-title">{{ c.name }}会在这些时候来找你</div>
         <van-cell-group inset>

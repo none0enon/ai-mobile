@@ -30,6 +30,7 @@ import { mockToday, todayLine } from '@/mock/activity';
 import { personas } from '@/mock/characters';
 import { memories } from '@/mock/memories';
 import { useAiStore } from '@/stores/ai';
+import { useEnvironmentStore } from '@/stores/environment';
 import { useLibraryStore } from '@/stores/library';
 import { lastN, useMessageSettingsStore } from '@/stores/messageSettings';
 import { useRealWorldStore } from '@/stores/realworld';
@@ -154,7 +155,7 @@ const SUMMARIES: Record<string, string> = {
 };
 
 /** App 自己的四块：摘要、记忆 + 关系、【当前环境】、场景规则 */
-function appFills(chat: Chat, character: Character, history: Message[]): Record<string, AppBlockFill> {
+function appFills(chat: Chat, character: Character, history: Message[], now: Date, timeZone: string): Record<string, AppBlockFill> {
   const scene = getScene(chat.currentScene ?? 'free');
   const loc = getLocation(chat.togetherAt ?? character.locationId);
   const place = !loc
@@ -179,7 +180,7 @@ function appFills(chat: Chat, character: Character, history: Message[]): Record<
 
   // 距上次聊天：最后一条之前那条消息到现在
   const before = history.at(-2)?.createdAt;
-  const sinceLastChatMin = before ? Math.max(0, (Date.now() - before) / 60_000) : null;
+  const sinceLastChatMin = before ? Math.max(0, (now.getTime() - before) / 60_000) : null;
 
   // 她今天穿什么（节律里这个场景该穿的那套）
   const outfit = useRhythmStore().outfitFor(character.id, chat.currentScene);
@@ -196,7 +197,8 @@ function appFills(chat: Chat, character: Character, history: Message[]): Record<
     memory: { content: memoryLines.join('\n'), source: `记忆检索 Top ${mems.length}（置顶必带）+ 关系状态` },
     environment: {
       content: formatEnvironmentBlock({
-        now: new Date(),
+        now,
+        timeZone,
         weather,
         herWeather,
         todayLine: todayLine(mockToday()),
@@ -281,6 +283,8 @@ export interface ChatPrompt extends AssembleResult {
 }
 
 export interface ChatAssembleOptions {
+  /** 同一次生成的提示词和时间宏共用这个时刻，按环境设置的时区格式化。 */
+  now?: Date;
   /** 只是查看：不推进世界书的粘性 / 冷却、不改聊天变量 */
   dryRun?: boolean;
   type?: GenerationType;
@@ -313,7 +317,9 @@ export function assembleForChat(chat: Chat, character: Character, history: Messa
   const books = character.lorebookIds.map((id) => lib.lorebookById(id)).filter((b) => !!b);
   const lastUser = [...history].reverse().find((m) => m.role === 'user');
   const prevUser = [...history].reverse().filter((m) => m.role === 'user')[1];
-  const app = appFills(chat, character, history);
+  const now = opts.now ?? new Date();
+  const timeZone = useEnvironmentStore().settings.timezone;
+  const app = appFills(chat, character, history, now, timeZone);
   if (opts.quiet) app.proactive = { content: opts.quiet, source: '主动消息：这一次要她做的事' };
   if (opts.task) app.sceneTask = { content: opts.task.input, source: `场景任务：${opts.task.name}` };
   // 功能预设里写了自己的"场景规则"：程序那块只填能用的标签和表情，不再重复场景规则
@@ -330,7 +336,8 @@ export function assembleForChat(chat: Chat, character: Character, history: Messa
     history: turns,
     app,
     type: opts.type,
-    now: new Date(),
+    now,
+    timeZone,
     idleMs: lastUser && prevUser ? lastUser.createdAt - prevUser.createdAt : null,
     vars: chat.vars,
     loreState: chat.loreState,

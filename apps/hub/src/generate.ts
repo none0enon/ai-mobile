@@ -1,7 +1,7 @@
 import { AgentSystem, fromOpenAIBody } from '@app/ai';
 import {
   applyRegexScripts, assemblePrompt, buildChatRequest, estimateTokens, formatEnvironmentBlock, FREE_SCENE,
-  parseControlTags, substituteMacros, wallDate,
+  parseControlTags, substituteMacros,
   type Message, type MessagePart, type ProactiveContext, type ProactiveCredentials, type Touchpoint,
 } from '@app/shared';
 
@@ -15,9 +15,12 @@ function messageText(m: Message): string {
 export function proactivePrompt(context: ProactiveContext, t: Touchpoint, now: number, model: string) {
   const { character: c, chat, persona, preset, history } = context;
   if (!preset) throw new Error('没有主动消息预设，请在 App 的预设页选择后同步');
-  const date = wallDate(now, context.environment.timezone);
-  const hint = substituteMacros(t.hint, { char: c.name, user: persona.name, now: date });
-  const quiet = `【主动消息】${persona.name}还没有来找你，由${c.name}先开口。这一次要做的事：${hint}。`;
+  const date = new Date(now);
+  const timeZone = context.environment.timezone;
+  const macros = { char: c.name, user: persona.name, now: date, timeZone };
+  const hint = substituteMacros(t.hint, macros);
+  const time = substituteMacros('{{isodate}} {{time}}', macros);
+  const quiet = `【主动消息】现在是 ${time}（${timeZone}），${persona.name}还没有来找你，由${c.name}先开口。这一次要做的事：${hint}。`;
   // 预设里"只改发给 AI 的"正则按深度改（0 = 最后一条），同 App 里发消息时
   const live = history.filter((m) => !m.deleted).map((m) => ({ m, text: messageText(m) })).filter((x) => x.text);
   const result = assemblePrompt({
@@ -33,11 +36,11 @@ export function proactivePrompt(context: ProactiveContext, t: Touchpoint, now: n
     app: {
       summary: { content: (chat.summaries ?? []).slice(-6).map((s) => s.text).join('\n'), source: '聊天摘要' },
       memory: { content: context.memories.map((m) => `- ${m.content}`).join('\n') + `\n关系：${JSON.stringify(c.relationship)}`, source: '记忆和关系' },
-      environment: { content: formatEnvironmentBlock({ now: date }), source: `云端当前时间（${context.environment.timezone}）` },
+      environment: { content: formatEnvironmentBlock({ now: date, timeZone }), source: `云端当前时间（${timeZone}）` },
       sceneRules: { content: FREE_SCENE.promptFragment, source: '日常聊天' },
       proactive: { content: quiet, source: '本次主动消息' },
     },
-    type: 'quiet', now: date, vars: chat.vars, loreState: chat.loreState, dryRun: true, model,
+    type: 'quiet', now: date, timeZone, vars: chat.vars, loreState: chat.loreState, dryRun: true, model,
   });
   if (!result.blocks.some((b) => b.identifier === 'proactive' && b.sent)) {
     result.messages.push({ role: 'system', content: quiet, source: 'quiet', label: '本次主动消息' });

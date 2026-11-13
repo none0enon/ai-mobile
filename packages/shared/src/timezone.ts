@@ -20,6 +20,16 @@ export function zonedDateKey(at: number, timeZone: string): string {
   return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
 }
 
+/** Calendar fields for formatting, without constructing a Date in the host's DST gaps. */
+export function calendarParts(at: number, timeZone?: string) {
+  const d = new Date(at);
+  const p = timeZone ? zonedParts(at, timeZone) : {
+    year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate(),
+    hour: d.getHours(), minute: d.getMinutes(), second: d.getSeconds(),
+  };
+  return { ...p, weekday: new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay() };
+}
+
 export function shiftDate(date: string, days: number): string {
   const d = new Date(`${date}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);

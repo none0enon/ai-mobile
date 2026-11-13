@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatEnvironmentBlock, WEATHER_PROVIDER_LABEL, type WeatherProviderChoice } from '@app/shared';
+import { formatEnvironmentBlock, zonedParts, WEATHER_PROVIDER_LABEL, type WeatherProviderChoice } from '@app/shared';
 import { computed, ref, watch } from 'vue';
 import { showToast } from 'vant';
 import Avatar from '@/components/common/Avatar.vue';
@@ -25,6 +25,7 @@ const block = computed(() => {
   const w = weather.envInput(preview.value);
   return formatEnvironmentBlock({
     now: new Date(),
+    timeZone: env.timezone,
     weather: inject.value.weather ? w.weather : null,
     herWeather: inject.value.weather ? w.herWeather : null,
     todayLine: inject.value.activity ? todayLine(mockToday()) : undefined,
@@ -83,6 +84,21 @@ const sourceText = computed(() => {
 /** 时区：和这台设备的不一样时提醒（主动消息按这里的时区排） */
 const deviceZone = deviceTimezone();
 const zoneDiffers = computed(() => !!env.timezone && env.timezone !== deviceZone);
+const zoneDraft = ref(env.timezone);
+const zoneError = ref('');
+watch(() => env.timezone, (zone) => { zoneDraft.value = zone; zoneError.value = ''; });
+function saveZone() {
+  const zone = zoneDraft.value.trim();
+  try {
+    if (!zone) throw new Error('empty timezone');
+    zonedParts(Date.now(), zone);
+    env.timezone = zone;
+    zoneDraft.value = zone;
+    zoneError.value = '';
+  } catch {
+    zoneError.value = '请输入有效时区，例如 Asia/Shanghai 或 America/New_York';
+  }
+}
 </script>
 
 <template>
@@ -195,7 +211,7 @@ const zoneDiffers = computed(() => !!env.timezone && env.timezone !== deviceZone
 
       <div class="group-title">时区</div>
       <van-cell-group inset>
-        <van-field v-model="env.timezone" label="时区" placeholder="America/Los_Angeles" input-align="right" />
+        <van-field v-model="zoneDraft" label="时区" placeholder="America/Los_Angeles" input-align="right" :error-message="zoneError" enterkeyhint="done" @blur="saveZone" @keydown.enter="saveZone" />
         <van-cell v-if="zoneDiffers" title="这台设备的时区不一样" :label="`设备是 ${deviceZone}；主动消息按上面填的时区排`">
           <template #right-icon>
             <van-button size="small" round type="primary" @click="env.timezone = deviceZone">用 {{ deviceZone }}</van-button>
