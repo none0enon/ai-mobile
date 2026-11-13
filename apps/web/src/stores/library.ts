@@ -150,6 +150,12 @@ const SEED_UPGRADES: SeedUpgrade[] = [
       rules: ["规则：\n- 记忆只写以后用得上的：{{user}}的事实、偏好、约定、要跟进的事、情绪变化、关系里程碑；闲聊不记。\n- 和已有记忆重复的不再写；有变化的写新的一条，并在 supersedes 里写旧的 id。\n- \"周三下午两点面试\"这类带时间的事写成 followup，dueAt 写事情结束后适合问结果的时间。\n- 好感变化克制：普通聊天 0，明显的感动或冲突才 ±1～3。"],
     },
   },
+  {
+    // 哄睡的聊天改成连麦：说话她就听得到、小声回你（sleep-call）；你安静久了她低语一句还是"低语"那一块
+    id: 'feature-sleep:mic',
+    file: 'feature-sleep.json',
+    added: ['sleepCall'],
+  },
 ];
 
 /** 按 SEED_UPGRADES 更新本机的自带预设，返回改了的那些 */

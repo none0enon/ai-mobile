@@ -59,7 +59,8 @@ export interface SleepLog extends ActivityBase {
   kind: 'sleep';
   bedtime: number;
   wakeAt: number | null;
-  mode: 'chat' | 'story' | 'noise' | 'breath';
+  /** 连麦、睡前故事、白噪音、音乐 */
+  mode: 'mic' | 'story' | 'noise' | 'music';
   wokeByCall: boolean;
 }
 
