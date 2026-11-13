@@ -24,9 +24,11 @@ import { disposeMaterials, floorTexture, setGlow, shade, toon, wallTexture } fro
 
 /**
  * 装修小屋的 3D 画面（three.js）：娃娃屋式的一间屋子（后墙 + 左墙 + 地面），家具、两个 Q 版小人。
- * - 布置：点家具选中，按住选中的家具拖着挪（对齐半格，放不下的地方变红、松手弹回去）；拖空白处转视角，双指缩放。
+ * - 布置：点家具选中，按住选中的家具拖着挪（对齐半格，放不下的地方变红、松手弹回去）。
+ * - 视角：两根手指一起拖、或者两指拧着转是转视角，捏合是缩放；一根手指只管点选和拖家具（鼠标还是按住左键拖、滚轮缩放）。
  * - 逛逛：点地面你的小人走过去，点沙发、椅子坐下，点床躺下；点小人蹦一下。
  * 她的小人自己在屋里走走、坐坐。
+ * 一套小屋有好几个房间，这里一次只显示一间：换了房间（room.id 变了）小人回到屋子中间、视角回正。
  * 屋子的数据由外面（Vue）管：这里只显示、只报告"想把哪件挪到哪"，外面改好了再 setRoom 回来。
  */
 
@@ -50,6 +52,7 @@ const ACCENT = '#ff8fb1';
 const BAD = '#ff5a5a';
 const SKY_DAY = '#cfe6f7';
 const SKY_NIGHT = '#2b3a67';
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 export class DecorEngine {
   private renderer: THREE.WebGLRenderer;
@@ -97,6 +100,9 @@ export class DecorEngine {
     moved: boolean;
   } | null = null;
   private down: { x: number; y: number; t: number; id: string | null; chibi: 'you' | 'her' | null; pointer: number } | null = null;
+  /** 屏幕上的手指（触屏）：两根时拧着转视角 */
+  private fingers = new Map<number, { x: number; y: number }>();
+  private twist: number | null = null;
   private readonly reduceMotion = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
   constructor(
@@ -139,6 +145,8 @@ export class DecorEngine {
     this.controls.minPolarAngle = 0.35;
     this.controls.maxPolarAngle = 1.22;
     this.controls.rotateSpeed = 0.7;
+    // 触屏：一根手指不转视角（留给点选、拖家具），两根手指一起拖是转、捏合是缩放；两指拧着转在 onMove 里自己算
+    this.controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_ROTATE };
 
     this.resizeObs = new ResizeObserver(() => this.resize());
     this.resizeObs.observe(canvas.parentElement ?? canvas);
@@ -200,6 +208,7 @@ export class DecorEngine {
   // —— 屋子 ——
 
   setRoom(room: DecorRoom) {
+    const switched = !!this.room && this.room.id !== room.id;
     const sizeChanged = !this.room || this.room.w !== room.w || this.room.d !== room.d;
     this.room = room;
     const sig = JSON.stringify([room.w, room.d, room.wall, room.floor]);
@@ -235,10 +244,23 @@ export class DecorEngine {
     this.collectAnimated();
     this.updateLamps();
     this.buildNav();
+    if (switched) {
+      // 换了一间：从座位上下来，站到新房间中间
+      this.seats.clear();
+      this.seatOf = { you: null, her: null };
+      this.pops.clear();
+      for (const c of [this.you, this.her]) {
+        c?.stop();
+        c?.stand();
+      }
+      if (this.you) this.spawn(this.you, 0.62, 0.6);
+      if (this.her) this.spawn(this.her, 0.38, 0.62);
+      this.herNextAt = this.time + 6;
+    }
     this.fixChibis();
     if (this.selected && !this.items.has(this.selected)) this.select(null);
     else this.updateMarker();
-    if (sizeChanged) this.fitCamera(true);
+    if (sizeChanged || switched) this.fitCamera(true);
   }
 
   /** 新放的东西冒出来 */
@@ -884,7 +906,26 @@ export class DecorEngine {
     return { id: null, chibi: null };
   }
 
+  /** 两根手指连线的角度（屏幕上顺时针为正） */
+  private fingerAngle(): number {
+    const [a, b] = [...this.fingers.values()];
+    return Math.atan2(b!.y - a!.y, b!.x - a!.x);
+  }
+
+  private liftFinger(e: PointerEvent) {
+    this.fingers.delete(e.pointerId);
+    if (this.fingers.size < 2) this.twist = null;
+  }
+
   private onDown = (e: PointerEvent) => {
+    if (e.pointerType === 'touch') {
+      this.fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.fingers.size === 2 && !this.drag) {
+        // 第二根手指落下：这是要转视角，不算点了一下
+        this.twist = this.fingerAngle();
+        this.down = null;
+      }
+    }
     if (!e.isPrimary || !this.room) return;
     const hit = this.pick(e);
     this.down = { x: e.clientX, y: e.clientY, t: performance.now(), id: hit.id, chibi: hit.chibi, pointer: e.pointerId };
@@ -954,6 +995,17 @@ export class DecorEngine {
   }
 
   private onMove = (e: PointerEvent) => {
+    if (e.pointerType === 'touch' && this.fingers.has(e.pointerId)) {
+      this.fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.fingers.size === 2 && this.twist !== null && !this.drag) {
+        // 两指拧着转：屋子跟着手指转（相机绕着看的中心反着转）
+        const angle = this.fingerAngle();
+        const d = Math.atan2(Math.sin(angle - this.twist), Math.cos(angle - this.twist));
+        this.twist = angle;
+        const offset = this.camera.position.clone().sub(this.controls.target).applyAxisAngle(Y_AXIS, d);
+        this.camera.position.copy(this.controls.target).add(offset);
+      }
+    }
     const drag = this.drag;
     if (!drag || e.pointerId !== this.down?.pointer || !this.room) return;
     if (!drag.moved && Math.hypot(e.clientX - drag.start.x, e.clientY - drag.start.y) < 6) return;
@@ -999,12 +1051,15 @@ export class DecorEngine {
   };
 
   private onUp = (e: PointerEvent) => {
+    this.liftFinger(e);
     const down = this.down;
+    // 别的手指抬起来：正在拖的、正在按的不受影响
+    if (down && e.pointerId !== down.pointer) return;
     const drag = this.drag;
     this.down = null;
     this.drag = null;
     this.controls.enabled = true;
-    if (!down || e.pointerId !== down.pointer || !this.room) return;
+    if (!down || !this.room) return;
     if (drag?.moved) {
       if (drag.ok && drag.to) this.events.move(drag.id, drag.to);
       else {
@@ -1047,7 +1102,8 @@ export class DecorEngine {
     }
   };
 
-  private onCancel = () => {
+  private onCancel = (e: PointerEvent) => {
+    this.liftFinger(e);
     if (this.drag?.moved && this.room) this.setRoom(this.room);
     this.drag = null;
     this.down = null;

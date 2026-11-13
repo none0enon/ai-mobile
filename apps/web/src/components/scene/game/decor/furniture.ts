@@ -48,6 +48,43 @@ function legs(w: number, d: number, h: number, r: number, color: string, inset =
   return out;
 }
 
+/** 横着的圆柱（轴朝前后）：pos 是中心 */
+function disc(r: number, depth: number, color: string, pos: V3, seg = 24, opts: { glow?: string; cast?: boolean } = {}) {
+  const m = mesh(new THREE.CylinderGeometry(r, r, depth, seg), color, pos, opts);
+  m.rotation.x = Math.PI / 2;
+  return m;
+}
+
+/** 圆环：默认平躺着（轴朝上），stand 时立起来朝前 */
+function ring(r: number, tube: number, color: string, pos: V3, stand = false, arc = Math.PI * 2) {
+  const m = mesh(new THREE.TorusGeometry(r, tube, 8, 24, arc), color, pos);
+  if (!stand) m.rotation.x = Math.PI / 2;
+  return m;
+}
+
+/** 亮着的屏幕（晚上会发光）：pos 是底边中心 */
+function screen(w: number, h: number, pos: V3, color = SCREEN) {
+  return box(w, h, 0.006, color, pos, 0, { glow: color, cast: false });
+}
+
+/** 钟的指针（分针会走）：放在钟面前面 z 的位置 */
+function clockHands(z: number, k = 1): THREE.Object3D[] {
+  const hand = (len: number, angle: number, minute: boolean) => {
+    const p = new THREE.Group();
+    p.add(box(0.022 * k, len * k, 0.01, '#3a2a2e', [0, 0, 0], 0));
+    p.position.z = z;
+    p.rotation.z = angle;
+    if (minute) p.userData.minute = true;
+    return p;
+  };
+  return [hand(0.17, 0, true), hand(0.11, 2.1, false), ball(0.02 * k, '#e88fa6', [0, 0, z + 0.005])];
+}
+
+const STEEL = '#c9ccd2';
+const DARK = '#3a3d45';
+const SCREEN = '#9fd0f0';
+const PAPER = '#fffdf6';
+const WATER = '#bfe3f2';
 const LEAF = '#7fb069';
 const LEAF_DARK = '#5a8f4e';
 const SOIL = '#6b4a3a';
@@ -404,15 +441,7 @@ const BUILDERS: Record<string, (c: string) => THREE.Group> = {
   clock: (c) => {
     const face = group(cyl(0.3, 0.3, 0.06, c, [0, 0, 0], 32), cyl(0.25, 0.25, 0.01, '#ffffff', [0, 0.06, 0], 32));
     face.rotation.x = Math.PI / 2;
-    const hand = (len: number, angle: number, minute: boolean) => {
-      const p = new THREE.Group();
-      p.add(box(0.022, len, 0.01, '#3a2a2e', [0, 0, 0], 0));
-      p.position.z = 0.075;
-      p.rotation.z = angle;
-      if (minute) p.userData.minute = true;
-      return p;
-    };
-    return group(face, hand(0.17, 0, true), hand(0.11, 2.1, false), ball(0.02, '#e88fa6', [0, 0, 0.08]));
+    return group(face, ...clockHands(0.075));
   },
   shelf: (c) => {
     const g = group(box(1.5, 0.05, 0.28, c, [0, -0.1, 0.14], 0.01));
@@ -447,6 +476,468 @@ const BUILDERS: Record<string, (c: string) => THREE.Group> = {
     const string = box(1.4, 0.01, 0.01, c, [0, 0.0, 0.01], 0);
     g.add(string);
     return g;
+  },
+
+  // —— 新添的座椅、桌子 ——
+  officeChair: (c) => {
+    const g = group(
+      cyl(0.03, 0.03, 0.22, DARK, [0, 0.06, 0], 10),
+      box(0.52, 0.08, 0.5, c, [0, 0.27, 0.02], 0.035),
+      box(0.48, 0.44, 0.08, c, [0, 0.42, -0.22], 0.035),
+      box(0.06, 0.14, 0.04, DARK, [0, 0.3, -0.25], 0.01),
+    );
+    for (let i = 0; i < 5; i += 1) {
+      const a = (i / 5) * Math.PI * 2;
+      const spoke = box(0.05, 0.03, 0.26, DARK, [0, 0.05, 0], 0.01);
+      spoke.position.set(Math.sin(a) * 0.13, 0.065, Math.cos(a) * 0.13);
+      spoke.rotation.y = a;
+      g.add(spoke, ball(0.035, '#2f3138', [Math.sin(a) * 0.26, 0.035, Math.cos(a) * 0.26]));
+    }
+    for (const sx of [-1, 1]) g.add(box(0.05, 0.03, 0.26, DARK, [sx * 0.27, 0.46, 0], 0.012), box(0.03, 0.12, 0.03, DARK, [sx * 0.27, 0.34, -0.06], 0.01));
+    return g;
+  },
+  diningLong: (c) => group(box(2.84, 0.06, 1.36, c, [0, 0.54, 0], 0.03), ...legs(2.7, 1.22, 0.54, 0.045, shade(c, -0.15), 0.1), box(2.5, 0.05, 0.05, shade(c, -0.1), [0, 0.46, 0], 0.01)),
+  // —— 厨房 ——
+  stove: (c) => {
+    const g = group(
+      box(1.9, 0.54, 0.86, c, [0, 0.04, 0], 0.03),
+      box(1.9, 0.04, 0.8, shade(c, -0.25), [0, 0, -0.02], 0),
+      box(1.92, 0.04, 0.9, DARK, [0, 0.58, 0], 0.012),
+      box(1.1, 0.34, 0.02, '#2f3138', [0, 0.14, 0.43], 0.01),
+      box(0.9, 0.2, 0.01, '#55606e', [0, 0.2, 0.445], 0, { cast: false }),
+      box(0.9, 0.025, 0.035, STEEL, [0, 0.43, 0.45], 0.01),
+    );
+    for (const x of [-0.46, 0.46]) {
+      g.add(cyl(0.2, 0.2, 0.008, '#22242a', [x, 0.62, -0.04], 28, { cast: false }), ring(0.13, 0.012, '#6b6e76', [x, 0.63, -0.04]), ring(0.06, 0.01, '#6b6e76', [x, 0.63, -0.04]));
+    }
+    for (const x of [-0.82, -0.68, 0.68, 0.82]) g.add(disc(0.035, 0.03, STEEL, [x, 0.38, 0.445], 14));
+    return g;
+  },
+  counter: (c) =>
+    group(
+      box(1.9, 0.54, 0.86, c, [0, 0.04, 0], 0.03),
+      box(1.9, 0.04, 0.8, shade(c, -0.25), [0, 0, -0.02], 0),
+      box(1.96, 0.04, 0.92, '#f3efe6', [0, 0.58, 0], 0.015),
+      box(0.9, 0.42, 0.02, shade(c, 0.05), [-0.47, 0.1, 0.43], 0.01),
+      box(0.9, 0.42, 0.02, shade(c, 0.05), [0.47, 0.1, 0.43], 0.01),
+      box(0.03, 0.14, 0.03, STEEL, [-0.08, 0.3, 0.45], 0.01),
+      box(0.03, 0.14, 0.03, STEEL, [0.08, 0.3, 0.45], 0.01),
+    ),
+  sink: (c) => {
+    const spout = box(0.03, 0.03, 0.2, STEEL, [-0.3, 0.84, -0.22], 0.012);
+    return group(
+      box(1.9, 0.54, 0.86, c, [0, 0.04, 0], 0.03),
+      box(1.9, 0.04, 0.8, shade(c, -0.25), [0, 0, -0.02], 0),
+      box(1.96, 0.04, 0.92, '#f3efe6', [0, 0.58, 0], 0.015),
+      box(0.9, 0.42, 0.02, shade(c, 0.05), [-0.47, 0.1, 0.43], 0.01),
+      box(0.9, 0.42, 0.02, shade(c, 0.05), [0.47, 0.1, 0.43], 0.01),
+      box(0.03, 0.14, 0.03, STEEL, [-0.08, 0.3, 0.45], 0.01),
+      box(0.03, 0.14, 0.03, STEEL, [0.08, 0.3, 0.45], 0.01),
+      // 水池（不锈钢的边，里面一汪水）、水龙头、沥水架上两个盘子
+      box(0.86, 0.012, 0.56, '#aab4bc', [-0.3, 0.62, 0.04], 0.03, { cast: false }),
+      box(0.74, 0.012, 0.44, WATER, [-0.3, 0.626, 0.04], 0.03, { cast: false }),
+      cyl(0.022, 0.026, 0.24, STEEL, [-0.3, 0.62, -0.3], 10),
+      spout,
+      ball(0.028, STEEL, [-0.18, 0.66, -0.3]),
+      box(0.56, 0.02, 0.5, '#d9dde2', [0.56, 0.62, 0.02], 0.01, { cast: false }),
+      disc(0.14, 0.015, '#ffffff', [0.46, 0.78, 0.0]),
+      disc(0.14, 0.015, '#ffffff', [0.46, 0.78, 0.09]),
+    );
+  },
+  fridge: (c) =>
+    group(
+      box(0.88, 1.7, 0.8, c, [0, 0.04, -0.02], 0.05),
+      box(0.84, 0.5, 0.02, shade(c, 0.04), [0, 1.2, 0.385], 0.01),
+      box(0.84, 1.08, 0.02, shade(c, 0.04), [0, 0.08, 0.385], 0.01),
+      box(0.035, 0.3, 0.04, STEEL, [-0.34, 1.26, 0.41], 0.012),
+      box(0.035, 0.42, 0.04, STEEL, [-0.34, 0.68, 0.41], 0.012),
+      box(0.8, 0.04, 0.7, shade(c, -0.25), [0, 0, -0.02], 0),
+      ball(0.035, '#ee8f7a', [0.2, 1.45, 0.4], [1, 1, 0.3]),
+      box(0.1, 0.12, 0.01, '#f6e09a', [0.12, 0.9, 0.4], 0),
+    ),
+  hood: (c) => {
+    const canopy = mesh(new THREE.CylinderGeometry(0.3, 1, 0.24, 4, 1).rotateY(Math.PI / 4), c, [0, -0.16, 0.26]);
+    canopy.scale.set(0.99, 1, 0.35);
+    const lamp = box(0.5, 0.012, 0.12, '#fff3c4', [0, -0.302, 0.3], 0, { glow: WARM, cast: false });
+    return group(box(0.42, 0.34, 0.3, c, [0, -0.04, 0.15], 0.02), canopy, box(1.42, 0.03, 0.5, shade(c, -0.1), [0, -0.3, 0.26], 0.01), lamp, box(0.3, 0.02, 0.01, DARK, [0, -0.22, 0.512], 0));
+  },
+  microwave: (c) =>
+    group(
+      box(0.74, 0.3, 0.42, c, [0, 0, 0], 0.03),
+      box(0.46, 0.22, 0.012, '#2a3040', [-0.1, 0.04, 0.208], 0.01, { cast: false }),
+      box(0.025, 0.22, 0.03, STEEL, [0.155, 0.04, 0.22], 0.008),
+      box(0.16, 0.24, 0.012, shade(c, -0.08), [0.27, 0.03, 0.208], 0.01, { cast: false }),
+      box(0.1, 0.04, 0.012, '#9fe0b0', [0.27, 0.2, 0.212], 0, { glow: '#9fe0b0', cast: false }),
+      disc(0.028, 0.02, DARK, [0.27, 0.12, 0.22], 14),
+    ),
+  airfryer: (c) =>
+    group(
+      cyl(0.15, 0.17, 0.28, c, [0, 0, 0], 22),
+      ball(0.15, c, [0, 0.28, 0], [1, 0.42, 1]),
+      box(0.22, 0.14, 0.06, shade(c, -0.12), [0, 0.03, 0.125], 0.02),
+      box(0.09, 0.03, 0.1, '#2f3138', [0, 0.09, 0.17], 0.012),
+      disc(0.035, 0.02, '#9fe0b0', [0, 0.23, 0.15], 14, { glow: '#9fe0b0', cast: false }),
+    ),
+  cooker: (c) =>
+    group(
+      cyl(0.14, 0.13, 0.03, DARK, [0, 0, 0], 22),
+      cyl(0.155, 0.14, 0.12, c, [0, 0.03, 0], 24),
+      ball(0.15, '#e6edf2', [0, 0.15, 0], [1, 0.34, 1]),
+      ball(0.026, DARK, [0, 0.21, 0]),
+      box(0.05, 0.025, 0.07, DARK, [-0.175, 0.1, 0], 0.01),
+      box(0.05, 0.025, 0.07, DARK, [0.175, 0.1, 0], 0.01),
+      ball(0.016, '#ee8f7a', [0, 0.06, 0.15]),
+    ),
+  bowls: (c) => {
+    const bowl = (x: number, z: number) => [cyl(0.085, 0.045, 0.06, c, [x, 0, z], 20), cyl(0.074, 0.074, 0.006, PAPER, [x, 0.057, z], 20, { cast: false }), ring(0.085, 0.006, shade(c, -0.12), [x, 0.06, z])];
+    const g = group(...bowl(-0.07, -0.05), ...bowl(0.05, 0.09));
+    for (const dx of [0, 0.022]) {
+      const stick = cyl(0.006, 0.005, 0.26, '#8a5a3b', [0, 0, 0], 6);
+      stick.rotation.set(Math.PI / 2, 0, 0.25);
+      stick.position.set(0.15 + dx, 0.01, -0.02);
+      g.add(stick);
+    }
+    return g;
+  },
+  plates: (c) => {
+    const g = new THREE.Group();
+    for (let i = 0; i < 3; i += 1) g.add(cyl(0.15, 0.1, 0.016, c, [0, i * 0.018, 0], 28), ring(0.145, 0.006, shade(c, -0.14), [0, i * 0.018 + 0.016, 0]));
+    g.add(cyl(0.1, 0.1, 0.004, shade(c, 0.05), [0, 0.053, 0], 24, { cast: false }));
+    return g;
+  },
+  fruitBasket: (c) => {
+    const handle = ring(0.16, 0.012, shade(c, -0.15), [0, 0.1, 0], true, Math.PI);
+    const banana = ring(0.09, 0.022, '#f6d55c', [0.02, 0.15, 0.06], false, Math.PI * 0.7);
+    banana.rotation.z = 0.3;
+    const g = group(
+      cyl(0.17, 0.12, 0.1, c, [0, 0, 0], 20),
+      ring(0.17, 0.014, shade(c, -0.12), [0, 0.1, 0]),
+      handle,
+      ball(0.06, '#e2574c', [-0.06, 0.13, -0.03]),
+      ball(0.058, '#f5a23a', [0.07, 0.13, -0.05]),
+      ball(0.05, '#a8cf5f', [0, 0.14, -0.1]),
+      banana,
+    );
+    for (let i = 0; i < 5; i += 1) g.add(ball(0.026, '#9b7fc4', [-0.07 + (i % 3) * 0.03, 0.13 + (i % 2) * 0.03, 0.07 + (i % 2) * 0.02]));
+    return g;
+  },
+  apple: (c) => {
+    const one = (x: number, z: number, k: number) => [ball(0.068 * k, c, [x, 0.062 * k, z], [1, 0.92, 1]), cyl(0.005, 0.005, 0.035, '#6b4a3a', [x, 0.115 * k, z], 5), ball(0.02, LEAF, [x + 0.022, 0.14 * k, z], [1.4, 0.4, 0.8])];
+    return group(...one(-0.07, -0.02, 1), ...one(0.07, 0.04, 0.9));
+  },
+  banana: (c) => {
+    const g = new THREE.Group();
+    for (let i = 0; i < 3; i += 1) {
+      const b = ring(0.13, 0.026, c, [0, 0.03 + i * 0.012, -0.05 + i * 0.045], false, Math.PI * 0.62);
+      b.rotation.z = 0.5 + i * 0.1;
+      g.add(b);
+    }
+    g.add(ball(0.03, '#6b4a3a', [-0.1, 0.05, 0.02], [1, 0.8, 1]));
+    return g;
+  },
+  orange: (c) => {
+    const g = new THREE.Group();
+    for (const [x, y, z] of [
+      [-0.065, 0.06, 0.03],
+      [0.065, 0.06, 0.03],
+      [0, 0.06, -0.08],
+      [0, 0.155, -0.005],
+    ] as V3[]) {
+      g.add(ball(0.062, c, [x, y, z]), ball(0.012, '#5a8f4e', [x, y + 0.06, z], [1, 0.5, 1]));
+    }
+    return g;
+  },
+  watermelon: (c) => {
+    const melon = ball(0.12, c, [-0.08, 0.11, -0.04], [1.15, 0.95, 1]);
+    const g = group(melon);
+    for (const a of [-0.9, -0.3, 0.3, 0.9]) {
+      const stripe = ring(0.116, 0.008, shade(c, -0.14), [-0.08, 0.11, -0.04], true);
+      stripe.rotation.y = a;
+      stripe.scale.set(1, 0.95, 1);
+      g.add(stripe);
+    }
+    // 切下来的一片：红瓤、绿皮、几粒籽
+    const slice = group(cyl(0.1, 0.1, 0.04, '#ee6a6a', [0, 0, 0], 22), ring(0.1, 0.016, c, [0, 0.02, 0]));
+    for (const [x, z] of [
+      [0.03, 0.02],
+      [-0.04, -0.03],
+      [0.0, 0.05],
+      [-0.03, 0.04],
+    ]) slice.add(ball(0.008, '#3a2a2e', [x!, 0.042, z!]));
+    slice.position.set(0.11, 0, 0.09);
+    g.add(slice);
+    return g;
+  },
+  grapes: (c) => {
+    const g = new THREE.Group();
+    let k = 0;
+    for (let row = 0; row < 4; row += 1) {
+      for (let i = 0; i <= 3 - row; i += 1) {
+        g.add(ball(0.03, k % 3 ? c : shade(c, 0.06), [(i - (3 - row) / 2) * 0.05, 0.03 + (row % 2) * 0.03, -0.08 + row * 0.05]));
+        if (row < 2) g.add(ball(0.03, c, [(i - (3 - row) / 2) * 0.05 + 0.02, 0.08, -0.06 + row * 0.05]));
+        k += 1;
+      }
+    }
+    const stem = cyl(0.007, 0.007, 0.07, '#6b4a3a', [0, 0.06, -0.12], 5);
+    stem.rotation.x = -0.9;
+    g.add(stem, ball(0.03, LEAF, [0.03, 0.1, -0.13], [1.5, 0.4, 1]));
+    return g;
+  },
+  // —— 卫浴 ——
+  toilet: (c) => {
+    const lid = box(0.4, 0.4, 0.04, c, [0, 0, 0], 0.04);
+    lid.position.set(0, 0.6, -0.17);
+    lid.rotation.x = -0.12;
+    const seat = ring(0.17, 0.036, shade(c, -0.05), [0, 0.39, 0.06]);
+    seat.scale.set(1, 1.2, 1);
+    return group(
+      box(0.48, 0.44, 0.2, c, [0, 0.3, -0.36], 0.04),
+      box(0.52, 0.035, 0.24, shade(c, -0.06), [0, 0.74, -0.36], 0.012),
+      cyl(0.17, 0.13, 0.3, c, [0, 0, 0.02], 20),
+      ball(0.24, c, [0, 0.31, 0.05], [0.95, 0.36, 1.2]),
+      cyl(0.12, 0.12, 0.006, WATER, [0, 0.393, 0.06], 20, { cast: false }),
+      seat,
+      lid,
+      ball(0.022, STEEL, [0.17, 0.79, -0.36]),
+    );
+  },
+  washbasin: (c) =>
+    group(
+      box(0.86, 0.54, 0.6, c, [0, 0.06, -0.14], 0.03),
+      ...legs(0.78, 0.5, 0.06, 0.025, shade(c, -0.2)).map((m) => {
+        m.position.z -= 0.14;
+        return m;
+      }),
+      box(0.4, 0.42, 0.02, shade(c, 0.05), [-0.21, 0.12, 0.165], 0.01),
+      box(0.4, 0.42, 0.02, shade(c, 0.05), [0.21, 0.12, 0.165], 0.01),
+      ball(0.022, STEEL, [-0.05, 0.34, 0.185]),
+      ball(0.022, STEEL, [0.05, 0.34, 0.185]),
+      box(0.92, 0.05, 0.66, '#f7f6f2', [0, 0.6, -0.14], 0.02),
+      cyl(0.2, 0.13, 0.1, '#ffffff', [0, 0.65, -0.1], 24),
+      ring(0.2, 0.012, '#ffffff', [0, 0.75, -0.1]),
+      cyl(0.178, 0.178, 0.006, WATER, [0, 0.748, -0.1], 24, { cast: false }),
+      cyl(0.018, 0.02, 0.22, STEEL, [0, 0.65, -0.37], 10),
+      box(0.03, 0.025, 0.16, STEEL, [0, 0.86, -0.31], 0.01),
+      cyl(0.03, 0.03, 0.09, '#f4b6c2', [0.32, 0.65, -0.3], 12),
+    ),
+  bathtub: (c) => {
+    const g = group(
+      box(0.94, 0.46, 1.92, c, [0, 0.05, 0], 0.14),
+      box(0.76, 0.014, 1.72, WATER, [0, 0.505, 0], 0.1, { cast: false }),
+      cyl(0.02, 0.024, 0.2, STEEL, [0, 0.5, -0.86], 10),
+      box(0.03, 0.03, 0.16, STEEL, [0, 0.68, -0.8], 0.012),
+      ball(0.026, STEEL, [-0.1, 0.54, -0.86]),
+      ball(0.026, STEEL, [0.1, 0.54, -0.86]),
+    );
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(ball(0.06, '#e8c26a', [sx * 0.34, 0.05, sz * 0.8]));
+    // 泡泡
+    for (const [x, z, r] of [
+      [0.2, 0.55, 0.07],
+      [0.1, 0.66, 0.05],
+      [0.26, 0.4, 0.045],
+      [-0.22, 0.6, 0.055],
+      [-0.12, 0.72, 0.04],
+    ]) g.add(ball(r!, '#ffffff', [x!, 0.52, z!], [1, 0.6, 1]));
+    return g;
+  },
+  washer: (c) =>
+    group(
+      box(0.88, 0.85, 0.82, c, [0, 0, -0.02], 0.04),
+      ring(0.24, 0.035, STEEL, [0, 0.38, 0.395], true),
+      disc(0.22, 0.02, '#3d5a80', [0, 0.38, 0.39], 28, { cast: false }),
+      ball(0.08, '#9fd0f0', [0.06, 0.42, 0.395], [1, 0.6, 0.15]),
+      box(0.8, 0.12, 0.012, shade(c, -0.08), [0, 0.7, 0.392], 0.01, { cast: false }),
+      disc(0.04, 0.02, STEEL, [0.28, 0.76, 0.4], 14),
+      box(0.2, 0.05, 0.012, '#9fe0b0', [-0.2, 0.735, 0.398], 0, { glow: '#9fe0b0', cast: false }),
+    ),
+  mirror: (c) => {
+    const g = group(box(0.92, 1, 0.04, c, [0, -0.5, 0.02], 0.04), box(0.8, 0.88, 0.012, '#d3e9f3', [0, -0.44, 0.038], 0.02, { cast: false }));
+    for (const [x, y, len] of [
+      [-0.16, 0.12, 0.3],
+      [-0.06, 0.06, 0.18],
+    ]) {
+      const glint = box(0.035, len!, 0.004, '#ffffff', [0, 0, 0], 0, { cast: false });
+      glint.position.set(x!, y!, 0.052);
+      glint.rotation.z = -0.6;
+      g.add(glint);
+    }
+    return g;
+  },
+  towel: (c) => {
+    const bar = cyl(0.014, 0.014, 0.92, STEEL, [0, 0, 0], 8);
+    bar.rotation.z = Math.PI / 2;
+    bar.position.set(0, 0.2, 0.09);
+    return group(
+      bar,
+      box(0.05, 0.05, 0.1, STEEL, [-0.46, 0.175, 0.05], 0.012),
+      box(0.05, 0.05, 0.1, STEEL, [0.46, 0.175, 0.05], 0.012),
+      box(0.36, 0.42, 0.035, c, [-0.18, -0.2, 0.09], 0.015),
+      box(0.36, 0.05, 0.04, shade(c, -0.12), [-0.18, -0.14, 0.09], 0.012),
+      box(0.24, 0.3, 0.035, shade(c, 0.07), [0.24, -0.08, 0.09], 0.015),
+    );
+  },
+  // —— 书房 ——
+  openbook: (c) => {
+    const g = group(box(0.42, 0.012, 0.3, c, [0, 0, 0], 0.005));
+    for (const sx of [-1, 1]) {
+      const page = box(0.2, 0.014, 0.27, PAPER, [0, 0, 0], 0.004);
+      page.position.set(sx * 0.1, 0.022, 0);
+      page.rotation.z = -sx * 0.1;
+      g.add(page);
+      for (let i = 0; i < 4; i += 1) {
+        const line = box(0.13, 0.002, 0.012, '#b9b1a5', [0, 0, 0], 0, { cast: false });
+        line.position.set(sx * 0.1, 0.031, -0.08 + i * 0.05);
+        line.rotation.z = -sx * 0.1;
+        g.add(line);
+      }
+    }
+    g.add(box(0.02, 0.004, 0.16, '#e2574c', [0.03, 0.03, 0.1], 0, { cast: false }));
+    return g;
+  },
+  notepad: (c) => {
+    const sheet = box(0.2, 0.004, 0.27, PAPER, [0.05, 0.02, 0.01], 0, { cast: false });
+    sheet.rotation.y = -0.25;
+    const pen = cyl(0.009, 0.009, 0.2, '#34466b', [0, 0, 0], 8);
+    pen.rotation.set(Math.PI / 2, 0, 0.9);
+    pen.position.set(0.1, 0.034, 0.03);
+    const pencil = cyl(0.008, 0.008, 0.2, '#f6c945', [0, 0, 0], 6);
+    pencil.rotation.set(Math.PI / 2, 0, -0.5);
+    pencil.position.set(-0.13, 0.012, 0.12);
+    const g = group(box(0.22, 0.02, 0.3, c, [-0.07, 0, -0.02], 0.006), box(0.2, 0.006, 0.28, PAPER, [-0.07, 0.02, -0.02], 0, { cast: false }), sheet, pen, pencil);
+    for (let i = 0; i < 4; i += 1) g.add(box(0.12, 0.002, 0.01, '#b9b1a5', [-0.08, 0.026, -0.11 + i * 0.045], 0, { cast: false }));
+    return g;
+  },
+  penholder: (c) => {
+    const g = group(cyl(0.065, 0.058, 0.13, c, [0, 0, 0], 18), ring(0.065, 0.008, shade(c, -0.12), [0, 0.13, 0]));
+    const pens: [string, number, number, number][] = [
+      ['#e2574c', -0.025, 0.2, 0.18],
+      ['#34466b', 0.02, 0.22, -0.14],
+      ['#f6c945', 0.0, 0.25, 0.04],
+      ['#4f7a5e', 0.03, 0.18, 0.28],
+    ];
+    pens.forEach(([color, x, len, tilt], i) => {
+      const pen = cyl(0.009, 0.009, len, color, [0, 0, 0], 6);
+      pen.position.set(x, 0.04 + len / 2, (i % 2 ? 1 : -1) * 0.018);
+      pen.rotation.z = -tilt;
+      g.add(pen);
+    });
+    return g;
+  },
+  deskclock: (c) => {
+    const g = group(
+      box(0.24, 0.2, 0.1, c, [0, 0.03, 0], 0.045),
+      ball(0.025, shade(c, -0.15), [-0.07, 0.02, 0.01]),
+      ball(0.025, shade(c, -0.15), [0.07, 0.02, 0.01]),
+      disc(0.08, 0.012, '#ffffff', [0, 0.13, 0.05], 28, { cast: false }),
+      ball(0.03, shade(c, -0.1), [-0.08, 0.24, 0], [1, 0.7, 1]),
+      ball(0.03, shade(c, -0.1), [0.08, 0.24, 0], [1, 0.7, 1]),
+    );
+    const hands = group(...clockHands(0.06, 0.42));
+    hands.position.y = 0.13;
+    g.add(hands);
+    return g;
+  },
+  printer: (c) => {
+    const paper = box(0.4, 0.22, 0.008, PAPER, [0, 0, 0], 0);
+    paper.position.set(0, 0.26, -0.15);
+    paper.rotation.x = -0.25;
+    return group(
+      box(0.68, 0.2, 0.42, c, [0, 0, 0], 0.035),
+      box(0.6, 0.03, 0.3, shade(c, -0.08), [0, 0.2, 0.02], 0.012),
+      paper,
+      box(0.44, 0.012, 0.16, shade(c, -0.14), [0, 0.035, 0.24], 0.004),
+      box(0.36, 0.006, 0.15, PAPER, [0, 0.047, 0.24], 0, { cast: false }),
+      box(0.5, 0.03, 0.012, '#2f3138', [0, 0.085, 0.208], 0, { cast: false }),
+      ball(0.014, '#9fe0b0', [0.27, 0.16, 0.21]),
+    );
+  },
+  // —— 屏幕 ——
+  monitor: (c) => {
+    const g = group(box(0.3, 0.02, 0.2, c, [0, 0, 0], 0.008), box(0.06, 0.2, 0.04, c, [0, 0.02, -0.03], 0.012), box(0.9, 0.5, 0.035, c, [0, 0.12, 0], 0.018), screen(0.84, 0.44, [0, 0.15, 0.018]));
+    // 屏幕上开着的窗口
+    g.add(box(0.36, 0.26, 0.004, '#ffffff', [-0.18, 0.23, 0.022], 0, { cast: false }), box(0.36, 0.04, 0.005, '#f4b6c2', [-0.18, 0.45, 0.022], 0, { cast: false }), box(0.28, 0.16, 0.004, '#fff3c4', [0.2, 0.2, 0.022], 0, { cast: false }));
+    return g;
+  },
+  tablet: (c) => {
+    const slab = group(box(0.22, 0.3, 0.016, c, [0, 0, 0], 0.008), screen(0.19, 0.26, [0, 0.02, 0.009]), box(0.08, 0.08, 0.003, '#f4b6c2', [-0.04, 0.16, 0.013], 0, { cast: false }), box(0.08, 0.08, 0.003, '#fff3c4', [0.045, 0.06, 0.013], 0, { cast: false }));
+    slab.position.set(0, 0.008, 0.05);
+    slab.rotation.x = -0.38;
+    const prop = box(0.1, 0.2, 0.012, shade(c, -0.2), [0, 0, 0], 0.004);
+    prop.position.set(0, 0.0, -0.11);
+    prop.rotation.x = 0.42;
+    return group(slab, prop);
+  },
+  phone: (c) => {
+    const g = group(box(0.11, 0.014, 0.21, c, [0, 0, 0], 0.006), box(0.095, 0.004, 0.19, SCREEN, [0, 0.014, 0], 0, { glow: SCREEN, cast: false }), box(0.05, 0.003, 0.05, '#f4b6c2', [0, 0.018, -0.03], 0, { cast: false }));
+    g.rotation.y = 0.35;
+    return group(g);
+  },
+  // —— 墙上 ——
+  whiteboard: (c) => {
+    const g = group(box(1.5, 1, 0.04, c, [0, -0.5, 0.02], 0.015), box(1.4, 0.9, 0.012, '#ffffff', [0, -0.45, 0.036], 0, { cast: false }), box(1.1, 0.03, 0.08, c, [0, -0.5, 0.07], 0.01));
+    const stroke = (x: number, y: number, len: number, rot: number, color: string) => {
+      const m = box(len, 0.016, 0.004, color, [0, 0, 0], 0, { cast: false });
+      m.position.set(x, y, 0.05);
+      m.rotation.z = rot;
+      g.add(m);
+    };
+    stroke(-0.4, 0.26, 0.42, 0, '#34466b');
+    stroke(-0.45, 0.16, 0.3, 0, '#34466b');
+    stroke(-0.38, 0.06, 0.44, 0, '#34466b');
+    stroke(0.28, 0.1, 0.36, 0.5, '#e2574c');
+    stroke(0.42, 0.06, 0.3, -0.7, '#e2574c');
+    stroke(-0.3, -0.2, 0.5, 0.12, '#4f7a5e');
+    g.add(ring(0.1, 0.008, '#e2574c', [0.32, -0.16, 0.05], true), ball(0.03, '#f6c945', [0.56, 0.3, 0.05], [1, 1, 0.4]), ball(0.03, '#f4b6c2', [-0.58, -0.32, 0.05], [1, 1, 0.4]));
+    for (const [x, color] of [
+      [-0.3, '#34466b'],
+      [-0.18, '#e2574c'],
+      [-0.06, '#4f7a5e'],
+    ] as [number, string][]) {
+      const pen = cyl(0.012, 0.012, 0.1, color, [0, 0, 0], 8);
+      pen.rotation.z = Math.PI / 2;
+      pen.position.set(x, -0.458, 0.08);
+      g.add(pen);
+    }
+    g.add(box(0.1, 0.03, 0.05, '#5b5e66', [0.3, -0.47, 0.08], 0.008));
+    return g;
+  },
+  wallCabinet: (c) =>
+    group(
+      box(1.96, 0.7, 0.34, c, [0, -0.35, 0.17], 0.02),
+      box(0.94, 0.62, 0.02, shade(c, 0.05), [-0.49, -0.31, 0.342], 0.01),
+      box(0.94, 0.62, 0.02, shade(c, 0.05), [0.49, -0.31, 0.342], 0.01),
+      box(0.03, 0.16, 0.03, STEEL, [-0.07, -0.28, 0.365], 0.01),
+      box(0.03, 0.16, 0.03, STEEL, [0.07, -0.28, 0.365], 0.01),
+    ),
+  rack: (c) => {
+    const g = group(box(0.96, 0.7, 0.03, c, [0, -0.35, 0.015], 0.02), box(0.44, 0.03, 0.15, shade(c, -0.14), [-0.22, 0.1, 0.09], 0.01));
+    // 洞洞板上的小孔
+    for (let ix = 0; ix < 7; ix += 1) for (let iy = 0; iy < 5; iy += 1) g.add(disc(0.012, 0.004, shade(c, -0.2), [-0.36 + ix * 0.12, -0.26 + iy * 0.13, 0.031], 8, { cast: false }));
+    const pot = BUILDERS.pot!('#f7f6f2');
+    pot.position.set(-0.32, 0.13, 0.09);
+    pot.scale.setScalar(0.85);
+    const mug = BUILDERS.mug!('#f4b6c2');
+    mug.position.set(-0.1, 0.13, 0.09);
+    g.add(pot, mug);
+    // 挂钩上挂着的：一串钥匙、一个小布袋、一把剪刀
+    for (const x of [0.12, 0.28, 0.4]) g.add(cyl(0.008, 0.008, 0.05, STEEL, [x, 0.18, 0.04], 6).rotateX(Math.PI / 2));
+    g.add(ring(0.035, 0.007, '#e8c26a', [0.12, 0.12, 0.06], true), box(0.02, 0.08, 0.008, '#e8c26a', [0.12, 0.02, 0.06], 0.003));
+    g.add(box(0.13, 0.16, 0.04, '#a9c4e0', [0.28, 0.0, 0.06], 0.015), box(0.008, 0.05, 0.008, '#8a5a3b', [0.28, 0.15, 0.06], 0));
+    g.add(ring(0.022, 0.006, '#ee8f7a', [0.385, 0.13, 0.06], true), ring(0.022, 0.006, '#ee8f7a', [0.425, 0.13, 0.06], true), box(0.012, 0.1, 0.006, STEEL, [0.405, 0.015, 0.06], 0));
+    g.add(box(0.2, 0.2, 0.004, '#fff3c4', [0.26, -0.3, 0.032], 0, { cast: false }), ball(0.016, '#e2574c', [0.26, -0.13, 0.036]));
+    return g;
+  },
+  aircon: (c) => {
+    const flap = box(1.3, 0.016, 0.1, shade(c, -0.04), [0, 0, 0], 0.004);
+    flap.position.set(0, -0.2, 0.27);
+    flap.rotation.x = 0.5;
+    return group(
+      box(1.46, 0.42, 0.28, c, [0, -0.21, 0.14], 0.07),
+      box(1.3, 0.03, 0.02, shade(c, -0.22), [0, -0.15, 0.275], 0, { cast: false }),
+      flap,
+      box(1.2, 0.006, 0.01, shade(c, -0.1), [0, 0.05, 0.281], 0, { cast: false }),
+      ball(0.014, '#9fe0b0', [0.6, -0.02, 0.28]),
+    );
   },
 };
 
