@@ -16,10 +16,13 @@ import {
   drawBase,
   drawExpression,
   drawPose,
+  framingOf,
   hasLabel,
+  mainFraming,
   maskBox,
   outfitChoices,
   outfitNote,
+  presetFramings,
   presetLabels,
   setBase,
   spriteStatus,
@@ -31,7 +34,8 @@ import {
 /**
  * 角色 → 立绘 → AI 画立绘（NovelAI）：
  * 1. 长相：没有外观 tags 时让 AI 从角色卡、世界书里写（先给你看，能改，"就用这个"才存）；
- * 2. 底图：穿哪身（节律、衣柜、立绘的服装），可以给一张参考图；画出来是透明底的平静表情（立绘预设里定），看过再用；
+ * 2. 底图：构图（默认半身：App 里的立绘框、头像框都按半身定；全身也能画）、穿哪身（节律、衣柜、立绘的服装），可以给一张参考图；
+ *    画出来是透明底的平静表情（立绘预设里定），看过再用。和这个角色平时的构图不一样的留着备用、不参与自动挑选；
  * 3. 照着底图画表情：预设里的表情一个个画，或者"画没有的"一口气画完；自己起名的表情让 AI 写 tags 再画；
  * 4. 照着底图画动作。
  * 怎么画（tags、模型、换表情的办法）全在立绘预设里，这里只是按钮。
@@ -75,6 +79,13 @@ function clearReference() {
 const draft = ref<SpriteDraft | null>(null);
 const baseBusy = ref(false);
 const baseError = ref<{ reason: string; detail: string } | null>(null);
+// 构图：默认是这个角色平时用的（第一张底图定的；还没有立绘时是立绘预设的默认构图，一般是半身）
+const framings = computed(() => presetFramings(c.value));
+const usual = computed(() => mainFraming(c.value));
+const pickedFraming = ref<string | null>(null);
+const framing = computed(() => framings.value.find((f) => f.name === (pickedFraming.value ?? usual.value)) ?? framings.value[0] ?? null);
+/** 选的构图和这个角色平时用的不一样（已经有立绘时）：画出来留着备用 */
+const offFraming = computed(() => !!c.value.portraits?.portraits.length && !!framing.value && framing.value.name !== usual.value);
 const baseExpr = computed(() => spriteBaseLabel(labels.value.expressions, params.value.baseExpression)?.name ?? '');
 const basePose = computed(() => spriteBaseLabel(labels.value.poses, params.value.basePose)?.name ?? '');
 async function makeBase() {
@@ -82,7 +93,7 @@ async function makeBase() {
   baseBusy.value = true;
   baseError.value = null;
   try {
-    const d = await drawBase(c.value, { outfit: outfit.value, reference: reference.value?.file ?? null });
+    const d = await drawBase(c.value, { outfit: outfit.value, framing: framing.value?.name, reference: reference.value?.file ?? null });
     dropDraft();
     draft.value = d;
   } catch (e) {
@@ -125,8 +136,10 @@ const baseCaption = computed(() => {
   const b = base.value;
   if (!s || !b) return '';
   const name = (list: { id: string; label: string }[], id: string) => list.find((x) => x.id === id)?.label ?? '';
-  return [name(s.expressions, b.expression), name(s.poses, b.pose), name(s.outfits, b.outfit)].filter(Boolean).join(' · ') || b.name;
+  return [framingOf(c.value, b), name(s.expressions, b.expression), name(s.poses, b.pose), name(s.outfits, b.outfit)].filter(Boolean).join(' · ') || b.name;
 });
+/** 底图的构图和平时的不一样：照着它画的也留着备用 */
+const baseOff = computed(() => !!base.value && framingOf(c.value, base.value) !== usual.value);
 
 // —— 3、4 照着底图画 ——
 type RowState = { state: 'waiting' | 'error'; reason?: string; detail?: string };
@@ -229,7 +242,7 @@ const customRow = computed(() => rows[rowKey(custom.kind, custom.name.trim())]);
 
     <!-- 2 底图 -->
     <div class="sg-step">
-      <div class="sg-step-title"><span class="sg-no">2</span>底图（{{ [baseExpr, basePose].filter(Boolean).join('、') || '第一张' }}，透明底）</div>
+      <div class="sg-step-title"><span class="sg-no">2</span>底图（{{ [framing?.name, baseExpr, basePose].filter(Boolean).join(' · ') || '第一张' }}，透明底）</div>
       <div v-if="base && !draft" class="sg-base">
         <div class="sg-base-img checker" :style="{ aspectRatio: `${base.width} / ${base.height}` }">
           <img v-if="baseSrc" :src="baseSrc" alt="" draggable="false" />
@@ -258,6 +271,19 @@ const customRow = computed(() => rows[rowKey(custom.kind, custom.name.trim())]);
       </div>
 
       <template v-if="!draft">
+        <template v-if="framings.length">
+          <div class="field-label">构图</div>
+          <div class="flex flex-wrap gap-1.5" data-testid="sprite-framing">
+            <button v-for="f in framings" :key="f.name" type="button" class="opt" :class="{ on: framing?.name === f.name }" :title="f.tags" @click="pickedFraming = f.name">
+              {{ f.name }}<span class="opt-sub">{{ f.name === usual ? (character.portraits?.portraits.length ? '平时用' : '默认') : f.tags }}</span>
+            </button>
+          </div>
+          <p v-if="offFraming" class="sg-note text-warn">
+            {{ character.name }}平时用「{{ usual }}」（立绘框、头像框按它定）：画好的「{{ framing?.name }}」和照着它画的表情、动作都留着备用，不参与自动挑选，免得换表情时人忽大忽小；要用的话在图上关掉"留着备用"。
+          </p>
+          <p v-else-if="framing?.hint" class="sg-note">{{ framing.hint }}</p>
+        </template>
+        <p v-else class="sg-note text-warn">立绘预设里没有构图：去预设里加一块"构图"（半身写 upper body），不然画出来是半身还是全身全看模型。</p>
         <div class="field-label">穿哪身</div>
         <div class="flex flex-wrap gap-1.5">
           <button v-for="o in outfits" :key="`${o.name}|${o.tags}`" type="button" class="opt" :class="{ on: outfit?.name === o.name }" :title="o.tags" @click="pickedOutfit = o.name">
@@ -305,8 +331,9 @@ const customRow = computed(() => rows[rowKey(custom.kind, custom.name.trim())]);
 
     <!-- 3 表情 -->
     <div v-if="base" class="sg-step">
-      <div class="sg-step-title"><span class="sg-no">3</span>照着底图画表情</div>
+      <div class="sg-step-title"><span class="sg-no">3</span>照着底图画表情（{{ framingOf(character, base) }}）</div>
       <p class="sg-note">{{ expressionNote }}</p>
+      <p v-if="baseOff" class="sg-note text-warn">这张底图是「{{ framingOf(character, base) }}」，{{ character.name }}平时用「{{ usual }}」：照着它画的表情、动作都留着备用。</p>
       <van-button v-if="missing.length" round block type="primary" class="!mt-2" :loading="!!batch" :loading-text="batch ? `在画 ${batch.done + 1} / ${batch.total}` : ''" :disabled="!status.canEdit" data-testid="sprite-missing" @click="drawMissing">
         画没有的（{{ missing.map((l) => l.name).join('、') }}）
       </van-button>

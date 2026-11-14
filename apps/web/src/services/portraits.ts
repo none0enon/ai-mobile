@@ -134,13 +134,13 @@ export interface GeneratedLabels {
 
 /**
  * 存一张 AI 画的立绘（"AI 画立绘"）：压好存进本机素材库，标上表情、动作、服装。
- * replace 给了时，先删掉它挑中的那几张（重画同一个表情时换掉上一张）
+ * replace 给了时，删掉它挑中的那几张（重画同一个表情时换掉上一张）；hidden：留着备用、不参与自动挑选（和平时的构图不一样的）
  */
 export async function addGeneratedPortrait(
   c: Character,
   img: { bytes: Uint8Array<ArrayBuffer>; mime: string },
   labels: GeneratedLabels,
-  opts: { gen: PortraitGen; name: string; fit?: PortraitFit; replace?: (p: Portrait) => boolean; everyone: Character[] },
+  opts: { gen: PortraitGen; name: string; fit?: PortraitFit; hidden?: boolean; replace?: (p: Portrait) => boolean; everyone: Character[] },
 ): Promise<Portrait> {
   const set = ensurePortraitSet(c);
   const small = await compressPortrait(new Blob([img.bytes], { type: img.mime }));
@@ -182,6 +182,7 @@ export async function addGeneratedPortrait(
     pose,
     outfit,
     ...(opts.fit && (opts.fit.zoom !== 1 || opts.fit.x || opts.fit.y) ? { fit: { ...opts.fit } } : {}),
+    ...(opts.hidden ? { hidden: true } : {}),
     gen: opts.gen,
   };
   if (first) set.aspect = Math.round((small.width / small.height) * 1000) / 1000;

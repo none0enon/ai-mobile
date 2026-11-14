@@ -3,7 +3,7 @@
   "version": 1,
   "id": "preset-sprite",
   "name": "立绘 · NovelAI 透明底",
-  "description": "AI 画立绘：缺外观 tags 时先写 tags（调\"生图提示词\"的 API），用 NovelAI V5 直接画一张透明底的平静底图，再照着底图画别的表情（默认只重画脸，身子、衣服一像素不动，换表情时立绘不会跳）和动作。自带平静、大笑、害羞、愤怒、悲伤、惊讶、嫌弃、微笑、睡着九个表情和三个动作：增删、改名、改 tags 都在这里（关掉的不画），出图参数在\"出图参数\"里。底图换成 V4.5 时把画法里透明背景的几个词换成 simple background, white background，画完会自动去背景。",
+  "description": "AI 画立绘：缺外观 tags 时先写 tags（调\"生图提示词\"的 API），用 NovelAI V5 直接画一张透明底的平静底图，再照着底图画别的表情（默认只重画脸，身子、衣服一像素不动，换表情时立绘不会跳）和动作。构图默认半身（App 里的立绘框、头像框都按半身定），全身也能画（和半身的角色混着用时留着备用）。自带平静、大笑、害羞、愤怒、悲伤、惊讶、嫌弃、微笑、睡着九个表情和三个动作：增删、改名、改 tags 都在这里（关掉的不用），出图参数在\"出图参数\"里。底图换成 V4.5 时把画法里透明背景的几个词换成 simple background, white background，画完会自动去背景。",
   "category": "sprite",
   "defaultFor": [
     "sprite"
@@ -13,7 +13,7 @@
       "identifier": "main",
       "name": "任务",
       "role": "system",
-      "content": "你在替{{char}}准备 NovelAI 立绘的提示词：视觉小说那样的角色立绘，一个人、全身、透明背景，换表情时只换脸。tags 用 Danbooru 风格的英文。只输出一个 JSON 对象，不要任何其他文字。",
+      "content": "你在替{{char}}准备 NovelAI 立绘的提示词：视觉小说那样的角色立绘，一个人、透明背景，换表情时只换脸。构图（半身、全身）由程序按选的构图加，App 里平时用半身。tags 用 Danbooru 风格的英文。只输出一个 JSON 对象，不要任何其他文字。",
       "marker": false,
       "enabled": true,
       "injection": {
@@ -40,7 +40,7 @@
       "identifier": "labelTask",
       "name": "给新表情 / 动作写 tags",
       "role": "system",
-      "content": "这次的任务：给{{char}}的一个表情或动作写 NovelAI 的 tags（是哪个、叫什么在\"这次要写的\"里）。\n- 表情：只写脸上的（眉毛、眼睛、嘴、脸红、眼泪、汗……），例如 坏笑 写 smirk, half-closed eyes, raised eyebrow；不写动作、衣服、背景。\n- 动作：只写姿势和手（站着还是坐着、手放在哪），保持一个人、全身入画、正面或稍微侧身；不写表情、衣服、背景。\n- hint：一句中文，什么时候用这个表情、换这个动作（写给聊天的模型看）。\n- emotion：只在写表情时填，从这些里挑最接近的一个（NovelAI 换表情工具认的值）：neutral, happy, sad, angry, scared, surprised, tired, excited, nervous, thinking, confused, shy, disgusted, smug, bored, laughing, irritated, aroused, embarrassed, worried, love, determined, hurt, playful；写动作时写空字符串。\n输出格式：\n{\"tags\": \"英文 tags\", \"hint\": \"什么时候用\", \"emotion\": \"\"}",
+      "content": "这次的任务：给{{char}}的一个表情或动作写 NovelAI 的 tags（是哪个、叫什么在\"这次要写的\"里）。\n- 表情：只写脸上的（眉毛、眼睛、嘴、脸红、眼泪、汗……），例如 坏笑 写 smirk, half-closed eyes, raised eyebrow；不写动作、衣服、背景。\n- 动作：只写姿势和手（站着还是坐着、手放在哪），保持一个人、正面或稍微侧身；不写表情、衣服、背景。\n- 构图（半身 upper body、全身 full body）由程序按选的构图加，不要写构图和镜头的 tags。\n- hint：一句中文，什么时候用这个表情、换这个动作（写给聊天的模型看）。\n- emotion：只在写表情时填，从这些里挑最接近的一个（NovelAI 换表情工具认的值）：neutral, happy, sad, angry, scared, surprised, tired, excited, nervous, thinking, confused, shy, disgusted, smug, bored, laughing, irritated, aroused, embarrassed, worried, love, determined, hurt, playful；写动作时写空字符串。\n输出格式：\n{\"tags\": \"英文 tags\", \"hint\": \"什么时候用\", \"emotion\": \"\"}",
       "marker": false,
       "enabled": true,
       "injection": {
@@ -103,7 +103,7 @@
       "identifier": "draw",
       "name": "画法（正向）",
       "role": "system",
-      "content": "{{char_appearance}}, {{char_outfit}}, {{pose}}, {{expression}}, full body, straight-on, looking at viewer, 2.1::transparent background::, has alpha",
+      "content": "{{char_appearance}}, {{char_outfit}}, {{framing}}, {{pose}}, {{expression}}, straight-on, looking at viewer, 2.1::transparent background::, has alpha",
       "marker": false,
       "enabled": true,
       "injection": {
@@ -118,7 +118,7 @@
       "identifier": "negative",
       "name": "负面",
       "role": "system",
-      "content": "multiple views, cropped, out of frame, upper body, cowboy shot, close-up, from behind, scenery, detailed background, text, logo, watermark, signature, speech bubble",
+      "content": "multiple views, from behind, scenery, detailed background, text, logo, watermark, signature, speech bubble",
       "marker": false,
       "enabled": true,
       "injection": {
@@ -128,6 +128,47 @@
       "triggers": [
         "sprite-negative"
       ]
+    },
+    {
+      "identifier": "frameHalf",
+      "name": "构图 · 半身",
+      "role": "system",
+      "content": "upper body",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-frame:半身"
+      ],
+      "extra": {
+        "hint": "平时用：聊天剧场、一起做事、通话里的立绘框和头像框都是按半身定的",
+        "negative": "full body, lower body, legs, feet, head out of frame",
+        "drop": "shoes, boots, sneakers, loafers, sandals, heels, slippers, socks, kneehighs, thighhighs, pantyhose, legwear, mary janes",
+        "headRatio": 0.33
+      }
+    },
+    {
+      "identifier": "frameFull",
+      "name": "构图 · 全身",
+      "role": "system",
+      "content": "full body",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-frame:全身"
+      ],
+      "extra": {
+        "hint": "要看到整个人（鞋、裙摆）时用；和半身的混着用，换表情时人会忽大忽小",
+        "negative": "upper body, cowboy shot, close-up, portrait, cropped, out of frame, cropped legs, feet out of frame",
+        "headRatio": 0.14
+      }
     },
     {
       "identifier": "exprCalm",
@@ -373,6 +414,7 @@
   },
   "extra": {
     "sprite": {
+      "framing": "半身",
       "model": "nai-diffusion-5-full",
       "width": 832,
       "height": 1216,

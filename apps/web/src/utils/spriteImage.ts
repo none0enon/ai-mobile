@@ -39,7 +39,7 @@ export interface FaceGuess {
 export interface AlphaInfo {
   width: number;
   height: number;
-  /** 透明背景：图的四条边基本都是透明的；和底图比时，底图透明的地方也还是透明的 */
+  /** 透明背景：上边、左右两边的上半段基本都是透明的（半身立绘的人被画布下沿截断，下边和两边靠下的地方本来就有人）；和底图比时，底图透明的地方也还是透明的 */
   transparent: boolean;
   /** 按透明的轮廓猜的脸（不是透明底时为空） */
   face: FaceGuess | null;
@@ -56,27 +56,33 @@ async function pixels(blob: Blob, size?: { w: number; h: number }): Promise<{ da
   return { data: ctx.getImageData(0, 0, w, h).data, w, h, width: img.naturalWidth, height: img.naturalHeight };
 }
 
+/** 看透明底时左右两边看到多高（往下就可能是被截断的身子、肩膀） */
+const EDGE_SPAN = 0.6;
+
+/** 二次元的头：脸（眉毛到下巴）约占头高（头顶到下巴）的六成，脸的中心在头顶往下约六成处 */
+const FACE_OF_HEAD = 0.6;
+const FACE_CENTER_IN_HEAD = 0.58;
+
 /**
- * 看一张图是不是透明底，是的话按人的轮廓猜脸：最上面那一截（约一个头高）是头，脸的中心在头顶往下六成处。
+ * 看一张图是不是透明底，是的话按人的轮廓猜脸：最上面那一截是头（多高看构图：半身的头大、全身的头小，
+ * headRatio 是立绘预设里这种构图写的"头占整个人多高"，没写就不猜）。头像框框的是脸（同默认的头像框），不是整个头。
  * 猜的脸只是给头像框一个起点，不对的话在"头像框和戳戳乐热区"里拖。
  * compare 给了（构图一样的底图，例如只重画了脸）：底图透明的地方有一成以上变得不透明了，就算没保住透明底（重画的那块铺上了背景）
  */
-export async function alphaInfo(blob: Blob, opts: { headRatio?: number; compare?: Blob } = {}): Promise<AlphaInfo> {
+export async function alphaInfo(blob: Blob, opts: { headRatio: number | null; compare?: Blob }): Promise<AlphaInfo> {
   const { data, w, h, width, height } = await pixels(blob);
   const alpha = (x: number, y: number) => data[(y * w + x) * 4 + 3] ?? 255;
+  // 只看上边和左右两边的上半段：半身立绘的人被画布下沿截断，肩膀、胳膊也可能碰到两边靠下的地方
   let edge = 0;
   let clear = 0;
-  for (let x = 0; x < w; x++) {
-    for (const y of [0, h - 1]) {
-      edge++;
-      if (alpha(x, y) < 16) clear++;
-    }
-  }
-  for (let y = 1; y < h - 1; y++) {
-    for (const x of [0, w - 1]) {
-      edge++;
-      if (alpha(x, y) < 16) clear++;
-    }
+  const look = (x: number, y: number) => {
+    edge++;
+    if (alpha(x, y) < 16) clear++;
+  };
+  for (let x = 0; x < w; x++) look(x, 0);
+  for (let y = 1; y < Math.round(h * EDGE_SPAN); y++) {
+    look(0, y);
+    look(w - 1, y);
   }
   let transparent = edge > 0 && clear / edge >= 0.9;
   if (transparent && opts.compare) {
@@ -90,7 +96,7 @@ export async function alphaInfo(blob: Blob, opts: { headRatio?: number; compare?
     }
     if (was && filled / was > 0.1) transparent = false;
   }
-  if (!transparent) return { width, height, transparent, face: null };
+  if (!transparent || !opts.headRatio) return { width, height, transparent, face: null };
   // 每一行不透明的像素
   const minRun = Math.max(2, Math.round(w * 0.01));
   const rows: number[] = [];
@@ -108,7 +114,8 @@ export async function alphaInfo(blob: Blob, opts: { headRatio?: number; compare?
     }
   }
   if (top < 0 || bottom <= top) return { width, height, transparent, face: null };
-  const head = (bottom - top) * (opts.headRatio ?? 0.15);
+  // 半身立绘的人被画布下沿截断，bottom 就是画布底：头占的是画出来的那部分
+  const head = (bottom - top) * opts.headRatio;
   // 脸的左右按头那一截（避开头顶的呆毛、耳朵）不透明像素的平均位置
   let sx = 0;
   let count = 0;
@@ -126,7 +133,7 @@ export async function alphaInfo(blob: Blob, opts: { headRatio?: number; compare?
     width,
     height,
     transparent,
-    face: { x: clamp(cx / w, 0.05, 0.95), y: clamp((top + head * 0.6) / h, 0.03, 0.9), size: clamp(head / w, 0.05, 0.9) },
+    face: { x: clamp(cx / w, 0.05, 0.95), y: clamp((top + head * FACE_CENTER_IN_HEAD) / h, 0.03, 0.9), size: clamp((head * FACE_OF_HEAD) / w, 0.05, 0.9) },
   };
 }
 
@@ -157,7 +164,8 @@ export async function rectMask(width: number, height: number, rect: { x: number;
 }
 
 /**
- * 精准参考的参考图：铺在白底上（官方建议"站着、中性姿势、简单的背景"），按比例最接近的那种尺寸居中垫好
+ * 精准参考的参考图：铺在白底上（官方建议简单的背景、人在画布上尽量大、参考图的构图和要画的一样——半身的底图照样当半身的参考），
+ * 按比例最接近的那种尺寸居中垫好
  */
 export async function referenceImage(blob: Blob, canvases: readonly { width: number; height: number }[]): Promise<string> {
   const img = await decodeImage(blob);

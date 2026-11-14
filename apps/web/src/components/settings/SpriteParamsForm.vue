@@ -1,6 +1,16 @@
 <script setup lang="ts">
 import { NOVELAI_EMOTION_LEVELS, NOVELAI_MODELS, NOVELAI_SAMPLERS, NOVELAI_SCHEDULES } from '@app/ai';
-import { SPRITE_EXPRESSION_METHODS, SPRITE_POSE_METHODS, spriteLabels, spriteParams, type Preset, type SpriteExpressionMethod, type SpriteParams, type SpritePoseMethod } from '@app/shared';
+import {
+  SPRITE_EXPRESSION_METHODS,
+  SPRITE_POSE_METHODS,
+  spriteFramings,
+  spriteLabels,
+  spriteParams,
+  type Preset,
+  type SpriteExpressionMethod,
+  type SpriteParams,
+  type SpritePoseMethod,
+} from '@app/shared';
 import { computed, reactive, ref, watch } from 'vue';
 import Segmented from '@/components/common/Segmented.vue';
 
@@ -45,6 +55,7 @@ function snap(k: 'width' | 'height') {
   save();
 }
 
+const framings = computed(() => spriteFramings(props.preset));
 const expressions = computed(() => spriteLabels(props.preset, 'expression'));
 const poses = computed(() => spriteLabels(props.preset, 'pose'));
 const expressionMethods = Object.entries(SPRITE_EXPRESSION_METHODS).map(([value, m]) => ({ value: value as SpriteExpressionMethod, label: m.label }));
@@ -59,6 +70,15 @@ const pixels = computed(() => p.width * p.height);
     </datalist>
 
     <div class="sp-title">底图（第一张，透明底）</div>
+    <label class="field-label">新画底图默认用哪种构图</label>
+    <div class="flex flex-wrap gap-1.5">
+      <button v-for="(f, i) in framings" :key="f.name" type="button" class="opt" :class="{ on: p.framing === f.name || (!framings.some((x) => x.name === p.framing) && i === 0) }" @click="(p.framing = f.name), save()">
+        {{ f.name }}
+      </button>
+    </div>
+    <p class="sp-note">
+      {{ framings.length ? 'App 里的立绘框、头像框都是按半身定的，平时用半身。已经有立绘的角色按它自己的构图画（第一张底图定的），画别的构图时那几张留着备用。' : '预设里还没有构图：在"提示词"里加一块"构图"（半身写 upper body）。' }}
+    </p>
     <label class="field-label" for="sp-model">画底图的模型（空着 = 用"生图"的 API 里选的那个）</label>
     <input id="sp-model" v-model.trim="p.model" class="input mono" list="sp-models" autocomplete="off" spellcheck="false" placeholder="nai-diffusion-5-full" @change="save" />
     <p class="sp-note">V5（nai-diffusion-5-…）能直接画透明背景（画法里写 transparent background、has alpha）；V4.5 及更早的不能，画完按下面的开关去背景。</p>

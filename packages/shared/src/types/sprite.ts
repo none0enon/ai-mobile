@@ -45,6 +45,8 @@ export interface PortraitGen {
   negative: string;
   seed: number | null;
   model: string;
+  /** 构图（立绘预设里构图块的名字：半身、全身……） */
+  framing?: string;
   /** 照着哪张画的（底图的 id） */
   from?: string;
   /** 画出来没有透明背景，又用 Director Tools 去了背景 */
@@ -133,4 +135,9 @@ export interface PortraitSet {
   hotspots?: PokeHotspot[];
   /** AI 画立绘时照着哪张画别的表情、动作（立绘的 id；导入的图也能当底图）；没有时用最近画的底图 */
   genBase?: string;
+  /**
+   * 这个角色平时用哪种构图（立绘预设里构图块的名字，App 里一般是半身）：第一张 AI 底图定的，也能改。
+   * AI 画的别的构图的图（例如全身）留着备用、不参与自动挑选，免得换表情时人忽大忽小；导入的图当作就是这种构图
+   */
+  framing?: string;
 }

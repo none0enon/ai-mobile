@@ -5,9 +5,8 @@ import {
   POSES,
   SPRITE_BLOCK_KINDS,
   SPRITE_DRAW,
-  SPRITE_EXPR,
+  SPRITE_NAMED,
   SPRITE_NEGATIVE,
-  SPRITE_POSE,
   SPRITE_TASKS,
   spriteBlockKind,
   spriteBlockMeta,
@@ -19,19 +18,22 @@ import { computed } from 'vue';
 
 /**
  * 立绘预设里一块是什么（预设编辑页的块编辑器里用）：
- * 交给文本模型的任务（写外观 tags、给新表情写 tags）/ 画法 / 负面 / 一个表情 / 一个动作。
- * 表情、动作的名字写进触发条件（sprite-expr:名字），画出来的立绘就标成这个名字；块上还能选换表情用的情绪、写说明、动作适合的场景。
+ * 交给文本模型的任务（写外观 tags、给新表情写 tags）/ 画法 / 负面 / 一种构图 / 一个表情 / 一个动作。
+ * 构图、表情、动作的名字写进触发条件（sprite-frame:半身、sprite-expr:平静），画出来的立绘就标成这个名字；
+ * 块上还能写构图的负面 tags、要去掉的 tags、头身比，表情用的情绪，动作适合的场景，说明。
  */
 const props = defineProps<{ block: PromptBlock }>();
-const DRAW_MACROS = '{{char_appearance}}（长相）、{{char_outfit}}（这身衣服的 tags）、{{expression}}（表情的 tags）、{{pose}}（动作的 tags）';
 const emit = defineEmits<{ (e: 'touch'): void }>();
+const DRAW_MACROS = '{{char_appearance}}（长相）、{{char_outfit}}（这身衣服的 tags）、{{framing}}（构图的 tags）、{{expression}}（表情的 tags）、{{pose}}（动作的 tags）';
+const FRAMING_MACRO = '{{framing}}';
 
 const kind = computed(() => spriteBlockKind(props.block));
 const meta = computed(() => spriteBlockMeta(props.block));
-const prefix = computed(() => (kind.value === 'expression' ? SPRITE_EXPR : SPRITE_POSE));
-const label = computed(() => blockLevel(props.block, prefix.value));
+const named = computed(() => (kind.value === 'framing' || kind.value === 'expression' || kind.value === 'pose' ? kind.value : null));
+const label = computed(() => (named.value ? blockLevel(props.block, SPRITE_NAMED[named.value]) : ''));
+const KIND_NAME = { framing: '构图', expression: '表情', pose: '动作' } as const;
 
-/** 块名里"表情 · 平静"的后半截，换成表情 / 动作时当默认名字 */
+/** 块名里"表情 · 平静"的后半截，换成构图 / 表情 / 动作时当默认名字 */
 function nameFromBlock(): string {
   return props.block.name.split(/[·:：]/).pop()?.trim() || props.block.name.trim() || '新的';
 }
@@ -40,13 +42,14 @@ function setKind(k: SpriteBlockKind) {
   const b = props.block;
   if (k === kind.value) return;
   const name = label.value || nameFromBlock();
-  b.triggers = { task: undefined, draw: [SPRITE_DRAW], negative: [SPRITE_NEGATIVE], expression: [`${SPRITE_EXPR}${name}`], pose: [`${SPRITE_POSE}${name}`] }[k];
+  b.triggers = k === 'task' ? undefined : k === 'draw' ? [SPRITE_DRAW] : k === 'negative' ? [SPRITE_NEGATIVE] : [`${SPRITE_NAMED[k]}${name}`];
   emit('touch');
 }
 function setName(v: string) {
   const name = v.trim();
-  if (!name) return;
-  props.block.triggers = [...(props.block.triggers ?? []).filter((t) => !t.startsWith(prefix.value)), `${prefix.value}${name}`];
+  const k = named.value;
+  if (!name || !k) return;
+  props.block.triggers = [...(props.block.triggers ?? []).filter((t) => !t.startsWith(SPRITE_NAMED[k])), `${SPRITE_NAMED[k]}${name}`];
   emit('touch');
 }
 function toggleTask(t: string) {
@@ -58,7 +61,7 @@ function toggleTask(t: string) {
 }
 function setMeta(patch: Record<string, unknown>) {
   const next: Record<string, unknown> = { ...props.block.extra, ...patch };
-  for (const [k, v] of Object.entries(next)) if (v === '' || v === undefined || (Array.isArray(v) && !v.length)) delete next[k];
+  for (const [k, v] of Object.entries(next)) if (v === '' || v === undefined || v === null || (Array.isArray(v) && !v.length)) delete next[k];
   props.block.extra = Object.keys(next).length ? next : undefined;
   emit('touch');
 }
@@ -67,6 +70,10 @@ function toggleFit(f: Pose) {
   if (fits.has(f)) fits.delete(f);
   else fits.add(f);
   setMeta({ fits: (Object.keys(POSES) as Pose[]).filter((k) => fits.has(k)) });
+}
+function setHeadRatio(v: string) {
+  const n = Number(v);
+  setMeta({ headRatio: Number.isFinite(n) && n > 0 && n < 1 ? Math.round(n * 100) / 100 : null });
 }
 </script>
 
@@ -78,7 +85,10 @@ function toggleFit(f: Pose) {
   <p class="sbf-note">
     <template v-if="kind === 'task'">交给"生图提示词"的文本模型；只在做下面选中的事时发送（都不选 = 两件事都发）。</template>
     <template v-else-if="kind === 'draw'">NovelAI 的正向提示词模板，不发给文本模型。能用 {{ DRAW_MACROS }}。</template>
-    <template v-else-if="kind === 'negative'">NovelAI 的负面提示词，不发给文本模型；角色自己的负面 tags 会接在后面。</template>
+    <template v-else-if="kind === 'negative'">NovelAI 的负面提示词，不发给文本模型；这种构图的负面 tags、角色自己的负面 tags 会接在后面。</template>
+    <template v-else-if="kind === 'framing'">
+      内容写这种构图的 NovelAI tags（半身 upper body、全身 full body……），画法里的 {{ FRAMING_MACRO }} 换成它。App 里的立绘框、头像框都是按半身定的，平时用半身；第一张底图用哪种构图，这个角色就平时用哪种，别的构图画的留着备用。
+    </template>
     <template v-else-if="kind === 'expression'">内容写这个表情的 NovelAI tags（只写脸上的）。画出来的立绘标成下面这个名字，模型写 [expr:名字] 时换成它。</template>
     <template v-else>内容写这个动作的 NovelAI tags（只写姿势和手）。画出来的立绘标成下面这个名字。</template>
   </p>
@@ -89,12 +99,21 @@ function toggleFit(f: Pose) {
     </div>
   </template>
 
-  <template v-else-if="kind === 'expression' || kind === 'pose'">
-    <label class="field-label" for="sbf-name">{{ kind === 'expression' ? '表情' : '动作' }}的名字</label>
+  <template v-else-if="named">
+    <label class="field-label" for="sbf-name">{{ KIND_NAME[named] }}的名字</label>
     <input id="sbf-name" :value="label" class="input" autocomplete="off" maxlength="16" @change="setName(($event.target as HTMLInputElement).value)" />
-    <label class="field-label" for="sbf-hint">什么时候用（写给聊天的模型看，可以不写）</label>
+    <label class="field-label" for="sbf-hint">什么时候用（{{ named === 'framing' ? '写给自己看' : '写给聊天的模型看' }}，可以不写）</label>
     <input id="sbf-hint" :value="meta.hint ?? ''" class="input" autocomplete="off" maxlength="40" @change="setMeta({ hint: ($event.target as HTMLInputElement).value.trim() })" />
-    <template v-if="kind === 'expression'">
+
+    <template v-if="named === 'framing'">
+      <label class="field-label" for="sbf-neg">这种构图的负面 tags（接在负面那一块后面）</label>
+      <textarea id="sbf-neg" :value="meta.negative ?? ''" class="textarea mono" rows="2" spellcheck="false" @change="setMeta({ negative: ($event.target as HTMLTextAreaElement).value.trim() })" />
+      <label class="field-label" for="sbf-drop">这种构图下不写进提示词的 tags：含这些词的都去掉（逗号分隔，半身不写鞋袜，免得把脚也画进来）</label>
+      <textarea id="sbf-drop" :value="meta.drop ?? ''" class="textarea mono" rows="2" spellcheck="false" @change="setMeta({ drop: ($event.target as HTMLTextAreaElement).value.trim() })" />
+      <label class="field-label" for="sbf-head">头占画出来的整个人多高（0–1，按透明轮廓猜脸在哪、放头像框用；半身约 0.33，全身约 0.14）</label>
+      <input id="sbf-head" :value="meta.headRatio ?? ''" class="input num" type="number" min="0.05" max="0.95" step="0.01" @change="setHeadRatio(($event.target as HTMLInputElement).value)" />
+    </template>
+    <template v-else-if="named === 'expression'">
       <label class="field-label" for="sbf-emotion">用 Director Tools 换表情时选哪种情绪</label>
       <select id="sbf-emotion" class="input" :value="meta.emotion ?? ''" @change="setMeta({ emotion: ($event.target as HTMLSelectElement).value })">
         <option value="">不用（只重画脸）</option>
@@ -116,6 +135,9 @@ function toggleFit(f: Pose) {
   font-size: 12px;
   line-height: 1.6;
   color: var(--ink-3);
+}
+.mono {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 .opt {
   height: 32px;

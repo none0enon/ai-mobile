@@ -8,8 +8,10 @@ import type { Preset, PromptBlock } from './types/preset.ts';
  * 立绘预设（分类 sprite，设计文档 §10.4）：给没有立绘的角色用 NovelAI 画立绘。预设里有两种块：
  * - 交给文本模型的任务（写外观 tags、给新表情 / 动作写 tags）：触发条件写任务名（SPRITE_TASKS），程序填充块是这一次的输入；
  * - 直接拼进 NovelAI 提示词的块（不发给文本模型，触发条件写下面几个）：
- *   - 画法 sprite-draw：正向提示词的模板，能用 {{char_appearance}}（长相）{{char_outfit}}（这身衣服的 tags）{{expression}}（表情的 tags）{{pose}}（动作的 tags）；
- *   - 负面 sprite-negative；
+ *   - 画法 sprite-draw：正向提示词的模板，能用 {{char_appearance}}（长相）{{char_outfit}}（这身衣服的 tags）{{framing}}（构图的 tags）{{expression}}（表情的 tags）{{pose}}（动作的 tags）；
+ *   - 负面 sprite-negative（每种构图自己的负面 tags 由程序接在后面）；
+ *   - 构图 sprite-frame:名字：半身、全身……这种构图的 tags。块上还能写这种构图的负面 tags、要去掉的 tags（半身不写鞋袜）、
+ *     头占整个人多高（猜脸在哪用）、说明（extra.negative / extra.drop / extra.headRatio / extra.hint）。App 里平时用半身立绘；
  *   - 表情 sprite-expr:名字：这个表情的 tags。块上还能写 Director Tools 换表情用哪种情绪、写给模型看的说明（extra.emotion / extra.hint）；
  *   - 动作 sprite-pose:名字：这个动作的 tags。块上还能写适合哪些场景姿势、说明（extra.fits / extra.hint）。
  * 有几个表情、几个动作、叫什么、每个的 tags 都在预设里改（同一起游戏的尺度：名字写在触发条件里），关掉的块不画；
@@ -27,19 +29,25 @@ export const SPRITE_DRAW = 'sprite-draw';
 export const SPRITE_NEGATIVE = 'sprite-negative';
 export const SPRITE_EXPR = 'sprite-expr:';
 export const SPRITE_POSE = 'sprite-pose:';
+export const SPRITE_FRAME = 'sprite-frame:';
 
 /** 预设编辑页里一块是什么 */
 export const SPRITE_BLOCK_KINDS = {
   task: '交给文本模型',
   draw: '画法（正向）',
   negative: '负面',
+  framing: '构图',
   expression: '表情',
   pose: '动作',
 } as const;
 export type SpriteBlockKind = keyof typeof SPRITE_BLOCK_KINDS;
 
+/** 名字写在触发条件里的几种块：前缀 */
+export const SPRITE_NAMED: Record<'framing' | 'expression' | 'pose', string> = { framing: SPRITE_FRAME, expression: SPRITE_EXPR, pose: SPRITE_POSE };
+
 export function spriteBlockKind(b: Pick<PromptBlock, 'triggers'>): SpriteBlockKind {
   const t = b.triggers ?? [];
+  if (t.some((x) => x.startsWith(SPRITE_FRAME))) return 'framing';
   if (t.some((x) => x.startsWith(SPRITE_EXPR))) return 'expression';
   if (t.some((x) => x.startsWith(SPRITE_POSE))) return 'pose';
   if (t.includes(SPRITE_DRAW)) return 'draw';
@@ -47,23 +55,33 @@ export function spriteBlockKind(b: Pick<PromptBlock, 'triggers'>): SpriteBlockKi
   return 'task';
 }
 
-/** 块上的附加信息（表情、动作块用） */
+/** 块上的附加信息（构图、表情、动作块用） */
 export interface SpriteBlockMeta {
   /** 表情：Director Tools 换表情用哪种情绪（NovelAI 认的值，见 @app/ai 的 NOVELAI_EMOTIONS）；空 = 用局部重绘 */
   emotion?: string;
-  /** 写给模型看：什么时候用这个表情 / 换这个动作 */
+  /** 写给模型看：什么时候用这个表情 / 换这个动作；构图：什么时候用 */
   hint?: string;
   /** 动作：适合哪些场景姿势（一起学习要 study……）；空 = 哪儿都能用 */
   fits?: Pose[];
+  /** 构图：这种构图的负面 tags（半身写 full body……，全身写 upper body……） */
+  negative?: string;
+  /** 构图：这种构图下不写进提示词的 tags——含这些词的都去掉（逗号分隔；半身不写鞋袜，免得模型把脚也画进来） */
+  drop?: string;
+  /** 构图：头（头顶到下巴）大约占画出来的整个人多高（0–1），按透明轮廓猜脸在哪时用 */
+  headRatio?: number;
 }
 
 export function spriteBlockMeta(b: Pick<PromptBlock, 'extra'>): SpriteBlockMeta {
   const x = (b.extra ?? {}) as Record<string, unknown>;
   const fits = Array.isArray(x.fits) ? x.fits.filter((f): f is Pose => typeof f === 'string' && f in POSES) : [];
+  const text = (k: string) => (typeof x[k] === 'string' && (x[k] as string).trim() ? { [k]: (x[k] as string).trim() } : {});
   return {
-    ...(typeof x.emotion === 'string' && x.emotion.trim() ? { emotion: x.emotion.trim() } : {}),
-    ...(typeof x.hint === 'string' && x.hint.trim() ? { hint: x.hint.trim() } : {}),
+    ...text('emotion'),
+    ...text('hint'),
+    ...text('negative'),
+    ...text('drop'),
     ...(fits.length ? { fits } : {}),
+    ...(typeof x.headRatio === 'number' && x.headRatio > 0 && x.headRatio < 1 ? { headRatio: x.headRatio } : {}),
   };
 }
 
@@ -78,17 +96,50 @@ export interface SpriteLabel {
   identifier: string;
 }
 
-/** 预设里的表情或动作：按块的顺序，只算开着的，同名的取前面那块 */
-export function spriteLabels(preset: Pick<Preset, 'blocks'> | undefined, kind: 'expression' | 'pose'): SpriteLabel[] {
-  const prefix = kind === 'expression' ? SPRITE_EXPR : SPRITE_POSE;
-  const out: SpriteLabel[] = [];
+/** 按块的顺序取某一种名字写在触发条件里的块：只算开着的，同名的取前面那块 */
+function namedBlocks(preset: Pick<Preset, 'blocks'> | undefined, prefix: string): { name: string; block: PromptBlock }[] {
+  const out: { name: string; block: PromptBlock }[] = [];
   for (const b of preset?.blocks ?? []) {
     const name = b.enabled && !b.marker ? blockLevel(b, prefix) : '';
-    if (!name || out.some((l) => l.name === name)) continue;
-    const meta = spriteBlockMeta(b);
-    out.push({ name, tags: joinTags(b.content), hint: meta.hint ?? '', emotion: meta.emotion ?? '', fits: meta.fits ?? [], identifier: b.identifier });
+    if (name && !out.some((l) => l.name === name)) out.push({ name, block: b });
   }
   return out;
+}
+
+/** 预设里的表情或动作 */
+export function spriteLabels(preset: Pick<Preset, 'blocks'> | undefined, kind: 'expression' | 'pose'): SpriteLabel[] {
+  return namedBlocks(preset, SPRITE_NAMED[kind]).map(({ name, block: b }) => {
+    const meta = spriteBlockMeta(b);
+    return { name, tags: joinTags(b.content), hint: meta.hint ?? '', emotion: meta.emotion ?? '', fits: meta.fits ?? [], identifier: b.identifier };
+  });
+}
+
+/** 预设里的一种构图（半身、全身……） */
+export interface SpriteFraming {
+  name: string;
+  tags: string;
+  negative: string;
+  /** 含这些词的 tags 不写进提示词 */
+  drop: string[];
+  /** 头占整个人多高；没写时猜不了脸，头像框用默认的 */
+  headRatio: number | null;
+  hint: string;
+  identifier: string;
+}
+
+export function spriteFramings(preset: Pick<Preset, 'blocks'> | undefined): SpriteFraming[] {
+  return namedBlocks(preset, SPRITE_FRAME).map(({ name, block: b }) => {
+    const meta = spriteBlockMeta(b);
+    return {
+      name,
+      tags: joinTags(b.content),
+      negative: joinTags(meta.negative),
+      drop: (meta.drop ?? '').split(/[,，\n]/).map((w) => w.trim().toLowerCase()).filter(Boolean),
+      headRatio: meta.headRatio ?? null,
+      hint: meta.hint ?? '',
+      identifier: b.identifier,
+    };
+  });
 }
 
 /** 开着的画法 / 负面块的内容（几块就接在一起） */
@@ -123,6 +174,8 @@ export const SPRITE_POSE_METHODS: Record<SpritePoseMethod, { label: string; desc
 
 /** 立绘预设的出图参数（存在预设的 extra.sprite 里；预设文件里写全，这里的默认值只给缺了的字段补上） */
 export interface SpriteParams {
+  /** 新画底图默认用哪种构图（预设里构图块的名字；空或对不上 = 第一个）。App 里平时用半身 */
+  framing: string;
   /** 画底图（和"同一个种子重画"动作）用的模型；空 = "生图"的 API 里选的那个。要直接画透明底用 V5（nai-diffusion-5-full） */
   model: string;
   /** 宽高（NovelAI 要 64 的倍数） */
@@ -163,6 +216,7 @@ export interface SpriteParams {
 }
 
 export const DEFAULT_SPRITE_PARAMS: SpriteParams = {
+  framing: '',
   model: 'nai-diffusion-5-full',
   width: 832,
   height: 1216,
@@ -194,6 +248,7 @@ export function spriteParams(preset: Pick<Preset, 'extra'> | undefined): SpriteP
   const num = (v: unknown, def: number) => (typeof v === 'number' && Number.isFinite(v) ? v : def);
   const pick = <T extends string>(v: unknown, options: Record<T, unknown>, def: T): T => (typeof v === 'string' && v in options ? (v as T) : def);
   return {
+    framing: str(raw.framing, d.framing).trim(),
     model: str(raw.model, d.model).trim(),
     width: num(raw.width, d.width),
     height: num(raw.height, d.height),
@@ -218,8 +273,8 @@ export function spriteParams(preset: Pick<Preset, 'extra'> | undefined): SpriteP
   };
 }
 
-/** 底图用的表情 / 动作：出图参数里写的那个，对不上时第一个 */
-export function spriteBaseLabel(labels: SpriteLabel[], name: string): SpriteLabel | undefined {
+/** 底图用的构图 / 表情 / 动作：出图参数里写的那个，对不上时第一个 */
+export function spriteBaseLabel<T extends { name: string }>(labels: T[], name: string): T | undefined {
   return labels.find((l) => l.name === name) ?? labels[0];
 }
 
@@ -229,6 +284,8 @@ export interface SpriteDrawInput {
   appearance: string;
   /** 这身衣服的 tags */
   outfit: string;
+  /** 构图（半身、全身……）：它的 tags、负面 tags、要去掉的 tags */
+  framing: SpriteFraming | null;
   /** 表情、动作的 tags */
   expression: string;
   pose: string;
@@ -236,16 +293,25 @@ export interface SpriteDrawInput {
   negative?: string;
 }
 
-/** 按画法、负面两块拼 NovelAI 的提示词：宏换成这一次的，去掉空的和重复的，人数 tags（1girl、solo）挪到最前面 */
+/**
+ * 按画法、负面两块拼 NovelAI 的提示词：宏换成这一次的，去掉空的和重复的、这种构图不要的（半身去掉鞋袜），
+ * 人数 tags（1girl、solo）挪到最前面；负面接上这种构图的负面 tags 和角色自己的
+ */
 export function spritePrompt(preset: Pick<Preset, 'blocks'> | undefined, input: SpriteDrawInput): { prompt: string; negative: string } {
+  const framing = input.framing;
   const ctx = {
     char: input.name,
     user: '',
-    extra: { char_appearance: input.appearance, char_outfit: input.outfit, expression: input.expression, pose: input.pose },
+    extra: { char_appearance: input.appearance, char_outfit: input.outfit, framing: framing?.tags ?? '', expression: input.expression, pose: input.pose },
   };
-  const { lead, rest } = leadCountTags(joinTags(substituteMacros(spriteText(preset, SPRITE_DRAW), ctx)));
+  const own = new Set((framing?.tags ?? '').split(',').map((t) => t.trim().toLowerCase()));
+  const kept = joinTags(substituteMacros(spriteText(preset, SPRITE_DRAW), ctx))
+    .split(', ')
+    .filter((t) => own.has(t.toLowerCase()) || !framing?.drop.some((w) => t.toLowerCase().includes(w)))
+    .join(', ');
+  const { lead, rest } = leadCountTags(kept);
   return {
     prompt: joinTags(lead, rest),
-    negative: joinTags(substituteMacros(spriteText(preset, SPRITE_NEGATIVE), ctx), input.negative),
+    negative: joinTags(substituteMacros(spriteText(preset, SPRITE_NEGATIVE), ctx), framing?.negative, input.negative),
   };
 }

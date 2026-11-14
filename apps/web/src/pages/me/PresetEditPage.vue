@@ -19,6 +19,7 @@ import {
   SOUP_LEVEL,
   SPRITE_DRAW,
   SPRITE_EXPR,
+  SPRITE_FRAME,
   SPRITE_NEGATIVE,
   SPRITE_POSE,
   SPRITE_TASKS,
@@ -155,6 +156,7 @@ const SPRITE_TRIGGERS: Record<string, string> = { ...SPRITE_TASKS, [SPRITE_DRAW]
 function triggerLabel(t: string): string {
   const level = LEVEL_PREFIXES.map((p) => blockLevel({ triggers: [t] }, p)).find(Boolean);
   if (level) return `尺度"${level}"`;
+  if (t.startsWith(SPRITE_FRAME)) return `构图"${t.slice(SPRITE_FRAME.length)}"`;
   if (t.startsWith(SPRITE_EXPR)) return `表情"${t.slice(SPRITE_EXPR.length)}"`;
   if (t.startsWith(SPRITE_POSE)) return `动作"${t.slice(SPRITE_POSE.length)}"`;
   if (SPRITE_TRIGGERS[t]) return SPRITE_TRIGGERS[t];
@@ -278,7 +280,7 @@ const HINT: Record<PresetCategory, string> = {
   device:
     '心跳里她每说完一句，按这个预设给连着的玩具写指令。"程序填充"的块是这一次的输入：连着的玩具和能写的键、你设的强度上限和最快速度、玩具现在在做什么、最近的对话、她这一句。轻重怎么对应剧情写在规则里，可以改；指令的键（VIBRATE、LINEAR……）和输出格式里的字段名别改，程序按它读，读到她原话里 at 写的那几个字时执行。',
   sprite:
-    '"角色 → 立绘 → AI 画立绘"用。两种块：交给"生图提示词"的文本模型的任务（写外观 tags、给新表情写 tags，"程序填充"的块是这一次的输入，输出格式里的字段名别改）；直接拼进 NovelAI 提示词的画法、负面、表情、动作（不发给文本模型）。表情和动作一块一个，名字就是画出来的立绘标的名字，有几个、叫什么、tags 都随你改，关掉的不画；画法里能用 {{char_appearance}} {{char_outfit}} {{expression}} {{pose}}。模型、尺寸、换表情和换动作的办法在"出图参数"里。',
+    '"角色 → 立绘 → AI 画立绘"用。两种块：交给"生图提示词"的文本模型的任务（写外观 tags、给新表情写 tags，"程序填充"的块是这一次的输入，输出格式里的字段名别改）；直接拼进 NovelAI 提示词的画法、负面、构图、表情、动作（不发给文本模型）。构图（半身、全身……）、表情、动作一块一个，名字就是画出来的立绘标的名字，有几个、叫什么、tags 都随你改，关掉的不用；App 里平时用半身立绘，全身的也能画。画法里能用 {{char_appearance}} {{char_outfit}} {{framing}} {{expression}} {{pose}}。模型、尺寸、默认构图、换表情和换动作的办法在"出图参数"里。',
   novel:
     '创意工坊里写小说用。"商量""写下一章""写番外"几件事按触发条件只发这次要做的那一块（novel-chat、novel-chapter、novel-extra）；"程序填充"的块是这一次的输入（作品的设定和大纲、已经写好的章节、你们最近的讨论、这一次要做的）。文风、长度、尺度写在规则里，可以改；写章节时第一行"# 标题"的格式别改，程序按它分出标题和正文。',
 };

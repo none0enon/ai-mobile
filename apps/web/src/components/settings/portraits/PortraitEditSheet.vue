@@ -5,7 +5,7 @@ import { computed, ref } from 'vue';
 import LabelPicker from './LabelPicker.vue';
 import PortraitFigure from '@/components/figure/PortraitFigure.vue';
 import { ensureExpression, ensureOutfit, ensurePose, removePortrait } from '@/services/portraits';
-import { baseOf, setBase } from '@/services/sprites';
+import { baseOf, mainFraming, setBase } from '@/services/sprites';
 import { useCharacterStore } from '@/stores/characters';
 
 /**
@@ -73,6 +73,7 @@ const GEN_LABEL: Record<PortraitGen['method'], string> = {
   ...Object.fromEntries(Object.entries(SPRITE_POSE_METHODS).map(([k, m]) => [k, `换动作 · ${m.label}`])),
 } as Record<PortraitGen['method'], string>;
 const isBase = computed(() => !!p.value && baseOf(props.character)?.id === p.value.id);
+const usualFraming = computed(() => mainFraming(props.character));
 function useAsBase() {
   if (p.value) setBase(props.character, p.value.id);
 }
@@ -181,7 +182,8 @@ async function remove() {
         <button type="button" class="pe-base" :class="{ on: isBase }" :aria-pressed="isBase" @click="useAsBase">{{ isBase ? '是底图' : '当底图' }}</button>
       </div>
       <div v-if="p.gen" class="pe-gen">
-        <div class="text-[12.5px] text-ink-2">AI 画的 · {{ GEN_LABEL[p.gen.method] }}{{ p.gen.removedBg ? ' · 去过背景' : '' }}</div>
+        <div class="text-[12.5px] text-ink-2">AI 画的 · {{ GEN_LABEL[p.gen.method] }}{{ p.gen.framing ? ` · ${p.gen.framing}` : '' }}{{ p.gen.removedBg ? ' · 去过背景' : '' }}</div>
+        <div v-if="p.gen.framing && p.gen.framing !== usualFraming" class="text-[11.5px] text-warn mt-0.5">{{ character.name }}平时用「{{ usualFraming }}」：这张默认留着备用，换表情时混着用人会忽大忽小</div>
         <div class="text-[11.5px] text-ink-3 mt-0.5">{{ p.gen.model }}{{ p.gen.seed ? ` · 种子 ${p.gen.seed}` : '' }}</div>
         <div class="text-[11.5px] text-ink-3 mt-0.5 break-all pe-mono">{{ p.gen.prompt }}</div>
       </div>
