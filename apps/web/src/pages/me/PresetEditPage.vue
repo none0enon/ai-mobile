@@ -2,6 +2,7 @@
 import {
   DEVICE_INLINE_FLAG,
   HEALTH_TASKS,
+  SOCIAL_TASKS,
   IMAGE_MODES,
   IMAGE_MOMENTS,
   isRoleplayCategory,
@@ -162,7 +163,7 @@ function triggerLabel(t: string): string {
   if (t.startsWith(SPRITE_EXPR)) return `表情"${t.slice(SPRITE_EXPR.length)}"`;
   if (t.startsWith(SPRITE_POSE)) return `动作"${t.slice(SPRITE_POSE.length)}"`;
   if (SPRITE_TRIGGERS[t]) return SPRITE_TRIGGERS[t];
-  return IMAGE_MODES[t as keyof typeof IMAGE_MODES] ?? momentLabel(t) ?? RHYTHM_TASKS[t as keyof typeof RHYTHM_TASKS] ?? HEALTH_TASKS[t as keyof typeof HEALTH_TASKS] ?? ROLEPLAY_FLAGS[t] ?? t;
+  return IMAGE_MODES[t as keyof typeof IMAGE_MODES] ?? momentLabel(t) ?? RHYTHM_TASKS[t as keyof typeof RHYTHM_TASKS] ?? HEALTH_TASKS[t as keyof typeof HEALTH_TASKS] ?? SOCIAL_TASKS[t as keyof typeof SOCIAL_TASKS] ?? ROLEPLAY_FLAGS[t] ?? t;
 }
 /** 尺度：真心话大冒险、海龟汤、戳戳乐的预设里，块上能填"…的尺度"（名字写进触发条件 前缀名字） */
 const LEVEL_FIELDS = [
@@ -284,6 +285,8 @@ const HINT: Record<PresetCategory, string> = {
     '心跳里她每说完一句，按这个预设给连着的玩具写指令。"程序填充"的块是这一次的输入：连着的玩具和能写的键、你设的强度上限和最快速度、玩具现在在做什么、最近的对话、她这一句。轻重怎么对应剧情写在规则里，可以改；指令的键（VIBRATE、LINEAR……）和输出格式里的字段名别改，程序按它读，读到她原话里 at 写的那几个字时执行。',
   sprite:
     '"角色 → 立绘 → AI 画立绘"用。两种块：交给"生图提示词"的文本模型的任务（写外观 tags、给新表情写 tags，"程序填充"的块是这一次的输入，输出格式里的字段名别改）；直接拼进 NovelAI 提示词的画法、负面、构图、表情、动作（不发给文本模型）。构图（半身、全身……）、表情、动作一块一个，名字就是画出来的立绘标的名字，有几个、叫什么、tags 都随你改，关掉的不用；App 里平时用半身立绘，全身的也能画。画法里能用 {{char_appearance}} {{char_outfit}} {{framing}} {{expression}} {{pose}}。模型、尺寸、默认构图、换表情和换动作的办法在"出图参数"里。',
+  social:
+    '朋友圈用。"她发一条朋友圈""回应你的朋友圈、回你的评论"两件任务按触发条件只发这次要做的那几块（在块里设"只在做这些事时发送"）；"程序填充"的块是这一次的输入（角色、她今天的节律、现在、记得的事、最近的聊天、最近的朋友圈、要回应的那一条）。发什么、多长、什么时候配图、什么时候附一张小票写在规则里，可以改；输出格式里的字段名别改，程序按它读。',
   novel:
     '创意工坊里写小说用。"商量""写下一章""写番外"几件事按触发条件只发这次要做的那一块（novel-chat、novel-chapter、novel-extra）；"程序填充"的块是这一次的输入（作品的设定和大纲、已经写好的章节、你们最近的讨论、这一次要做的）。文风、长度、尺度写在规则里，可以改；写章节时第一行"# 标题"的格式别改，程序按它分出标题和正文。',
 };
@@ -442,6 +445,12 @@ const HINT: Record<PresetCategory, string> = {
           <div class="field-label">只在做这些事时发送（都不选 = 一直发）</div>
           <div class="flex flex-wrap gap-1.5">
             <button v-for="(label, t) in HEALTH_TASKS" :key="t" type="button" class="opt" :class="{ on: editing.triggers?.includes(t) }" @click="toggleTrigger(editing, t)">{{ label }}</button>
+          </div>
+        </template>
+        <template v-else-if="preset.category === 'social'">
+          <div class="field-label">只在做这些事时发送（都不选 = 一直发）</div>
+          <div class="flex flex-wrap gap-1.5">
+            <button v-for="(label, t) in SOCIAL_TASKS" :key="t" type="button" class="opt" :class="{ on: editing.triggers?.includes(t) }" @click="toggleTrigger(editing, t)">{{ label }}</button>
           </div>
         </template>
         <template v-else-if="roleplay && !editing.marker">

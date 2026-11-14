@@ -5,6 +5,7 @@ import ChatPage from '@/pages/ChatPage.vue';
 import ChatsPage from '@/pages/ChatsPage.vue';
 import ImportPage from '@/pages/ImportPage.vue';
 import MemoriesPage from '@/pages/MemoriesPage.vue';
+import MomentsPage from '@/pages/MomentsPage.vue';
 import MePage from '@/pages/MePage.vue';
 import PromptInspectorPage from '@/pages/PromptInspectorPage.vue';
 import MapPage from '@/pages/MapPage.vue';
@@ -37,6 +38,7 @@ export const routes: RouteRecordRaw[] = [
     redirect: '/chats',
     children: [
       { path: 'chats', component: ChatsPage, meta: { title: '消息' } },
+      { path: 'moments', component: MomentsPage, meta: { title: '朋友圈' } },
       { path: 'map', component: MapPage, meta: { title: '地图' } },
       { path: 'memories', component: MemoriesPage, meta: { title: '回忆' } },
       { path: 'me', component: MePage, meta: { title: '我的' } },

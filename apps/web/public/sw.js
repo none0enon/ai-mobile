@@ -23,7 +23,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data?.json() || {}; } catch { /* still show a visible notification */ }
-  const route = typeof data.route === 'string' && /^\/(chat|call|me)(\/|$)/.test(data.route) ? data.route : '/';
+  const route = typeof data.route === 'string' && /^\/(chat|call|me|moments)(\/|$)/.test(data.route) ? data.route : '/';
   event.waitUntil(Promise.all([
     self.registration.showNotification(data.title || 'AI 陪伴', {
       body: data.body || '你有一条新消息', tag: data.tag || 'ai-mobile',
@@ -40,7 +40,7 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const target = new URL(self.registration.scope);
   const route = event.notification.data?.route;
-  target.hash = typeof route === 'string' && /^\/(chat|call|me)(\/|$)/.test(route) ? route : '/';
+  target.hash = typeof route === 'string' && /^\/(chat|call|me|moments)(\/|$)/.test(route) ? route : '/';
   event.waitUntil((async () => {
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const existing = clients.find((c) => c.url.startsWith(self.registration.scope));

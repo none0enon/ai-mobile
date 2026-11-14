@@ -81,6 +81,20 @@ pnpm --filter @app/hub exec wrangler tail --config wrangler.deploy.json
 
 开发时 `wrangler dev --test-scheduled` 提供本地测试入口 `/cdn-cgi/local/scheduled`。它是开发工具的入口，不在生产 Worker 的路由中。
 
+## 朋友圈（PWA 关闭也发）
+
+1. 部署新版 Worker（包括 `0004_social.sql` 迁移）和前端。现有 GitHub Actions 会先应用迁移再部署 Worker。
+2. 在 App 连接自己的 Worker，在 API 设置里接通「社媒 · 朋友圈」（默认跟随主对话），在「我的 → 朋友圈」里选哪些角色自己发、每天最多几条。
+3. 设置会自动同步，确认「云端与同步」里"云端朋友圈"显示 API 已接通后可以关闭 PWA。不需要开启主动消息。
+
+每个角色每天发 1 到"每天最多几条"之间的条数，时间由角色 id 和日期算出来（`@app/shared` 的 `momentSlots`）：把她醒着的时段平分成几段，每段里取一个随机但可重复的时刻，所以重叠的 Cron、重试、手机和云端算出来的是同一组时间。每 5 分钟的 Cron 检查到点的那一条，超过 3 小时的不补发。日期按已同步的 IANA 时区计算。
+
+`/v1/social/contexts/:id` 上传角色卡、手机拼好的记忆和最近的聊天、最近的朋友圈、今天的节律和所选的"社媒"预设；`/v1/secrets/social` 加密保存实际跟随链上的主/备用 API 和 Key，只写不读。生成时今天的节律优先用云端自己排的那份（每天变化的角色，`rhythm_days`），没有再用手机上传的；手机上传之后云端又发过的朋友圈会接在"最近的朋友圈"后面，好几天不开 App 也不会重复发同样的内容。
+
+D1 的 `(character_id, date, slot)` 唯一约束与单条租约处理重复/重叠 Cron；各角色同时开始。「社媒 · 朋友圈」里设置的每日 token 预算在 D1 中原子预留。失败在补发窗口内退避重试；生成期间上下文改动或删除时不提交旧结果。发出后向已配置的通知通道推送一次（正文遵循完整/只显示名字/隐藏设置），推送失败不重发、不影响这条朋友圈。`/v1/social/posts?since=` 返回发好的朋友圈和可安全展示的错误，保留约两周。
+
+云端不画图：模型写下要配的画面，手机拉到后用"生图"画（守着自动画的规矩，NovelAI 只在不花点的设置下自动画）；单据的 HTML 随正文保存。你发的朋友圈、点赞评论和她们的回应都在手机上完成，不经过 Worker。把角色的"自己发朋友圈"关掉、删除角色并同步后停止它的云端生成。
+
 ## 持续部署
 
 `.github/workflows/hub.yml` 支持手动部署，以及配置好 GitHub 部署后 main 更新时自动部署。仓库 Secrets 设置 `CLOUDFLARE_API_TOKEN`（Worker 编辑 + D1 编辑）；Variables 设置 `CLOUDFLARE_ACCOUNT_ID`、`HUB_D1_ID`，自托管前端再设置 `HUB_APP_URL`。运行时秘密已用上述 secret bulk 写入，不随源码部署覆盖。
@@ -93,6 +107,6 @@ pnpm --filter @app/hub exec wrangler tail --config wrangler.deploy.json
 
 同一角色的上下文通过 revision 防止旧请求覆盖。多设备发生修改冲突会报错；「用本机设置重新同步」会读取最新 revision，再以这台设备作为上下文来源；不需要断开或重新填写密码。尚未导入角色的设备不会跳过对应的收件箱游标，需先导入角色。
 
-目前支持文本消息、歌曲标签、来电通知。云端生图、真实语音通话、天气/运动事件接入、完整 Android 原生壳和素材备份仍属于各自后续模块，界面不会冒充已接入。
+目前支持文本消息、歌曲标签、来电通知、朋友圈（正文、要配的画面、单据）。云端生图、真实语音通话、天气/运动事件接入、完整 Android 原生壳和素材备份仍属于各自后续模块，界面不会冒充已接入。
 
 参考：[Cloudflare Cron](https://developers.cloudflare.com/workers/configuration/cron-triggers/)、[D1 batch](https://developers.cloudflare.com/d1/worker-api/d1-database/)、[Web Push API](https://developer.mozilla.org/en-US/docs/Web/API/Push_API)。

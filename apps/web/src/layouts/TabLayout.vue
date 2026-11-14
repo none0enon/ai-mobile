@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useChatStore } from '@/stores/chat';
+import { useSocialStore } from '@/stores/social';
 
 const chat = useChatStore();
+const social = useSocialStore();
 
 const tabs = computed(() => [
   { to: '/chats', label: '消息', icon: 'i-lucide-message-circle', badge: chat.totalUnread },
+  // 朋友圈：有没看过的（她们新发的、新回你的）时显示条数
+  { to: '/moments', label: '朋友圈', icon: 'i-lucide-aperture', badge: social.unread },
   { to: '/map', label: '地图', icon: 'i-lucide-map', badge: 0 },
   { to: '/memories', label: '回忆', icon: 'i-lucide-book-heart', badge: 0, dot: true },
   { to: '/me', label: '我的', icon: 'i-lucide-user-round', badge: 0 },
@@ -45,7 +49,7 @@ const tabs = computed(() => [
 .tabbar {
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   height: calc(var(--tabbar-h) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   background: var(--glass-strong);

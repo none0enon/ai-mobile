@@ -7,7 +7,7 @@ import { reactive, watch, type WatchSource } from 'vue';
  */
 
 const DB_NAME = 'ai-mobile';
-const VERSION = 6;
+const VERSION = 7;
 /**
  * - settings：API 设置（按功能）、回复修剪等设置（以后随同步走）
  * - secrets：API Key，只存这台设备，永远不进同步数据
@@ -15,8 +15,9 @@ const VERSION = 6;
  * - rhythm：节律（每个角色的设置和模板、每天的作息穿着、"建世界"生成的世界）
  * - gallery：图库（一起做事时画的图：哪个角色、哪个场景、哪个时刻、穿的什么）
  * - memories / slices / summaries / profiles：记忆（事实记忆、故事片段、时间线、画像卡），按条写入，不整表比较
+ * - moments：朋友圈（她们发的、你发的，连同点赞和评论），一条一条存
  */
-const STORES = ['characters', 'lorebooks', 'presets', 'chats', 'messages', 'settings', 'secrets', 'assets', 'books', 'rhythm', 'gallery', 'memories', 'slices', 'summaries', 'profiles', 'live2d'] as const;
+const STORES = ['characters', 'lorebooks', 'presets', 'chats', 'messages', 'settings', 'secrets', 'assets', 'books', 'rhythm', 'gallery', 'memories', 'slices', 'summaries', 'profiles', 'live2d', 'moments'] as const;
 export type StoreName = (typeof STORES)[number];
 
 export const databaseState = reactive({ status: 'opening' as 'opening' | 'blocked' | 'ready' | 'error' | 'outdated' });
