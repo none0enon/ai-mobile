@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { EXPRESSION_LABELS, EXPRESSIONS, type Character, type Expression, type Portrait } from '@app/shared';
+import type { Character, Portrait } from '@app/shared';
 import { showConfirmDialog } from 'vant';
 import { computed, ref } from 'vue';
 import LabelPicker from './LabelPicker.vue';
@@ -32,13 +32,10 @@ function touch() {
   props.character.updatedAt = Date.now();
 }
 
-const expressionOptions = computed(() => [
-  ...EXPRESSIONS.map((e) => ({ id: e, label: EXPRESSION_LABELS[e] })),
-  ...(set.value?.expressions ?? []).map((e) => ({ id: e.id, label: e.label })),
-]);
-const custom = computed(() => set.value?.expressions.find((e) => e.id === p.value?.expression));
+/** 这张图选中的表情（写说明用） */
+const currentExpr = computed(() => set.value?.expressions.find((e) => e.id === p.value?.expression));
 const expression = computed({
-  get: () => p.value?.expression ?? 'neutral',
+  get: () => p.value?.expression ?? '',
   set: (v: string) => {
     if (p.value) p.value.expression = v;
     touch();
@@ -111,11 +108,6 @@ async function remove() {
   current.value = next && next !== target.id ? next : null;
 }
 
-const BASES = EXPRESSIONS.map((e) => ({ id: e, label: EXPRESSION_LABELS[e] }));
-function setBase(v: string) {
-  if (custom.value) custom.value.base = v as Expression;
-  touch();
-}
 </script>
 
 <template>
@@ -138,17 +130,15 @@ function setBase(v: string) {
       </div>
 
       <label class="field-label">表情</label>
-      <LabelPicker v-model="expression" name="表情" :options="expressionOptions" add-label="新表情" @add="addExpression" />
-      <div v-if="custom" class="pe-custom">
-        <label class="pe-row">
-          <span class="shrink-0 text-[12.5px] text-ink-2">最像哪个基础表情</span>
-          <select :value="custom.base" aria-label="最像哪个基础表情" @change="setBase(($event.target as HTMLSelectElement).value)">
-            <option v-for="b in BASES" :key="b.id" :value="b.id">{{ b.label }}</option>
-          </select>
-        </label>
-        <input v-model="custom.hint" class="input" placeholder="什么时候用（写给模型看，例如：得意、看穿对方的时候）" maxlength="40" @input="touch" />
-        <p class="text-[12px] text-ink-3 m-0">缺图回退、语音的语气、Live2D 都按基础表情走。</p>
-      </div>
+      <LabelPicker v-model="expression" name="表情" none-label="未标" :options="set.expressions" add-label="新表情" @add="addExpression" />
+      <input
+        v-if="currentExpr"
+        v-model="currentExpr.hint"
+        class="input mt-2"
+        :placeholder="`「${currentExpr.label}」什么时候用（写给模型看，可以不写）`"
+        maxlength="40"
+        @input="touch"
+      />
 
       <label class="field-label">动作</label>
       <LabelPicker v-model="pose" name="动作" none-label="不分" :options="set.poses" add-label="新动作" @add="addPose" />
@@ -225,27 +215,10 @@ function setBase(v: string) {
   opacity: 0.35;
   filter: grayscale(1);
 }
-.pe-custom {
-  display: grid;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 10px;
-  border-radius: 14px;
-  background: var(--panel);
-}
 .pe-row {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-.pe-row select {
-  flex: 1;
-  min-width: 0;
-  padding: 7px 4px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--ink);
-  background: var(--surface);
 }
 .pe-fit {
   display: grid;

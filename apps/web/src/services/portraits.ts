@@ -1,14 +1,12 @@
 import {
+  autoExpressionForMood,
   defaultHotspotShapes,
-  EXPRESSIONS,
   emptyPortraitSet,
-  guessExpressionBase,
   guessFromFileNames,
   guessOutfitKind,
   guessPoseFits,
   hasPortraits,
   labelId,
-  normalizeExpression,
   type Character,
   type Expression,
   type PokeHotspot,
@@ -30,13 +28,13 @@ export function ensurePortraitSet(c: Character): PortraitSet {
   return c.portraits;
 }
 
-/** 自定义表情：按名字找，没有就新建（挂一个基础表情） */
-export function ensureExpression(set: PortraitSet, label: string, base: Expression = guessExpressionBase(label)): string {
-  // 已有的自定义表情、基础表情的写法（微笑、joy……）直接用
-  const known = normalizeExpression(label, set);
-  if (known) return known;
-  const id = labelId(label, [...EXPRESSIONS, ...set.expressions.map((e) => e.id)]);
-  set.expressions.push({ id, label, base });
+/** 她的表情：按名字找，没有就新建（她的第一个表情当默认表情） */
+export function ensureExpression(set: PortraitSet, label: string): string {
+  const found = set.expressions.find((e) => e.label === label || e.id === label);
+  if (found) return found.id;
+  const id = labelId(label, set.expressions.map((e) => e.id));
+  set.expressions.push({ id, label });
+  if (!set.defaultExpression) set.defaultExpression = id;
   return id;
 }
 
@@ -67,7 +65,7 @@ export interface ImportResult {
 }
 
 /**
- * 批量导入：按文件名猜表情 / 动作 / 服装（{服装}_{动作}_{表情}、ST 表情文件夹的 joy.png……），猜不出的先算平静，导入后自己选。
+ * 批量导入：按文件名猜表情 / 动作 / 服装（{服装}_{动作}_{表情}、ST 表情文件夹的 joy.png……），猜不出的先空着（未标），导入后自己选。
  * 第一次导入时立绘框的比例按第一张图定。
  */
 export async function importPortraits(c: Character, files: File[], progress?: (done: number, total: number) => void): Promise<ImportResult> {
@@ -81,6 +79,7 @@ export async function importPortraits(c: Character, files: File[], progress?: (d
     [c.name, c.fandom?.characterTag ?? ''],
   );
   const first = !set.portraits.length;
+  const hadExpressions = set.expressions.length > 0;
   const hadPoses = set.poses.length > 0;
   const hadOutfits = set.outfits.length > 0;
   for (const [i, file] of images.entries()) {
@@ -92,7 +91,7 @@ export async function importPortraits(c: Character, files: File[], progress?: (d
         continue;
       }
       const g = guesses[i] ?? {};
-      const expression = g.expression ?? (g.newExpression ? ensureExpression(set, g.newExpression) : 'neutral');
+      const expression = g.expression ? (g.expression.id ?? ensureExpression(set, g.expression.label)) : '';
       const pose = g.pose ? (g.pose.id ?? ensurePose(set, g.pose.label)) : set.defaultPose;
       const outfit = g.outfit ? (g.outfit.id ?? ensureOutfit(set, g.outfit.label)) : set.defaultOutfit;
       const p: Portrait = {
@@ -114,14 +113,15 @@ export async function importPortraits(c: Character, files: File[], progress?: (d
       progress?.(i + 1, images.length);
     }
   }
-  // 第一次分出动作 / 服装时，默认的取图最多的那个（文件的先后不算数）
+  // 第一次分出表情 / 动作 / 服装时，默认的取图最多的那个（文件的先后不算数）；表情有名字是"平静"一类的先用它
+  if (!hadExpressions && set.expressions.length) set.defaultExpression = autoExpressionForMood('neutral', set) || mostUsed(set, 'expression') || set.defaultExpression;
   if (!hadPoses && set.poses.length) set.defaultPose = mostUsed(set, 'pose') || set.defaultPose;
   if (!hadOutfits && set.outfits.length) set.defaultOutfit = mostUsed(set, 'outfit') || set.defaultOutfit;
   if (result.added.length) c.updatedAt = Date.now();
   return result;
 }
 
-function mostUsed(set: PortraitSet, k: 'pose' | 'outfit'): string {
+function mostUsed(set: PortraitSet, k: 'expression' | 'pose' | 'outfit'): string {
   const n = new Map<string, number>();
   for (const p of set.portraits) if (p[k]) n.set(p[k], (n.get(p[k]) ?? 0) + 1);
   return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
@@ -148,31 +148,36 @@ export function renameLabel(c: Character, kind: 'expression' | 'pose' | 'outfit'
   const item = list.find((x) => x.id === id);
   if (!item) return id;
   item.label = name;
-  const taken = [...list.filter((x) => x !== item).map((x) => x.id), ...(kind === 'expression' ? EXPRESSIONS : [])];
-  const next = labelId(name, taken);
+  const next = labelId(name, list.filter((x) => x !== item).map((x) => x.id));
   if (next !== id) {
     item.id = next;
     for (const p of set.portraits) if (p[kind] === id) p[kind] = next;
     if (kind === 'pose' && set.defaultPose === id) set.defaultPose = next;
     if (kind === 'outfit' && set.defaultOutfit === id) set.defaultOutfit = next;
-    if (kind === 'expression')
+    if (kind === 'expression') {
+      if (set.defaultExpression === id) set.defaultExpression = next;
+      const moments = set.moments ?? {};
+      for (const m of Object.keys(moments) as Expression[]) if (moments[m] === id) moments[m] = next;
       for (const h of set.hotspots ?? []) {
         if (h.tap.expression === id) h.tap.expression = next;
         if (h.longPress?.expression === id) h.longPress.expression = next;
       }
+    }
   }
   c.updatedAt = Date.now();
   return next;
 }
 
-/** 删一个自定义表情 / 动作 / 服装：用着它的图改回平静 / 默认 */
+/** 删一个表情 / 动作 / 服装：用着它的图改成未标 / 默认动作 / 默认服装；图不删 */
 export function removeLabel(c: Character, kind: 'expression' | 'pose' | 'outfit', id: string): void {
   const set = c.portraits;
   if (!set) return;
   if (kind === 'expression') {
-    const base = set.expressions.find((e) => e.id === id)?.base ?? 'neutral';
     set.expressions = set.expressions.filter((e) => e.id !== id);
-    for (const p of set.portraits) if (p.expression === id) p.expression = base;
+    if (set.defaultExpression === id) set.defaultExpression = set.expressions[0]?.id ?? '';
+    const moments = set.moments ?? {};
+    for (const m of Object.keys(moments) as Expression[]) if (moments[m] === id) delete moments[m];
+    for (const p of set.portraits) if (p.expression === id) p.expression = '';
   } else if (kind === 'pose') {
     set.poses = set.poses.filter((x) => x.id !== id);
     if (set.defaultPose === id) set.defaultPose = set.poses[0]?.id ?? '';

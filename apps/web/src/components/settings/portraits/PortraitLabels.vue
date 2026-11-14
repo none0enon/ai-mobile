@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { EXPRESSION_LABELS, EXPRESSIONS, OUTFIT_KINDS, POSES, type Character, type Expression, type OutfitKind, type Pose, type PortraitPose } from '@app/shared';
+import { autoExpressionForMood, EXPRESSION_LABELS, EXPRESSIONS, expressionLabel, OUTFIT_KINDS, POSES, type Character, type Expression, type OutfitKind, type Pose, type PortraitPose } from '@app/shared';
 import { showConfirmDialog } from 'vant';
 import { computed } from 'vue';
 import { ensureExpression, ensureOutfit, ensurePose, removeLabel, renameLabel } from '@/services/portraits';
 
 /**
- * 这个角色自己的表情、动作、服装：改名字、写给模型看的说明、挂哪个基础表情、动作适合哪些场景、服装对节律衣柜的哪几身。
- * 基础表情不用管；删掉一个标签时，用着它的图改回基础表情 / 默认。
+ * 这个角色自己的表情、动作、服装：改名字（模型写的 id 跟着改）、写给模型看的说明、默认的那个、动作适合哪些场景、服装对节律衣柜的哪几身。
+ * 删掉一个标签时，用着它的图改成未标表情 / 默认动作 / 默认服装，图不删。
  */
 const props = defineProps<{ character: Character }>();
 const set = computed(() => props.character.portraits!);
@@ -21,7 +21,7 @@ async function drop(kind: 'expression' | 'pose' | 'outfit', id: string, label: s
   try {
     await showConfirmDialog({
       title: `删掉${KIND_NAME[kind]}「${label}」？`,
-      message: n ? `有 ${n} 张图用着它，会改回${kind === 'expression' ? '它挂的基础表情' : `默认的${KIND_NAME[kind]}`}。图不会删。` : '没有图用着它。',
+      message: n ? `有 ${n} 张图用着它，会改成${kind === 'expression' ? '未标表情' : `默认的${KIND_NAME[kind]}`}。图不会删。` : '没有图用着它。',
       confirmButtonText: '删掉',
     });
   } catch {
@@ -51,7 +51,23 @@ function labelFree(list: { label: string }[], name: string): string {
   return label;
 }
 
-const BASES = EXPRESSIONS.map((e) => ({ id: e, label: EXPRESSION_LABELS[e] }));
+// —— 程序自己换表情的时刻 ——
+/** 每种情绪现在用她的哪个表情：'__auto' = 按名字自动，'' = 不换 */
+function momentValue(m: Expression): string {
+  const own = set.value.moments?.[m];
+  return own === undefined ? '__auto' : own;
+}
+function setMoment(m: Expression, v: string) {
+  const s = set.value;
+  if (v === '__auto') {
+    if (s.moments) delete s.moments[m];
+  } else s.moments = { ...s.moments, [m]: v };
+  touch();
+}
+function autoText(m: Expression): string {
+  const id = autoExpressionForMood(m, set.value);
+  return id ? `自动：${expressionLabel(id, set.value)}` : '自动：对不上，不换';
+}
 const POSE_FITS = Object.entries(POSES) as [Pose, string][];
 const KINDS = Object.entries(OUTFIT_KINDS) as [OutfitKind, string][];
 
@@ -63,32 +79,40 @@ function toggleFit(p: PortraitPose, f: Pose) {
   else delete p.fits;
   touch();
 }
-const baseCounts = computed(() => EXPRESSIONS.map((e) => ({ id: e, label: EXPRESSION_LABELS[e], n: count('expression', e) })));
+const unlabeled = computed(() => count('expression', ''));
 </script>
 
 <template>
   <div class="labels">
     <section>
-      <div class="lb-title"><span>表情</span><button type="button" class="lb-add" @click="add('expression')"><span class="i-lucide-plus" />自定义表情</button></div>
-      <div class="flex flex-wrap gap-1.5">
-        <span v-for="b in baseCounts" :key="b.id" class="tag" :class="{ accent: b.n }">{{ b.label }}<span class="num">{{ b.n || '' }}</span></span>
-      </div>
-      <p class="lb-note">基础表情不用设置。没有图的表情会退到最像的那张（大笑 → 微笑 → 平静）。</p>
+      <div class="lb-title"><span>表情</span><button type="button" class="lb-add" @click="add('expression')"><span class="i-lucide-plus" />新表情</button></div>
+      <p class="lb-note">
+        {{ character.name }}有哪些表情就是这里这些，名字、个数都随你；给模型的提示里只列有图的。{{ unlabeled ? `还有 ${unlabeled} 张图没标表情。` : '' }}
+      </p>
       <div v-for="e in set.expressions" :key="e.id" class="lb-card">
         <div class="lb-row">
           <input :value="e.label" class="input lb-name" aria-label="表情名字" maxlength="16" @change="rename('expression', e.id, $event)" />
           <span class="text-[12px] text-ink-3 num shrink-0">{{ count('expression', e.id) }} 张</span>
+          <button type="button" class="lb-def" :class="{ on: set.defaultExpression === e.id }" :aria-pressed="set.defaultExpression === e.id" @click="(set.defaultExpression = e.id), touch()">默认</button>
           <button type="button" class="lb-del" :aria-label="`删掉表情${e.label}`" @click="drop('expression', e.id, e.label)"><span class="i-lucide-trash-2" /></button>
         </div>
-        <label class="lb-row">
-          <span class="lb-key">最像</span>
-          <select :value="e.base" aria-label="最像哪个基础表情" @change="(e.base = ($event.target as HTMLSelectElement).value as Expression), touch()">
-            <option v-for="b in BASES" :key="b.id" :value="b.id">{{ b.label }}</option>
-          </select>
-        </label>
-        <input v-model="e.hint" class="input" placeholder="什么时候用（写给模型看）" maxlength="40" @input="touch" />
+        <input v-model="e.hint" class="input" placeholder="什么时候用（写给模型看，可以不写）" maxlength="40" @input="touch" />
         <div class="lb-id">模型写 <code>[expr:{{ e.id }}]</code></div>
       </div>
+      <details v-if="set.expressions.length" class="lb-moments">
+        <summary>App 自己换表情的时候用哪个</summary>
+        <p class="lb-note">
+          戳一下、练完、碰杯、睡着这些时候是程序在换表情，它只会说下面这几种情绪。默认按名字去{{ character.name }}的表情里找对得上的，对不上就不换；想换成别的在这里选。
+        </p>
+        <label v-for="m in EXPRESSIONS" :key="m" class="lb-row lb-moment">
+          <span class="lb-key w-[3.5em]">{{ EXPRESSION_LABELS[m] }}</span>
+          <select :value="momentValue(m)" :aria-label="`程序要${EXPRESSION_LABELS[m]}时用哪个表情`" @change="setMoment(m, ($event.target as HTMLSelectElement).value)">
+            <option value="__auto">{{ autoText(m) }}</option>
+            <option value="">不换</option>
+            <option v-for="e in set.expressions" :key="e.id" :value="e.id">{{ e.label }}</option>
+          </select>
+        </label>
+      </details>
     </section>
 
     <section>
@@ -207,6 +231,17 @@ const baseCounts = computed(() => EXPRESSIONS.map((e) => ({ id: e, label: EXPRES
 .lb-def.on {
   background: var(--accent);
   color: var(--on-accent);
+}
+.lb-moments {
+  margin-top: 12px;
+}
+.lb-moments summary {
+  font-size: 13px;
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+.lb-moment {
+  margin-top: 8px;
 }
 .lb-del {
   color: var(--ink-3);

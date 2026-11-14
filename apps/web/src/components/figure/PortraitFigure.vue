@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { baseExpression, hasPortraits, pickPortrait, type Character, type DayOutfit, type Portrait } from '@app/shared';
+import { expressionMood, hasPortraits, pickPortrait, type Character, type DayOutfit, type Portrait } from '@app/shared';
 import { computed, ref, watch } from 'vue';
 import CharacterFigure from './CharacterFigure.vue';
 import { FIGURE } from '@/mock/characters';
@@ -82,7 +82,7 @@ const headBox = computed(() => {
 });
 
 const placeholder = computed(() => FIGURE[props.character.id] ?? { hairStyle: 'long' as const, eye: '#3b2531' });
-const placeholderExpr = computed(() => baseExpression(props.expression ?? 'neutral', props.character.portraits));
+const placeholderExpr = computed(() => expressionMood(props.expression, props.character.portraits));
 const label = computed(() => props.title || `${props.character.name}的${props.crop === 'head' ? '头像' : '立绘'}`);
 </script>
 
