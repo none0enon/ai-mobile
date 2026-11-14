@@ -7,8 +7,6 @@ import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
 import PersonTabs from '@/components/common/PersonTabs.vue';
 import { pwa } from '@/pwa';
 import { useLibraryStore } from '@/stores/library';
-import { album } from '@/mock/memories';
-import { useMemoryStore } from '@/stores/memory';
 import { services, writeSidestory, type SidestoryOutcome } from '@/services';
 import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
@@ -42,7 +40,6 @@ const rhythmValue = computed(() => {
   const noWorld = chars.list.filter((c) => !rhythm.hasWorld(c.id)).length;
   return [daily ? `${daily} 个每天变化` : '都是固定', noWorld ? `${noWorld} 个还没有小世界` : ''].filter(Boolean).join(' · ');
 });
-const totalMessages = computed(() => Object.values(chat.messages).reduce((n, l) => n + l.length, 0) + 1268);
 const THEME_LABEL = { system: '跟随系统', dark: '夜', light: '昼' } as const;
 const svc = useServicesStore();
 const weather = useWeatherStore();
@@ -167,9 +164,6 @@ function drawStory() {
   story.value = null;
   void router.push(`/chat/${id}`);
 }
-const memoryStore = useMemoryStore();
-/** 在用的记忆（不含忘掉的、被取代的） */
-const memoryCount = computed(() => memoryStore.memories.filter((m) => !m.deleted && m.status === 'active').length);
 </script>
 
 <template>
@@ -183,13 +177,6 @@ const memoryCount = computed(() => memoryStore.memories.filter((m) => !m.deleted
         </div>
         <RouterLink to="/me/personas" class="switch">切换人设</RouterLink>
       </header>
-
-      <div class="stats mx-4">
-        <div><b class="num">30</b><span>相识天数</span></div>
-        <div><b class="num">{{ totalMessages.toLocaleString('zh-CN') }}</b><span>条对话</span></div>
-        <div><b class="num">{{ memoryCount }}</b><span>条记忆</span></div>
-        <div><b class="num">{{ album.length }}</b><span>张 CG</span></div>
-      </div>
 
       <section v-for="g in groups" :key="g.title" class="mt-4">
         <div class="group-title">{{ g.title }}</div>
@@ -259,28 +246,6 @@ const memoryCount = computed(() => memoryStore.memories.filter((m) => !m.deleted
   color: var(--ink-2);
   text-decoration: none;
   flex-shrink: 0;
-}
-.stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  margin-top: 16px;
-  padding: 14px 6px;
-  border-radius: 18px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-}
-.stats div {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-.stats b {
-  font-size: 18px;
-}
-.stats span {
-  font-size: 11.5px;
-  color: var(--ink-3);
 }
 .group-title {
   padding: 0 16px 8px 28px;
