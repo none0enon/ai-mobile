@@ -40,6 +40,8 @@ const props = withDefaults(
     fill?: boolean;
     pokeable?: boolean;
     showHotspots?: boolean;
+    /** 戳的时候怎么碰（戳戳乐）：见 StageView */
+    pokeAs?: { verb: string; tap: string; long: string };
     layout?: { left: number; bottom: number; height: number };
     title?: string;
     art?: { url: string; title?: string } | null;
@@ -105,6 +107,7 @@ function openArt() {
       :dim="dim"
       :pokeable="pokeable"
       :show-hotspots="showHotspots"
+      :poke-as="pokeAs"
       :layout="figureHidden ? { left: 50, bottom: 200, height: 1 } : layout"
       @poke="(h, k) => emit('poke', h, k)"
     >

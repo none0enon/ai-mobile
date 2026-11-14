@@ -10,6 +10,7 @@ import {
   getScene,
   isRealPlace,
   MEAL_LABEL,
+  pokeLine,
   portraitTags,
   PRESET_CATEGORIES,
   presetUse,
@@ -69,7 +70,7 @@ function partToText(p: MessagePart, character: Character, user: string, mapText?
     case 'music':
       return `[分享歌曲：${p.title} - ${p.artist}]`;
     case 'poke':
-      return p.actor === 'user' ? `（${user}拍了拍${character.name}的${p.target}）` : `（${character.name}拍了拍${user}）`;
+      return `（${pokeLine(p, user, character.name)}）`;
     case 'call-log':
       return `[${p.video ? '视频通话' : '语音通话'} ${Math.round(p.durationSec / 60)} 分钟${p.scene ? ` · ${p.scene}` : ''}]`;
     case 'workout':
@@ -263,12 +264,15 @@ function appFills(chat: Chat, character: Character, history: Message[], now: Dat
   };
 }
 
+/** 她能用自己的动作立绘的地方：聊天里，还有戳戳乐（被碰了捂脸、躲开、凑过来……） */
+const POSE_SCENES = new Set<string>(['free', 'poke']);
+
 /**
  * 这个场景能用的标签：每个都写清楚写法和什么时候用（只给名字的话模型写不对，比如 [cg] 后面不带画面就画不出来）。
- * 表情只列她有图的（没有立绘时是占位小人会的那几种）；聊天里她有两个以上的动作时加上 [pose:] 和能用的动作
+ * 表情只列她有图的（没有立绘时是占位小人会的那几种）；聊天里、戳戳乐里她有两个以上的动作时加上 [pose:] 和能用的动作
  */
 export function sceneTags(scene: ReturnType<typeof getScene>, character: Character): ControlTagKind[] {
-  return scene.id === 'free' ? portraitTags(scene.allowedTags, character.portraits) : scene.allowedTags;
+  return POSE_SCENES.has(scene.id) ? portraitTags(scene.allowedTags, character.portraits) : scene.allowedTags;
 }
 
 function tagsLine(scene: ReturnType<typeof getScene>, character: Character): string {

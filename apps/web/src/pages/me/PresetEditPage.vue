@@ -5,6 +5,7 @@ import {
   IMAGE_MODES,
   IMAGE_MOMENTS,
   isRoleplayCategory,
+  isPokePreset,
   isSoupPreset,
   isTruthDarePreset,
   LEVEL_PREFIXES,
@@ -16,6 +17,7 @@ import {
   ROLEPLAY_CATEGORIES,
   SCENES,
   blockLevel,
+  POKE_LEVEL,
   SOUP_LEVEL,
   SPRITE_DRAW,
   SPRITE_EXPR,
@@ -162,10 +164,11 @@ function triggerLabel(t: string): string {
   if (SPRITE_TRIGGERS[t]) return SPRITE_TRIGGERS[t];
   return IMAGE_MODES[t as keyof typeof IMAGE_MODES] ?? momentLabel(t) ?? RHYTHM_TASKS[t as keyof typeof RHYTHM_TASKS] ?? HEALTH_TASKS[t as keyof typeof HEALTH_TASKS] ?? ROLEPLAY_FLAGS[t] ?? t;
 }
-/** 一起游戏的尺度：真心话大冒险、海龟汤的预设里，块上能填"…的尺度"（名字写进触发条件 前缀名字） */
+/** 尺度：真心话大冒险、海龟汤、戳戳乐的预设里，块上能填"…的尺度"（名字写进触发条件 前缀名字） */
 const LEVEL_FIELDS = [
   { prefix: TRUTH_DARE_LEVEL, label: '真心话大冒险的尺度', show: isTruthDarePreset },
   { prefix: SOUP_LEVEL, label: '海龟汤的尺度', show: isSoupPreset },
+  { prefix: POKE_LEVEL, label: '戳戳乐的尺度', show: isPokePreset },
 ];
 const levelFields = computed(() => LEVEL_FIELDS.filter((f) => f.show(preset.value)));
 /** 这一块当哪个尺度：清空就不再是尺度 */

@@ -3,6 +3,7 @@ import type { SyncMeta } from './common.ts';
 import type { LoreTimedState } from './lorebook.ts';
 import type { ImageMode } from './preset.ts';
 import type { ChatBackground } from './settings.ts';
+import type { PokeHow } from './sprite.ts';
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'narrator';
 
@@ -43,8 +44,12 @@ export type MessagePart =
       seenError?: string;
     }
   | { type: 'music'; songId: string; title: string; artist: string; cover?: string | null }
-  /** 拍一拍："你拍了拍她的头" / "她拍了拍你" */
-  | { type: 'poke'; actor: 'user' | 'char'; target: string }
+  /**
+   * 拍一拍："你拍了拍她的头" / "她拍了拍你"。
+   * 戳戳乐里还写怎么碰的（how：用手、用嘴、蹭蹭）、是不是久一点（hold：长按）、连着几下（times），
+   * 和碰到了不该碰的地方（sensitive）："你亲了亲她的脸（3 下）"；没写 how 的是聊天里的拍一拍
+   */
+  | { type: 'poke'; actor: 'user' | 'char'; target: string; how?: PokeHow; hold?: boolean; times?: number; sensitive?: boolean }
   | { type: 'call-log'; durationSec: number; scene?: string; missed?: boolean; transcriptId?: string; video?: boolean }
   /**
    * 运动记录（"健身"结束时发；以前的卡片只有前几项）。

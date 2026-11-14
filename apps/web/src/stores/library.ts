@@ -253,6 +253,17 @@ const SEED_UPGRADES: SeedUpgrade[] = [
     replaced: { soupMake: ["出一道原创的海龟汤，尺度和可以用的地点、人物在场景任务里（清汤：不涉及死亡和恐怖）。先想好汤底，再写汤面；汤面要能通过是非题问出汤底。只输出一个 JSON 对象，不要别的文字：{\"title\": \"标题\", \"surface\": \"汤面\", \"truth\": \"汤底\", \"keys\": [\"要问出来的关键点\"], \"difficulty\": 1 到 3}"], soupCheck: ["检查场景任务里这道海龟汤：只看汤面，能不能通过是非题问出汤底？关键点和汤底对得上吗？有没有前后矛盾？只输出一个 JSON 对象，不要别的文字：{\"ok\": true 或 false, \"reason\": \"原因\"}"] },
     added: ['soupLevelClear', 'soupLevelRed'],
   },
+  {
+    // 戳戳乐接上真实的模型：用手、用嘴、蹭蹭各一块（poke-hand / poke-mouth / poke-rub），每一下她都回应 2–4 句；
+    // 尺度挪进预设（poke-level:清水、暧昧、大胆），加上程序填这一次输入的"场景任务"；去掉"被戳太多会生气"
+    id: 'feature-poke:ai',
+    file: 'feature-poke.json',
+    replaced: {
+      sceneRule: ['【场景：戳戳乐】{{user}}在戳你。按性格做出很短的真实反应（15 字以内），配合 [expr:x]；被戳太多会生气。'],
+      jailbreak: ['反应要很短：15 字以内，配合表情标签。'],
+    },
+    added: ['pokeHand', 'pokeMouth', 'pokeRub', 'pokeLevelPure', 'pokeLevelFlirt', 'pokeLevelBold', 'sceneTask'],
+  },
 ];
 
 /** 按 SEED_UPGRADES 更新本机的自带预设，返回改了的那些 */

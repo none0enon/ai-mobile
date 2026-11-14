@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { getLocation, type Character, type Chat, type Message } from '@app/shared';
+import { getLocation, pokeLine, type Character, type Chat, type Message } from '@app/shared';
 import { computed } from 'vue';
 import Avatar from '@/components/common/Avatar.vue';
 import { listTime } from '@/utils/time';
@@ -28,7 +28,7 @@ const preview = computed(() => {
   if (m.text) return m.text;
   const p = m.parts[0];
   if (p?.type === 'call-log' && p.video) return '[视频通话]';
-  if (p?.type === 'poke') return p.actor === 'char' ? `${props.character.name}拍了拍你` : `你拍了拍${props.character.name}的${p.target}`;
+  if (p?.type === 'poke') return pokeLine(p, '你', props.character.name);
   if (p?.type === 'scene') return `[${p.event === 'enter' ? '来到' : '离开'}] ${p.title.replace(/^和.+?来到|^离开/, '')}`;
   return p ? (PART_LABEL[p.type] ?? '') : '';
 });

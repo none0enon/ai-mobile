@@ -65,14 +65,15 @@ export function momentLabel(moment: string): string | undefined {
 }
 
 /**
- * 一起游戏里的尺度不写在代码里：功能预设里触发条件写了 `前缀名字` 的块就是一个尺度（名字是冒号后面的字）：
- * 真心话大冒险 `td-level:名字`，海龟汤 `soup-level:名字`。
+ * 一起游戏、戳戳乐里的尺度不写在代码里：功能预设里触发条件写了 `前缀名字` 的块就是一个尺度（名字是冒号后面的字）：
+ * 真心话大冒险 `td-level:名字`，海龟汤 `soup-level:名字`，戳戳乐 `poke-level:名字`。
  * 开始前按块的顺序列出来让你选；选了哪个，就把那个触发条件当作额外的触发条件，只发那一块。
  * 有几个尺度、叫什么、每个尺度出什么样的题，都在预设里改（预设编辑页里给一块填"…的尺度"）。
  */
 export const TRUTH_DARE_LEVEL = 'td-level:';
 export const SOUP_LEVEL = 'soup-level:';
-export const LEVEL_PREFIXES = [TRUTH_DARE_LEVEL, SOUP_LEVEL] as const;
+export const POKE_LEVEL = 'poke-level:';
+export const LEVEL_PREFIXES = [TRUTH_DARE_LEVEL, SOUP_LEVEL, POKE_LEVEL] as const;
 
 /** 这一块是哪个尺度（按前缀）；不是尺度时为空 */
 export function blockLevel(block: Pick<PromptBlock, 'triggers'>, prefix: string): string {
@@ -105,11 +106,14 @@ export const isFlightPreset = (p: Pick<Preset, 'blocks'> | undefined) => hasTask
 export const isDecorPreset = (p: Pick<Preset, 'blocks'> | undefined) => hasTasks(p, 'decor-');
 /** 创意工坊的预设（ws- 开头：看你的小说 ws-novel、看你的画 ws-image……） */
 export const isWorkshopPreset = (p: Pick<Preset, 'blocks'> | undefined) => hasTasks(p, 'ws-');
+/** 戳戳乐的预设（poke- 开头：用手 poke-hand、用嘴 poke-mouth、蹭蹭 poke-rub，尺度 poke-level:名字）；跟随对话预设时没有 */
+export const isPokePreset = (p: Pick<Preset, 'blocks'> | undefined) => hasTasks(p, 'poke-');
 
 /** 一起做事的用途里名字、说明和场景名不一样的（一个场景分了好几个用途的） */
 const SCENE_USE_TEXT: Partial<Record<FeatureSceneId, { label?: string; desc: string }>> = {
   heart: { desc: '心跳里打字聊天时她说的话' },
   game: { label: '一起游戏 · 海龟汤', desc: '一起游戏里玩海龟汤时：主持、判定、当队友、猜你出的题' },
+  poke: { desc: '戳戳乐时她的反应：用手戳、用嘴亲、蹭一蹭各一块，尺度也在里面' },
 };
 
 export const PRESET_USES: PresetUse[] = [

@@ -67,9 +67,10 @@ const faceSize = computed({
 // —— 热区 ——
 const hotspots = computed(() => hotspotsOf(props.character));
 const custom = computed(() => !!set.value.hotspots?.length);
-/** 第一次拖时把自动摆的那套存下来，之后改的是自己的 */
+/** 第一次拖时把自动摆的那套存下来，之后改的是自己的；自己那套里没有的（后来加的部位）拖它时补进去 */
 function own(h: PokeHotspot): PokeHotspot | undefined {
   if (!set.value.hotspots?.length) set.value.hotspots = JSON.parse(JSON.stringify(hotspots.value)) as PokeHotspot[];
+  if (!set.value.hotspots.some((x) => x.id === h.id)) set.value.hotspots.push(JSON.parse(JSON.stringify(h)) as PokeHotspot);
   return set.value.hotspots.find((x) => x.id === h.id);
 }
 function rectOf(s: HotspotShape) {

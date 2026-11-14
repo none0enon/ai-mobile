@@ -25,6 +25,7 @@ export * from './environment.ts';
 export * from './weather.ts';
 export * from './proactive.ts';
 export * from './presetUses.ts';
+export * from './poke.ts';
 export * from './presetFile.ts';
 export * from './spritePreset.ts';
 export * from './lrc.ts';

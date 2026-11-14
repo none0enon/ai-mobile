@@ -493,8 +493,8 @@ export function guessOutfitKind(label: string): OutfitKind | undefined {
 
 // —— 热区 ——
 
-/** 没画过热区时按头像框（脸）的位置给一套（头、两边脸、肩膀），坐标相对立绘框 */
-export function defaultHotspotShapes(set: Pick<PortraitSet, 'face' | 'aspect'>): Record<'head' | 'cheek-l' | 'cheek-r' | 'shoulder', HotspotShape> {
+/** 没画过热区时按头像框（脸）的位置给一套（头、两边脸、嘴唇、脖子、肩膀、身子），坐标相对立绘框 */
+export function defaultHotspotShapes(set: Pick<PortraitSet, 'face' | 'aspect'>): Record<'head' | 'cheek-l' | 'cheek-r' | 'lips' | 'neck' | 'shoulder' | 'body', HotspotShape> {
   const { x, y, size } = set.face;
   // size 是头像框的边长（占框宽）；换算成占框高
   const sh = size * set.aspect;
@@ -508,7 +508,11 @@ export function defaultHotspotShapes(set: Pick<PortraitSet, 'face' | 'aspect'>):
     head: rect(x - size * 0.3, y - sh * 0.5, x + size * 0.3, y - sh * 0.18),
     'cheek-l': rect(x - size * 0.28, y + sh * 0.02, x - size * 0.06, y + sh * 0.2),
     'cheek-r': rect(x + size * 0.06, y + sh * 0.02, x + size * 0.28, y + sh * 0.2),
+    lips: rect(x - size * 0.06, y + sh * 0.12, x + size * 0.06, y + sh * 0.26),
+    neck: rect(x - size * 0.16, y + sh * 0.42, x + size * 0.16, y + sh * 0.72),
     shoulder: rect(x - size * 0.8, y + sh * 0.75, x + size * 0.8, y + sh * 1.1),
+    // 肩膀以下一直到框底：没有具体的部位，戳戳乐里当作在身上乱碰
+    body: rect(x - size * 0.7, y + sh * 1.12, x + size * 0.7, 1),
   };
 }
 

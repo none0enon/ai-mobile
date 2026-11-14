@@ -262,13 +262,17 @@ export function removeLabel(c: Character, kind: 'expression' | 'pose' | 'outfit'
   c.updatedAt = Date.now();
 }
 
-/** 戳戳乐热区：自己画过的 → 有立绘时按脸的位置摆一套 → 占位立绘的那套 */
+/**
+ * 戳戳乐热区：自己画过的 → 有立绘时按脸的位置摆一套 → 占位立绘的那套。
+ * 自己画过的那套里没有的部位（后来加的嘴唇、脖子、身子）按脸的位置补上
+ */
 export function hotspotsOf(c: Character | undefined): PokeHotspot[] {
   const set = c?.portraits;
   if (!hasPortraits(set)) return pokeHotspots;
-  if (set.hotspots?.length) return set.hotspots;
   const shapes = defaultHotspotShapes(set);
-  return pokeHotspots.map((h) => ({ ...h, shape: shapes[h.id as keyof typeof shapes] ?? h.shape }));
+  const auto = pokeHotspots.map((h) => ({ ...h, shape: shapes[h.id as keyof typeof shapes] ?? h.shape }));
+  const own = set.hotspots ?? [];
+  return own.length ? [...own, ...auto.filter((h) => !own.some((x) => x.id === h.id))] : auto;
 }
 
 const decoded = new Map<string, Promise<string | null>>();
