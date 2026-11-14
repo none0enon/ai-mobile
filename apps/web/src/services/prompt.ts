@@ -265,7 +265,7 @@ function appFills(chat: Chat, character: Character, history: Message[], now: Dat
 
 /**
  * 这个场景能用的标签：每个都写清楚写法和什么时候用（只给名字的话模型写不对，比如 [cg] 后面不带画面就画不出来）。
- * 表情只列她有立绘的（没有立绘时列全部基础表情）；聊天里她有两个以上的动作时加上 [pose:] 和能用的动作
+ * 表情只列她有图的（没有立绘时是占位小人会的那几种）；聊天里她有两个以上的动作时加上 [pose:] 和能用的动作
  */
 export function sceneTags(scene: ReturnType<typeof getScene>, character: Character): ControlTagKind[] {
   return scene.id === 'free' ? portraitTags(scene.allowedTags, character.portraits) : scene.allowedTags;

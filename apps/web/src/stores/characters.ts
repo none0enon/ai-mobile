@@ -69,7 +69,7 @@ export const useCharacterStore = defineStore('characters', () => {
     if (c) Object.assign(c, { presetId, updatedAt: Date.now() });
   }
 
-  /** 换表情：认得出的写法（自定义表情、中文名、ST 标签）都换成这个角色的表情 id；认不出的不换 */
+  /** 换表情：她自己的表情（名字或 id）直接用；程序说的情绪（smile、shy……）按名字对到她的表情上；对不上的不换 */
   function setExpression(id: string, value: string) {
     const v = normalizeExpression(value, byId(id)?.portraits);
     if (!v) return;

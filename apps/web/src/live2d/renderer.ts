@@ -1,4 +1,4 @@
-import type { CharacterLive2D, DayOutfit, Live2DOutfit, Live2DParameter } from '@app/shared';
+import { expressionMood, type CharacterLive2D, type DayOutfit, type Live2DOutfit, type Live2DParameter } from '@app/shared';
 import coreUrl from '../vendor/cubism/live2dcubismcore.min.js?url';
 import { dialogueCue, gestureFor, mouthLevel } from './cues';
 import { GestureMotion, type Gesture } from './gesture';
@@ -274,7 +274,9 @@ export class Live2DRenderer {
   setCue(expression: string, text = '') {
     if (this.dead) return;
     this.expression = expression;
-    const name = this.config.expressionMap[expression] ?? this.config.expressionMap.neutral ?? '';
+    // 她立绘上的表情（坏笑……）单独设过就用设的；没设时按名字猜成一种情绪再找
+    const mood = expressionMood(expression);
+    const name = this.config.expressionMap[expression] || this.config.expressionMap[mood] || this.config.expressionMap.neutral || '';
     if (name !== this.expressionName) {
       this.expressionName = name;
       const clip = this.expressionClips.get(name);
@@ -282,13 +284,13 @@ export class Live2DRenderer {
       else this.expressions.stopAllMotions();
     }
     const cue = dialogueCue(text);
-    const motion = this.config.motionMap[cue] || this.config.motionMap[expression];
+    const motion = this.config.motionMap[cue] || this.config.motionMap[expression] || this.config.motionMap[mood];
     const gesture = motion ? this.gestureTargets.get(motion) : undefined;
     if (motion && !gesture) this.playMotion(motion);
     else if (cue === 'agree') this.playNamed('nod');
     else if (cue === 'disagree') this.playNamed('shake');
     if (this.madara) {
-      this.gesture.setTarget(gesture ?? gestureFor(expression, text));
+      this.gesture.setTarget(gesture ?? gestureFor(mood, text));
       this.gestureUntil = !gesture && cue === 'greeting' ? this.elapsed + 3 : 0;
     }
   }

@@ -3,7 +3,7 @@ import { nextTick, ref } from 'vue';
 
 /**
  * 选一个标签（表情 / 动作 / 服装）：一排可点的小块，最后一块"＋"就地起个新名字。
- * dim 的是"还没有图"的（例如没有图的基础表情），照样能选。
+ * dim 的是"还没有图"的，照样能选。
  */
 const props = defineProps<{
   options: { id: string; label: string; dim?: boolean }[];

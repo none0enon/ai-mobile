@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { baseExpression, getLocation, hasPortraits, timeOfDay, zonedParts } from '@app/shared';
+import { getLocation, hasPortraits, timeOfDay, zonedParts } from '@app/shared';
 import Waveform from '@/components/call/Waveform.vue';
 import Live2DAvatar from '@/components/call/Live2DAvatar.vue';
 import Avatar from '@/components/common/Avatar.vue';
@@ -172,7 +172,7 @@ onBeforeUnmount(() => { clearInterval(sceneTimer); call.dispose(); });
         <div class="call-duration text-[14px] text-ink-2 num">{{ video ? '视频 · ' : '' }}{{ state.phase === 'dialing' ? '等待对方接听…' : `通话中 ${clock(state.seconds)}` }}</div>
         <div v-if="video" class="scene-label">{{ location?.name || '此刻的房间' }}<span v-if="slot?.status"> · {{ slot.status }}</span></div>
         <div v-if="video" class="video-stage">
-          <Live2DAvatar v-if="character.live2d" :key="character.live2d.assetId" :config="character.live2d" :expression="baseExpression(expression, character.portraits)" :text="state.sentence" :sentence="state.sentenceId" :level="state.herAudioLevel" :audible="state.her === 'speaking' && state.phase !== 'ended'" :outfit="outfit" />
+          <Live2DAvatar v-if="character.live2d" :key="character.live2d.assetId" :config="character.live2d" :expression="expression" :text="state.sentence" :sentence="state.sentenceId" :level="state.herAudioLevel" :audible="state.her === 'speaking' && state.phase !== 'ended'" :outfit="outfit" />
           <div v-else-if="hasPortraits(character.portraits)" class="portrait-stage">
             <div class="portrait-box" :style="{ aspectRatio: String(portraitAspect(character)) }">
               <PortraitFigure :character="character" :expression="expression" :day-outfit="outfit" />

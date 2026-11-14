@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { baseExpression, expressionField, isDecorPreset, parseControlTags, type MessagePart, type PresetUseId } from '@app/shared';
+import { expressionField, expressionMood, isDecorPreset, parseControlTags, type MessagePart, type PresetUseId } from '@app/shared';
 import { showConfirmDialog, showImagePreview, showToast } from 'vant';
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, shallowRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -397,7 +397,7 @@ async function herReply(task: string, userText: string | undefined, extra: (stri
     }
     if (alive) {
       line.value = r.message.text;
-      engine.value?.herReact(baseExpression(r.message.expression ?? chars.expression[her.value.id], her.value.portraits));
+      engine.value?.herReact(expressionMood(r.message.expression ?? chars.expression[her.value.id], her.value.portraits));
     }
     return true;
   } finally {
@@ -459,7 +459,7 @@ async function herPlan() {
       line.value = said;
       say('assistant', said, { expression: plan.expr, agent: true });
     }
-    engine.value?.herReact(baseExpression(plan.expr ?? 'smile', her.value.portraits));
+    engine.value?.herReact(expressionMood(plan.expr ?? 'smile', her.value.portraits));
     if (!out.done.length) {
       showToast(out.skipped.length ? `${her.value.pronoun}想放的${out.skipped.join('、')}` : `${her.value.pronoun}这次没动`);
       return;

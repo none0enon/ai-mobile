@@ -1,4 +1,5 @@
 import { errorText } from '@app/ai';
+import { expressionPromptLines } from '@app/shared';
 import { computed, reactive, watch, type Ref } from 'vue';
 import { services } from '@/services';
 import { ttsLiveFor } from '@/services/ai';
@@ -189,7 +190,8 @@ export function useVoiceCall(characterId: Ref<string>, opts: { incoming: boolean
   // —— 她说话 ——
   function taskInput(kind: 'open' | 'reply'): string {
     const user = userName.value;
-    const visual = opts.video?.() ? '你的 Live2D 形象在画面中。根据当前情绪在句首写一个表情标签，例如 [expr:smile]。可选值：neutral、smile、laugh、blush、shy、pout、surprised、sad、angry、sleepy、sleep。无需朗读标签；没有用户摄像头画面，不要声称看见用户。' : '';
+    // 表情列她自己的（有立绘时是立绘上的那些）
+    const visual = opts.video?.() ? `你的形象在画面中。根据当前情绪在句首写一个表情标签 [expr:表情]。${expressionPromptLines(character.value.portraits)}。无需朗读标签；没有用户摄像头画面，不要声称看见用户。` : '';
     if (kind === 'reply') return `${callLabel()}中（已经通话 ${clock(state.seconds)}）。回${user}刚才说的话。${visual}`;
     if (opts.incoming) return `这是一通${callLabel()}：你打电话给${user}，对方刚接起来${opts.reason ? `（你打来是因为：${opts.reason}）` : ''}。先开口说第一句，1–2 个短句。${visual}`;
     return `这是一通${callLabel()}：${user}打电话给你，你刚接起来。先开口打招呼，1–2 个短句。${visual}`;

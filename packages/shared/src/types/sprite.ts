@@ -3,12 +3,11 @@ import type { OutfitKind } from './rhythm.ts';
 
 /**
  * 立绘：一张图就是一个完整的样子（服装 + 动作 + 表情画在一起）。
- * 每个角色的立绘张数、表情、动作、服装都不一样，所以三样都是"标签"，不是固定的格子：
- * - 表情：11 个基础表情（expressions.ts）之外可以自己加（坏笑、不屑……），每个自定义表情挂一个最接近的基础表情，
- *   缺图回退、语音的情绪、Live2D 都按它；
+ * 每个角色的立绘张数、表情、动作、服装都不一样，三样都是她自己的标签，没有固定的一套：
+ * - 表情：名字自己起（平静、坏笑、皱眉……），有几个算几个；给模型的提示里只列她有的；
  * - 动作：自己起名（托腮、抱臂……），可以注明适合哪些场景姿势（站 / 坐 / 学习 / 吃饭 / 躺），一起做事时按它挑；
  * - 服装：自己起名，写上和节律衣柜对得上的名字（同 Live2D 的换装），没对上时按用途（日常 / 运动 / 睡衣 / 约会）挑。
- * 同一个表情可以有好几张（变体），切表情时轮着用。
+ * 同一个样子可以有好几张（变体），换表情时轮着用。
  * 图片存在这台设备的 IndexedDB 素材库（按内容哈希），角色上只记元数据（同 Live2D）。
  */
 export interface Portrait {
@@ -19,7 +18,7 @@ export interface Portrait {
   name: string;
   width: number;
   height: number;
-  /** 基础表情 id 或自定义表情 id */
+  /** 她的表情 id；空 = 还没标 */
   expression: string;
   /** 动作 id；空 = 没分动作 */
   pose: string;
@@ -37,12 +36,10 @@ export interface PortraitFit {
   y: number;
 }
 
-/** 自定义表情：id 就是写进 [expr:…] 的值（中文也行） */
+/** 她的一个表情：id 就是模型写进 [expr:…] 的值，默认跟名字一样（中文也行），改名字时跟着改 */
 export interface PortraitExpression {
   id: string;
   label: string;
-  /** 最接近的基础表情 */
-  base: Expression;
   /** 写给模型看：什么时候用 */
   hint?: string;
 }
@@ -90,10 +87,17 @@ export interface PokeHotspot {
 /** 一个角色的全部立绘（挂在 Character.portraits 上） */
 export interface PortraitSet {
   portraits: Portrait[];
-  /** 自定义表情（基础表情不用写） */
+  /** 她的全部表情（按她自己的顺序） */
   expressions: PortraitExpression[];
   poses: PortraitPose[];
   outfits: PortraitOutfit[];
+  /** 默认表情：没说要什么表情、或者要的她没有、也没有像的时候用 */
+  defaultExpression: string;
+  /**
+   * 程序在固定时刻（戳一下、练完、碰杯……）会说一种情绪（expressions.ts 里那几个词）；这里写每种情绪用她的哪个表情。
+   * 没写的按名字自动对，对不上就不换；写成空字符串 = 这种时刻不换表情
+   */
+  moments?: Partial<Record<Expression, string>>;
   /** 默认动作 / 服装 id；空 = 不指定 */
   defaultPose: string;
   defaultOutfit: string;

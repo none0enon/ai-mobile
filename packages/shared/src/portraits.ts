@@ -11,12 +11,25 @@ import type { HotspotShape, Portrait, PortraitPose, PortraitSet } from './types/
  */
 
 export function emptyPortraitSet(): PortraitSet {
-  return { portraits: [], expressions: [], poses: [], outfits: [], defaultPose: '', defaultOutfit: '', aspect: 0.6, face: { x: 0.5, y: 0.3, size: 0.3 } };
+  return {
+    portraits: [],
+    expressions: [],
+    poses: [],
+    outfits: [],
+    defaultExpression: '',
+    defaultPose: '',
+    defaultOutfit: '',
+    aspect: 0.6,
+    face: { x: 0.5, y: 0.3, size: 0.3 },
+  };
 }
 
 // —— 表情 ——
+// 每个角色的表情就是它自己立绘上标的那些，名字、数量都不固定。
+// 下面这 11 个词（expressions.ts）只是"情绪的说法"：程序在固定的时刻（戳一下、练完、碰杯……）会说一种情绪，
+// 没有立绘时占位小人按它画脸，语音按它定语气。它们不是表情的规定，到了有立绘的角色那里，按名字对到她自己的表情上。
 
-/** SillyTavern 表情立绘的 28 个分类标签 → 基础表情（设计文档 §10.1） */
+/** SillyTavern 表情立绘的 28 个分类标签 → 情绪（设计文档 §10.1） */
 export const ST_EXPRESSION_MAP: Record<string, Expression> = {
   neutral: 'neutral',
   admiration: 'smile',
@@ -48,7 +61,7 @@ export const ST_EXPRESSION_MAP: Record<string, Expression> = {
   disapproval: 'angry',
 };
 
-/** 常见的别名（中文、英文），文件名和模型写偏了的时候认得出来 */
+/** 说法 → 情绪（中文、英文、ST 标签）：认文件名、按名字对表情、猜语音语气用 */
 const ALIASES: Record<string, Expression> = {
   ...ST_EXPRESSION_MAP,
   default: 'neutral',
@@ -57,42 +70,46 @@ const ALIASES: Record<string, Expression> = {
   calm: 'neutral',
   happy: 'smile',
   smiling: 'smile',
+  smirk: 'smile',
   grin: 'laugh',
   laughing: 'laugh',
   blushing: 'blush',
   embarrassed: 'shy',
   shocked: 'surprised',
   shock: 'surprised',
+  frown: 'angry',
   cry: 'sad',
   crying: 'sad',
-  mad: 'angry',
   tired: 'sleepy',
   sleeping: 'sleep',
   默认: 'neutral',
   普通: 'neutral',
   无表情: 'neutral',
+  淡然: 'neutral',
+  冷淡: 'neutral',
   开心: 'smile',
   高兴: 'smile',
   笑: 'smile',
-  笑容: 'smile',
   哈哈: 'laugh',
   红脸: 'blush',
   羞: 'shy',
   不满: 'pout',
+  不屑: 'pout',
+  嫌弃: 'pout',
   吃惊: 'surprised',
   震惊: 'surprised',
   伤心: 'sad',
   哭: 'sad',
   愤怒: 'angry',
   怒: 'angry',
+  皱眉: 'angry',
   困: 'sleepy',
   睡: 'sleep',
-  睡觉: 'sleep',
 };
 for (const e of EXPRESSIONS) ALIASES[EXPRESSION_LABELS[e]] = e;
 
-/** 缺图时往哪个表情退（越靠前越像） */
-const FALLBACK: Record<Expression, Expression[]> = {
+/** 一种情绪对不上时退到哪种（越靠前越像） */
+const NEARBY: Record<Expression, Expression[]> = {
   neutral: [],
   smile: ['laugh', 'blush', 'neutral'],
   laugh: ['smile', 'blush', 'neutral'],
@@ -108,82 +125,102 @@ const FALLBACK: Record<Expression, Expression[]> = {
 
 const key = (s: string) => s.normalize('NFKC').trim().toLowerCase();
 
-/**
- * 把一个表情写法认成这个角色的表情 id：自定义表情（id 或名字）→ 基础表情 id → 中文名、ST 标签、别名。认不出返回 null。
- */
-export function normalizeExpression(value: unknown, set?: Pick<PortraitSet, 'expressions'> | null): string | null {
-  if (typeof value !== 'string') return null;
+/** 一个说法（情绪词本身、别名、ST 标签）是哪种情绪；只认整个词 */
+function moodWord(value: string): Expression | null {
   const k = key(value);
-  if (!k) return null;
-  const custom = set?.expressions.find((e) => key(e.id) === k || key(e.label) === k);
-  if (custom) return custom.id;
   if (isExpression(k)) return k;
   return ALIASES[k] ?? null;
 }
 
-/** 新建自定义表情时按名字猜挂哪个基础表情（坏笑 → 微笑、冷眼 → 平静）；猜不出是平静 */
-export function guessExpressionBase(label: string): Expression {
-  const n = normalizeExpression(label);
-  if (n && isExpression(n)) return n;
-  const k = key(label);
-  let best: Expression = 'neutral';
-  let len = 0;
-  for (const [alias, e] of Object.entries(ALIASES)) {
-    const ascii = /^[a-z]+$/.test(alias);
-    if (alias.length > len && (ascii ? alias.length >= 4 : true) && k.includes(alias)) {
-      best = e;
-      len = alias.length;
+/**
+ * 按名字猜一个表情带的是哪种情绪（坏笑 → 微笑、皱眉 → 生气）；猜不出返回 null。
+ * 只在程序内部用：语音的语气、占位小人的脸、Live2D 没单独设置时、程序的时刻按名字对表情。
+ */
+export function moodOf(value: string | null | undefined, set?: Pick<PortraitSet, 'expressions'> | null): Expression | null {
+  if (!value) return null;
+  const named = set?.expressions.find((e) => e.id === value);
+  for (const text of named ? [named.label, named.id] : [value]) {
+    const exact = moodWord(text);
+    if (exact) return exact;
+    const k = key(text);
+    let best: Expression | null = null;
+    let len = 0;
+    for (const [alias, e] of Object.entries(ALIASES)) {
+      // 英文短词不按包含算（"mad" 会对上 "madara"）
+      if (alias.length > len && (/^[a-z]+$/.test(alias) ? alias.length >= 4 : true) && k.includes(alias)) {
+        best = e;
+        len = alias.length;
+      }
     }
+    if (best) return best;
   }
-  return best;
+  return null;
 }
 
-/** 自定义表情 → 它挂的基础表情；基础表情原样；认不出的当平静（语音情绪、Live2D、占位立绘用） */
-export function baseExpression(value: string | null | undefined, set?: Pick<PortraitSet, 'expressions'> | null): Expression {
-  if (!value) return 'neutral';
-  if (isExpression(value)) return value;
-  const custom = set?.expressions.find((e) => e.id === value);
-  if (custom) return custom.base;
-  const n = normalizeExpression(value, set);
-  return n && isExpression(n) ? n : 'neutral';
+/** 同上，猜不出当平静（占位小人、Live2D、3D 小人这些只会画几种脸的地方用） */
+export function expressionMood(value: string | null | undefined, set?: Pick<PortraitSet, 'expressions'> | null): Expression {
+  return moodOf(value, set) ?? 'neutral';
 }
 
-/** 表情的名字（自定义表情用自己起的名字） */
-export function expressionLabel(value: string, set?: Pick<PortraitSet, 'expressions'> | null): string {
-  if (isExpression(value)) return EXPRESSION_LABELS[value];
-  return set?.expressions.find((e) => e.id === value)?.label ?? value;
+/** 程序在固定时刻要某种情绪时，用这个角色的哪个表情：自己设过的 → 按名字自动对 → 对不上返回 null（不换） */
+export function expressionForMood(mood: Expression, set: Pick<PortraitSet, 'expressions' | 'moments'>): string | null {
+  const own = set.moments?.[mood];
+  if (own !== undefined) return set.expressions.some((e) => e.id === own) ? own : null;
+  return autoExpressionForMood(mood, set);
+}
+
+/** 按名字自动对：名字就是这种情绪的说法的最先，其次名字里带着的；都没有时退一步到最相近的情绪（大笑 → 微笑）再找一次 */
+export function autoExpressionForMood(mood: Expression, set: Pick<PortraitSet, 'expressions'>): string | null {
+  const find = (m: Expression) =>
+    set.expressions.find((e) => moodWord(e.label) === m || moodWord(e.id) === m)?.id ?? set.expressions.find((e) => moodOf(e.id, set) === m)?.id ?? null;
+  const near = NEARBY[mood][0];
+  return find(mood) ?? (near && near !== 'neutral' ? find(near) : null);
 }
 
 /**
- * 想要 want 时依次试哪些表情，按"像的程度"分层：自己 → 它的基础表情 → 挂在同一个基础表情上的别的自定义表情
- * → 退一步的基础表情 → 挂在它上面的…… → 平静。同一层的一样像。
+ * 把一个表情写法认成这个角色的表情 id。
+ * 有自己表情的角色：名字或 id 一样的直接用；是一种情绪的说法（smile、微笑、joy……，程序的时刻、模型写偏了）时按 expressionForMood 对；对不上返回 null（不换）。
+ * 没有立绘的角色（占位小人）：认 11 种情绪和它们的说法。
  */
-export function expressionTiers(want: string | null | undefined, set: Pick<PortraitSet, 'expressions'>): string[][] {
+export function normalizeExpression(value: unknown, set?: Pick<PortraitSet, 'expressions' | 'moments'> | null): string | null {
+  if (typeof value !== 'string') return null;
+  const k = key(value);
+  if (!k) return null;
+  if (!set?.expressions.length) return moodWord(k);
+  const own = set.expressions.find((e) => key(e.id) === k || key(e.label) === k);
+  if (own) return own.id;
+  const mood = moodWord(k);
+  return mood ? expressionForMood(mood, set) : null;
+}
+
+/** 表情的名字 */
+export function expressionLabel(value: string, set?: Pick<PortraitSet, 'expressions'> | null): string {
+  if (!value) return '未标表情';
+  const own = set?.expressions.find((e) => e.id === value);
+  if (own) return own.label;
+  return isExpression(value) ? EXPRESSION_LABELS[value] : value;
+}
+
+/**
+ * 想要 want 时依次试这个角色的哪些表情，按像的程度分层：它自己 → 名字看起来是同一种情绪的 → 相近情绪的 → 默认表情。
+ * 全是她自己的表情；没标表情的图不在里面。
+ */
+export function expressionTiers(want: string | null | undefined, set: Pick<PortraitSet, 'expressions' | 'moments' | 'defaultExpression'>): string[][] {
   const seen = new Set<string>();
   const tiers: string[][] = [];
   const push = (ids: string[]) => {
-    const fresh = ids.filter((id) => !seen.has(id));
+    const fresh = ids.filter((id) => id && !seen.has(id));
     for (const id of fresh) seen.add(id);
     if (fresh.length) tiers.push(fresh);
   };
-  // 基础表情本身比挂在它上面的自定义表情更"通用"：退的时候先退到基础表情
-  const family = (b: Expression) => {
-    push([b]);
-    push(set.expressions.filter((c) => c.base === b).map((c) => c.id));
-  };
-  const w = normalizeExpression(want, set) ?? 'neutral';
-  const custom = set.expressions.find((e) => e.id === w);
-  const base = custom ? custom.base : (w as Expression);
-  push([w]);
-  family(base);
-  for (const b of FALLBACK[base] ?? []) family(b);
-  family('neutral');
+  const w = normalizeExpression(want, set);
+  const mood = w ? moodOf(w, set) : want ? moodWord(want) : null;
+  if (w) push([w]);
+  if (mood) {
+    for (const m of [mood, ...NEARBY[mood]]) push(set.expressions.filter((e) => moodOf(e.id, set) === m).map((e) => e.id));
+  }
+  push([set.defaultExpression]);
   return tiers;
-}
-
-/** 同上，摊平成一串 */
-export function expressionChain(want: string | null | undefined, set: Pick<PortraitSet, 'expressions'>): string[] {
-  return expressionTiers(want, set).flat();
 }
 
 function shown(set: PortraitSet): Portrait[] {
@@ -195,20 +232,15 @@ export interface ExpressionOption {
   id: string;
   label: string;
   hint?: string;
-  /** 自定义表情挂的基础表情 */
-  base?: Expression;
 }
 
-/** 这个角色有图的表情：基础表情按固定顺序在前，自定义表情按添加顺序在后 */
+/** 这个角色有图的表情（按她自己的顺序） */
 export function availableExpressions(set: PortraitSet | null | undefined): ExpressionOption[] {
   if (!set) return [];
   const have = new Set(shown(set).map((p) => p.expression));
-  const out: ExpressionOption[] = EXPRESSIONS.filter((e) => have.has(e)).map((e) => ({ id: e, label: EXPRESSION_LABELS[e] }));
-  for (const c of set.expressions) if (have.has(c.id)) out.push({ id: c.id, label: c.label, hint: c.hint, base: c.base });
-  return out;
+  return set.expressions.filter((e) => have.has(e.id)).map((e) => ({ id: e.id, label: e.label, hint: e.hint }));
 }
 
-/** 这个角色有图的动作 */
 export function availablePoses(set: PortraitSet | null | undefined): PortraitPose[] {
   if (!set) return [];
   const have = new Set(shown(set).map((p) => p.pose));
@@ -267,7 +299,7 @@ function poseTarget(set: PortraitSet, want: PortraitWant, has: Set<string>): str
 }
 
 /**
- * 在这个角色的立绘里挑最合适的一张。服装最要紧（场景、节律决定的），其次表情（缺图按 expressionChain 退），最后动作。
+ * 在这个角色的立绘里挑最合适的一张。服装最要紧（场景、节律决定的），其次表情（缺图按 expressionTiers 退），最后动作。
  * 一样合适的几张按 seed 轮着用。一张图都没有时返回 null（调用的地方显示占位立绘）。
  */
 export function pickPortrait(set: PortraitSet | null | undefined, want: PortraitWant = {}): Portrait | null {
@@ -305,12 +337,15 @@ export function portraitTags(allowed: readonly ControlTagKind[], set: PortraitSe
 
 const DEFAULT_EXPRESSION_LINE = `可用表情：${EXPRESSIONS.join(' ')}`;
 
-/** 提示词里"可用表情 / 可用动作"那几行：有立绘时只列有图的（基础表情带中文名，自定义的带说明）；没有立绘时列全部基础表情 */
+/** 提示词里"可用表情 / 可用动作"那几行：有立绘时只列她有图的表情（带说明）；没有立绘时是占位小人会的那几种 */
 export function expressionPromptLines(set: PortraitSet | null | undefined, opts: { poses?: boolean } = {}): string {
   const exprs = availableExpressions(set);
   if (!exprs.length) return DEFAULT_EXPRESSION_LINE;
-  const item = (id: string, label: string, hint?: string) => (id === label ? id : `${id}（${label}${hint ? `：${hint}` : ''}）`);
-  const lines = [`可用表情：${exprs.map((e) => (e.base ? item(e.id, e.label, e.hint) : `${e.id}（${e.label}）`)).join('、')}`];
+  const item = (id: string, label: string, hint?: string) => {
+    const note = [id === label ? '' : label, hint ?? ''].filter(Boolean).join('：');
+    return note ? `${id}（${note}）` : id;
+  };
+  const lines = [`可用表情：${exprs.map((e) => item(e.id, e.label, e.hint)).join('、')}`];
   const poses = availablePoses(set);
   if (opts.poses && poses.length >= 2) lines.push(`可用动作：${poses.map((p) => item(p.id, p.label, p.hint)).join('、')}`);
   return lines.join('\n');
@@ -332,13 +367,22 @@ function findLabel<T extends { id: string; label: string }>(list: readonly T[], 
   return list.find((x) => key(x.id) === k || key(x.label) === k);
 }
 
+/** 已有的（带 id），或要新建的名字 */
 export interface NameGuess {
-  expression?: string;
-  /** 已有的动作（带 id），或要新建的动作名 */
+  expression?: { id?: string; label: string };
   pose?: { id?: string; label: string };
   outfit?: { id?: string; label: string };
-  /** 文件名里认出来的、还没有的自定义表情名 */
-  newExpression?: string;
+}
+
+/** 文件名里的一段是不是表情：她已有的表情，或者一种情绪的说法（smile、frown、joy……，名字照文件名） */
+function expressionToken(token: string, set: Pick<PortraitSet, 'expressions'>): { id?: string; label: string } | null {
+  const own = findLabel(set.expressions, token);
+  if (own) return { id: own.id, label: own.label };
+  const mood = moodWord(token);
+  if (!mood) return null;
+  // 同一个词的另一种写法已经有了（文件叫 smile、她的表情叫 微笑）
+  const same = set.expressions.find((e) => moodWord(e.label) === mood);
+  return same ? { id: same.id, label: same.label } : { label: token };
 }
 
 function tokensOf(fileName: string): string[] {
@@ -351,12 +395,14 @@ function tokensOf(fileName: string): string[] {
   return tokens;
 }
 
-function guessTokens(tokens: string[], set: Pick<PortraitSet, 'expressions' | 'poses' | 'outfits'>): NameGuess {
-  if (!tokens.length || tokens.every((t) => /^\d+$/.test(t))) return {};
+function guessTokens(raw: string[], set: Pick<PortraitSet, 'expressions' | 'poses' | 'outfits'>): NameGuess {
+  const tokens = raw.filter((t) => !/^\d+$/.test(t));
+  if (!tokens.length) return {};
   const out: NameGuess = {};
+  // 表情：认得出的（她已有的、情绪的说法）优先；认不出时按位置，最后一段是表情
   let exprAt = -1;
   for (let i = tokens.length - 1; i >= 0; i--) {
-    const e = normalizeExpression(tokens[i], set);
+    const e = expressionToken(tokens[i]!, set);
     if (e) {
       out.expression = e;
       exprAt = i;
@@ -370,32 +416,25 @@ function guessTokens(tokens: string[], set: Pick<PortraitSet, 'expressions' | 'p
     const outfit = findLabel(set.outfits, t);
     if (pose && !out.pose) out.pose = { id: pose.id, label: pose.label };
     else if (outfit && !out.outfit) out.outfit = { id: outfit.id, label: outfit.label };
-    else if (!/^\d+$/.test(t)) free.push(t);
+    else free.push(t);
   });
+  // 只有一段又认不出（下载.png、render.png）：不猜
+  if (exprAt < 0 && tokens.length === 1 && free.length === 1) return {};
   if (exprAt < 0) {
-    // 两段：认得出动作（或服装）时，另一段是新的自定义表情（抱臂_坏笑）
-    if (tokens.length < 3) {
-      if ((out.pose || out.outfit) && free.length === 1) out.newExpression = free[0];
-      return out.pose || out.outfit ? out : {};
-    }
-    // 三段式但表情认不出：最后一段当新的自定义表情
     const last = free.pop();
-    if (last) out.newExpression = last;
+    if (last) out.expression = { label: last };
   }
-  // 剩下的按 {服装}_{动作} 的顺序填空
-  if (free.length >= 2 && !out.outfit && !out.pose) {
-    out.outfit = { label: free.at(-2)! };
-    out.pose = { label: free.at(-1)! };
-  } else if (free.length) {
-    if (!out.pose) out.pose = { label: free.at(-1)! };
-    else if (!out.outfit) out.outfit = { label: free.at(-1)! };
+  // 剩下的从后往前：动作、服装（{服装}_{动作}_{表情}）
+  for (const t of free.reverse()) {
+    if (!out.pose) out.pose = { label: t };
+    else if (!out.outfit) out.outfit = { label: t };
   }
   return out;
 }
 
 /**
  * 按文件名猜表情、动作、服装：{服装}_{动作}_{表情}、{动作}_{表情}、{表情}（ST 表情文件夹：joy、joy-1）。
- * 表情认得出的（基础表情、中文名、ST 标签、已有的自定义表情）直接用；三段式里认不出的表情当新的自定义表情。
+ * 表情：她已有的表情直接用；别的按文件名新建（认得出的词放在哪都行，认不出的按位置读：最后一段是表情）。
  * 角色名（ignore）不算；一批文件都带着的词（别的前缀）也不算（正好三段的除外）。只有编号的文件名（1.png）什么也猜不出，导入后自己选。
  */
 export function guessFromFileNames(fileNames: readonly string[], set: Pick<PortraitSet, 'expressions' | 'poses' | 'outfits'>, ignore: readonly string[] = []): NameGuess[] {
@@ -404,7 +443,7 @@ export function guessFromFileNames(fileNames: readonly string[], set: Pick<Portr
   const all = fileNames.map((n) => tokensOf(n).filter((t) => !skip.has(key(t))));
   const common =
     all.length >= 2
-      ? new Set((all[0] ?? []).map(key).filter((k) => !normalizeExpression(k, set) && all.every((t) => t.some((x) => key(x) === k))))
+      ? new Set((all[0] ?? []).map(key).filter((k) => !expressionToken(k, set) && all.every((t) => t.some((x) => key(x) === k))))
       : new Set<string>();
   // 正好三段的按 {服装}_{动作}_{表情} 读，不去掉（一批都是同一身衣服时服装也要记上）
   const tokens = all.map((t) => (t.length === 3 ? t : t.filter((x) => !common.has(key(x)))));
@@ -415,13 +454,14 @@ export function guessFromFileNames(fileNames: readonly string[], set: Pick<Portr
     ...[...new Set(found.filter((l): l is string => !!l && !list.some((x) => x.label === l)))].map((label) => ({ id: `\0${label}`, label }) as T),
   ];
   const wider = {
-    expressions: set.expressions,
+    expressions: seen(set.expressions, first.map((g) => (g.expression?.id ? undefined : g.expression?.label))),
     poses: seen(set.poses, first.map((g) => (g.pose?.id ? undefined : g.pose?.label))),
     outfits: seen(set.outfits, first.map((g) => (g.outfit?.id ? undefined : g.outfit?.label))),
   };
   return tokens.map((t) => {
     const g = guessTokens(t, wider);
     // 第二遍认出来的是还没建的，只留名字
+    if (g.expression?.id?.startsWith('\0')) g.expression = { label: g.expression.label };
     if (g.pose?.id?.startsWith('\0')) g.pose = { label: g.pose.label };
     if (g.outfit?.id?.startsWith('\0')) g.outfit = { label: g.outfit.label };
     return g;
@@ -471,9 +511,8 @@ export function defaultHotspotShapes(set: Pick<PortraitSet, 'face' | 'aspect'>):
   };
 }
 
-
-/** 场景让模型写 JSON 时的 expr 字段：认得出就换成这个角色的表情 id（自定义表情也算），认不出就不要 */
-export function expressionField(value: unknown, set?: Pick<PortraitSet, 'expressions'> | null): { expr?: string } {
+/** 场景让模型写 JSON 时的 expr 字段：认得出就换成这个角色的表情 id，认不出就不要 */
+export function expressionField(value: unknown, set?: Pick<PortraitSet, 'expressions' | 'moments'> | null): { expr?: string } {
   const e = normalizeExpression(value, set);
   return e ? { expr: e } : {};
 }

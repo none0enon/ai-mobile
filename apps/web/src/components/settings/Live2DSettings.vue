@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { EXPRESSION_LABELS, EXPRESSIONS, type Character, type CharacterLive2D, type Live2DOutfit } from '@app/shared';
+import { EXPRESSION_LABELS, EXPRESSIONS, expressionMood, type Character, type CharacterLive2D, type Live2DOutfit } from '@app/shared';
 import { computed, onBeforeUnmount, ref } from 'vue';
 import { showToast } from 'vant';
 import Live2DAvatar from '@/components/call/Live2DAvatar.vue';
@@ -16,7 +16,16 @@ const config = computed(() => props.character.live2d);
 const busy = ref(false);
 const progress = ref('');
 const error = ref('');
-const expression = ref('neutral');
+/** 映射哪些表情：她有立绘时是立绘上她自己的表情，没有时是占位小人那几种 */
+const faces = computed(() => {
+  const own = props.character.portraits?.expressions ?? [];
+  return own.length ? own.map((e) => ({ id: e.id, label: e.label, own: true })) : EXPRESSIONS.map((e) => ({ id: e, label: EXPRESSION_LABELS[e], own: false }));
+});
+const expression = ref(props.character.portraits?.defaultExpression || faces.value[0]?.id || 'neutral');
+/** 她自己的表情没单独设时，按名字猜成的那种情绪用的是哪个 */
+function autoName(id: string, map: Record<string, string>): string {
+  return map[expressionMood(id, props.character.portraits)] || map.neutral || '';
+}
 const text = ref('');
 const sentence = ref(0);
 const previewOutfit = ref('');
@@ -132,7 +141,7 @@ function parameter(id: string) { return config.value?.parameters?.find(p => p.id
       </div>
       <p class="hint">已按这份模型的可见轮廓自动适配、保持比例并贴底。可微调大小，设置会随角色保存。</p>
       <div class="preview-controls">
-        <label>预览表情 <select v-model="expression" aria-label="预览表情"><option v-for="e in EXPRESSIONS" :key="e" :value="e">{{ EXPRESSION_LABELS[e] }}</option></select></label>
+        <label>预览表情 <select v-model="expression" aria-label="预览表情"><option v-for="e in faces" :key="e.id" :value="e.id">{{ e.label }}</option></select></label>
         <button type="button" @click="action('你好')">挥手</button><button type="button" @click="action('好的')">点头</button><button type="button" @click="action('不行')">摇头</button>
       </div>
       <div class="outfit-controls">
@@ -159,11 +168,11 @@ function parameter(id: string) { return config.value?.parameters?.find(p => p.id
       <RouterLink :to="`/call/${character.id}?video=1`" class="start-video"><span class="i-lucide-video" />开始视频通话</RouterLink>
       <details>
         <summary>表情与动作映射</summary>
-        <p class="hint">已按名称匹配。可为每种情绪改选模型实际导出的表情和动作；未匹配时保持自然待机。</p>
-        <div v-for="e in EXPRESSIONS" :key="e" class="binding">
-          <label>{{ EXPRESSION_LABELS[e] }}</label>
-          <select v-model="config.expressionMap[e]" :aria-label="`${EXPRESSION_LABELS[e]}表情映射`"><option value="">默认表情</option><option v-for="name in config.expressions" :key="name" :value="name">{{ name }}</option></select>
-          <select v-model="config.motionMap[e]" :aria-label="`${EXPRESSION_LABELS[e]}动作映射`"><option value="">自然动作</option><option v-for="name in config.motions" :key="name" :value="name">{{ name }}</option></select>
+        <p class="hint">{{ faces[0]?.own ? `按${character.name}立绘上的表情列出；没单独选的按名字自动找最像的。` : '已按名称匹配。' }}可为每个表情改选模型实际导出的表情和动作；未匹配时保持自然待机。</p>
+        <div v-for="e in faces" :key="e.id" class="binding">
+          <label>{{ e.label }}</label>
+          <select v-model="config.expressionMap[e.id]" :aria-label="`${e.label}表情映射`"><option value="">{{ e.own ? `自动（${autoName(e.id, config.expressionMap) || '默认表情'}）` : '默认表情' }}</option><option v-for="name in config.expressions" :key="name" :value="name">{{ name }}</option></select>
+          <select v-model="config.motionMap[e.id]" :aria-label="`${e.label}动作映射`"><option value="">{{ e.own && autoName(e.id, config.motionMap) ? `自动（${autoName(e.id, config.motionMap)}）` : '自然动作' }}</option><option v-for="name in config.motions" :key="name" :value="name">{{ name }}</option></select>
         </div>
         <div v-for="(label, key) in ACTION_LABELS" :key="key" class="binding"><label>{{ label }}</label><select v-model="config.motionMap[key]" :aria-label="`${label}动作映射`"><option value="">自动</option><option v-for="name in config.motions" :key="name" :value="name">{{ name }}</option></select></div>
       </details>

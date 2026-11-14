@@ -12,7 +12,7 @@ import {
   type Sidestory,
   type VoiceSpec,
 } from '@app/ai';
-import { getLocation, hasOwnWorld, imageAppearance, slotAt, TIME_OF_DAY_LABEL, timeOfDay, worldOf, type Character } from '@app/shared';
+import { getLocation, hasOwnWorld, imageAppearance, moodOf, slotAt, TIME_OF_DAY_LABEL, timeOfDay, worldOf, type Character } from '@app/shared';
 import { showToast } from 'vant';
 import { putAsset } from './assets';
 import { playBytes, stopAudio } from './audio';
@@ -86,11 +86,12 @@ export function voiceSpec(c: Character): VoiceSpec {
   return { voiceId: v.voiceId, model: v.model, speed: v.speed, pitch: v.pitch, style: v.style, refText: v.refText, refLang: v.refLang, emotionMap: { ...portraitEmotions(c), ...v.emotionMap } };
 }
 
-/** 立绘的自定义表情（坏笑、不屑……）说话时用它挂的基础表情的情绪 */
+/** 她立绘上的表情（坏笑、皱眉……）说话时的语气：按名字猜是哪种情绪（"语音"里给这个表情单独设过的优先） */
 function portraitEmotions(c: Character): Record<string, string> {
   const out: Record<string, string> = {};
   for (const e of c.portraits?.expressions ?? []) {
-    const emotion = e.base === 'neutral' ? '' : c.voice.emotionMap[e.base] || DEFAULT_EMOTION_MAP[e.base];
+    const mood = moodOf(e.id, c.portraits);
+    const emotion = !mood || mood === 'neutral' ? '' : c.voice.emotionMap[mood] || DEFAULT_EMOTION_MAP[mood];
     if (emotion) out[e.id] = emotion;
   }
   return out;

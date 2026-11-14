@@ -2,8 +2,6 @@
 import {
   availableExpressions,
   availablePoses,
-  EXPRESSION_LABELS,
-  EXPRESSIONS,
   expressionLabel,
   hasPortraits,
   pickPortrait,
@@ -48,12 +46,12 @@ async function pick(e: Event) {
   report.value = null;
   try {
     const r = await importPortraits(c, list, (done, total) => (busy.value = `正在导入 ${done} / ${total}`));
-    const guessed = r.added.filter((p) => p.expression !== 'neutral' || p.pose || p.outfit).length;
+    const guessed = r.added.filter((p) => p.expression).length;
     report.value = {
       text: [
         r.added.length ? `导入了 ${r.added.length} 张` : '没有导入新的图',
         r.skipped.length ? `${r.skipped.length} 张已经有了` : '',
-        r.added.length ? (guessed === r.added.length ? '按文件名标好了，不对的点图改' : `${guessed ? `${guessed} 张按文件名标好了，` : ''}没认出来的先算"平静"，点图标一下`) : '',
+        r.added.length ? (guessed === r.added.length ? '按文件名标好了，不对的点图改' : `${guessed ? `${guessed} 张按文件名标好了，` : ''}${r.added.length - guessed} 张还没标表情，点图标一下`) : '',
       ]
         .filter(Boolean)
         .join('；'),
@@ -69,7 +67,7 @@ async function pick(e: Event) {
 }
 
 // —— 列表 ——
-const exprOrder = computed(() => [...EXPRESSIONS, ...(set.value?.expressions.map((e) => e.id) ?? [])] as string[]);
+const exprOrder = computed(() => ['', ...(set.value?.expressions.map((e) => e.id) ?? [])]);
 const sorted = computed(() => {
   const s = set.value;
   if (!s) return [];
@@ -102,16 +100,13 @@ const stats = computed(() => {
 });
 
 // —— 试一试 ——
-const tryExpr = ref<string>('neutral');
+const tryExpr = ref<string>(props.character.portraits?.defaultExpression ?? '');
 const tryPose = ref('');
 const tryOutfit = ref('');
 const trySeed = ref(0);
 const tryExprOptions = computed(() => {
   const have = new Set(availableExpressions(set.value).map((e) => e.id));
-  return [
-    ...EXPRESSIONS.map((e) => ({ id: e, label: EXPRESSION_LABELS[e], dim: !have.has(e) })),
-    ...(set.value?.expressions ?? []).map((e) => ({ id: e.id, label: e.label, dim: !have.has(e.id) })),
-  ];
+  return (set.value?.expressions ?? []).map((e) => ({ id: e.id, label: e.label, dim: !have.has(e.id) }));
 });
 const dayOutfit = computed(() => rhythm.outfitFor(props.character.id, null));
 const tryWant = computed(() => ({
@@ -129,7 +124,7 @@ const tryNote = computed(() => {
   if (!p || !s) return '';
   const same = s.portraits.filter((x) => !x.hidden && x.expression === p.expression && x.pose === p.pose && x.outfit === p.outfit).length;
   const parts = [
-    p.expression === tryExpr.value ? '' : `没有「${expressionLabel(tryExpr.value, s)}」的图，退到「${expressionLabel(p.expression, s)}」`,
+    !tryExpr.value || p.expression === tryExpr.value ? '' : `这身、这个动作没有「${expressionLabel(tryExpr.value, s)}」的图，用了「${expressionLabel(p.expression, s)}」`,
     same > 1 ? `这个样子有 ${same} 张，换表情时轮着用` : '',
   ].filter(Boolean);
   return `${p.name}${parts.length ? ` · ${parts.join('；')}` : ''}`;
@@ -163,7 +158,7 @@ async function clearAll() {
 <template>
   <div class="portrait-settings" data-testid="portrait-settings">
     <p class="ps-intro">
-      一张图就是一个样子（表情 + 动作 + 服装画在一起）。张数不限，以后接着导入就是往里加；每张图点开标上表情、动作、服装，聊天、剧场、一起做事、通话、头像都会按此刻的情绪和场景挑最合适的那张，没有的表情退到最像的。
+      一张图就是一个样子（表情 + 动作 + 服装画在一起）。张数不限，以后接着导入就是往里加。表情、动作、服装都是{{ character.name }}自己的，名字和个数随你：点图标上，聊天、剧场、一起做事、通话、头像都按此刻的表情和场景挑最合适的那张。
     </p>
     <input ref="files" hidden type="file" accept="image/*" multiple aria-label="导入立绘图片" data-testid="portrait-upload" @change="pick" />
     <input ref="folder" hidden type="file" webkitdirectory multiple aria-label="导入立绘文件夹" @change="pick" />
@@ -172,7 +167,7 @@ async function clearAll() {
       <van-button round :disabled="!!busy" @click="folder?.click()">选文件夹</van-button>
     </div>
     <p class="ps-hint">
-      文件名按 <code>服装_动作_表情</code>、<code>动作_表情</code> 或 <code>表情</code> 写会自动标好（表情写 smile、微笑都行；也认 SillyTavern 表情文件夹的 joy、sadness……）。只有编号的导入后点图标。透明背景的 PNG / WebP 最好，长边超过 2048 会缩小。
+      文件名按 <code>服装_动作_表情</code>、<code>动作_表情</code> 或 <code>表情</code> 写会自动标好，表情、动作、服装的名字就用文件名里的（SillyTavern 表情文件夹也能直接导）。只有编号的导入后点图标。透明背景的 PNG / WebP 最好，长边超过 2048 会缩小。
     </p>
     <div v-if="report" class="ps-report" role="status">
       <div>{{ report.text }}</div>
@@ -199,8 +194,10 @@ async function clearAll() {
         <button type="button" class="ps-spots" :class="{ on: showSpots }" :aria-pressed="showSpots" @click="showSpots = !showSpots"><span class="i-lucide-scan" />热区</button>
       </div>
       <div class="ps-note" data-testid="portrait-picked">{{ tryNote }}</div>
-      <label class="field-label">表情（淡的是还没有图的）</label>
-      <LabelPicker v-model="tryExpr" name="试表情" :options="tryExprOptions" />
+      <template v-if="tryExprOptions.length">
+        <label class="field-label">表情</label>
+        <LabelPicker v-model="tryExpr" name="试表情" :options="tryExprOptions" />
+      </template>
       <template v-if="set.poses.length">
         <label class="field-label">动作</label>
         <LabelPicker v-model="tryPose" name="试动作" none-label="自动" :options="set.poses" />
