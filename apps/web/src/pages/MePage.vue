@@ -255,7 +255,7 @@ function drawStory() {
     </div>
 
     <!-- 补整理聊天 -->
-    <van-popup v-model:show="backfillOpen" position="bottom" round :style="{ maxHeight: '80%' }">
+    <van-popup v-model:show="backfillOpen" position="bottom" round teleport="body" :style="{ maxHeight: '80%' }">
       <div class="sheet" data-sheet="backfill">
         <div class="sheet-title">补整理聊天</div>
         <p class="text-[12.5px] text-ink-3 leading-relaxed mt-1 mb-2">
