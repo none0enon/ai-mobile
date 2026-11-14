@@ -26,6 +26,7 @@ export * from './weather.ts';
 export * from './proactive.ts';
 export * from './presetUses.ts';
 export * from './presetFile.ts';
+export * from './spritePreset.ts';
 export * from './lrc.ts';
 export * from './math.ts';
 export * from './st/index.ts';

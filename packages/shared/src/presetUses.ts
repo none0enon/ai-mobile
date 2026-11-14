@@ -13,6 +13,7 @@ import type { Preset, PresetCategory, PromptBlock } from './types/preset.ts';
  *   装修小屋用"一起游戏 · 装修小屋"（game-decor）。
  * - 创意工坊：写小说用"小说"预设（novel，调"创作 · 小说"的 API），画画用"一起游戏 · 创意工坊"的生图预设（game-workshop-image，可以跟随配图），
  *   把作品给她看、她捧场或吐槽用"一起游戏 · 创意工坊"（game-workshop）。
+ * - 立绘：AI 画立绘用"立绘"预设（sprite）：写外观 tags、各个表情和动作的 tags、出图参数都在它里面。
  */
 export type FeatureSceneId = Exclude<SceneId, 'free'>;
 export type PresetUseId =
@@ -32,6 +33,7 @@ export type PresetUseId =
   | 'game-workshop-image'
   | 'novel'
   | 'device'
+  | 'sprite'
   | `scene:${FeatureSceneId}`
   | `image:${FeatureSceneId}`;
 
@@ -177,6 +179,14 @@ export const PRESET_USES: PresetUse[] = [
   { id: 'rhythm', category: 'rhythm', label: '节律', desc: '导入角色后建她的世界；每天排她的作息、三餐和穿着（"我的 → 节律"）', icon: 'i-lucide-calendar-clock', follow: null },
   { id: 'health', category: 'health', label: '健康计划', desc: '按你人设里的健康设置排这周和今天的健身计划、饮食计划（"我的 → 健康计划"）', icon: 'i-lucide-heart-pulse', follow: null },
   { id: 'device', category: 'device', label: '控制指令', desc: '心跳里按她说的话给连着的玩具写指令（震动、摆动、伸缩……），读到、念到那里时执行', icon: 'i-lucide-activity', follow: null },
+  {
+    id: 'sprite',
+    category: 'sprite',
+    label: '立绘',
+    desc: '"角色 → 立绘 → AI 画立绘"：缺外观 tags 时写 tags，画透明底的底图，再照着底图画别的表情、动作（写 tags 调"生图提示词"的 API，出图调"生图"的 API）',
+    icon: 'i-lucide-person-standing',
+    follow: null,
+  },
 ];
 
 export function presetUse(id: PresetUseId): PresetUse | undefined {

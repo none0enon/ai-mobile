@@ -198,6 +198,8 @@ export async function commitImport(p: PendingImport, opts: { presetId?: string |
       { label: '生图：同人 / 原创', to: `/me/characters/${character.id}?tab=look` },
       // 节律：从角色卡和世界书里建她的小世界（地点、作息、衣柜），之后每天排她的作息和穿着
       { label: '建她的小世界', to: `/me/rhythm?char=${character.id}` },
+      // 立绘：卡里没带立绘时，让 AI 写外观 tags、用 NovelAI 画透明底的立绘和各个表情（设计文档 §10.4）
+      { label: 'AI 画立绘', to: `/me/characters/${character.id}?tab=sprite` },
     ],
   };
 }

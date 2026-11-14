@@ -14,6 +14,7 @@ import LabelPicker from './LabelPicker.vue';
 import PortraitEditSheet from './PortraitEditSheet.vue';
 import PortraitFrameEditor from './PortraitFrameEditor.vue';
 import PortraitLabels from './PortraitLabels.vue';
+import SpriteGenerator from './SpriteGenerator.vue';
 import PortraitFigure from '@/components/figure/PortraitFigure.vue';
 import StageView from '@/components/stage/StageView.vue';
 import { dropAsset } from '@/services/assets';
@@ -29,6 +30,8 @@ const props = defineProps<{ character: Character }>();
 const chars = useCharacterStore();
 const rhythm = useRhythmStore();
 const set = computed(() => (hasPortraits(props.character.portraits) ? props.character.portraits : null));
+/** 用 AI 画过立绘的角色，"AI 画立绘"默认展开（接着画表情、动作） */
+const aiDrawn = computed(() => !!set.value?.portraits.some((p) => p.gen));
 
 // —— 导入 ——
 const files = ref<HTMLInputElement | null>(null);
@@ -216,6 +219,10 @@ async function clearAll() {
         </button>
       </div>
 
+      <details class="ps-more" :open="aiDrawn" data-testid="sprite-ai">
+        <summary>AI 画立绘（NovelAI）</summary>
+        <SpriteGenerator :character="character" bare />
+      </details>
       <details class="ps-more">
         <summary>表情、动作、服装</summary>
         <PortraitLabels :character="character" />
@@ -226,10 +233,13 @@ async function clearAll() {
       </details>
       <button type="button" class="ps-clear" @click="clearAll">删掉全部立绘</button>
     </template>
-    <div v-else class="ps-empty">
-      <div class="ps-empty-fig"><PortraitFigure :character="character" expression="smile" /></div>
-      <p>还没有立绘，现在用的是占位立绘。</p>
-    </div>
+    <template v-else>
+      <div class="ps-empty">
+        <div class="ps-empty-fig"><PortraitFigure :character="character" expression="smile" /></div>
+        <p>还没有立绘，现在用的是占位立绘。可以导入，也可以让 NovelAI 画：</p>
+      </div>
+      <SpriteGenerator :character="character" />
+    </template>
 
     <PortraitEditSheet v-model="editing" :character="character" :order="order" />
   </div>

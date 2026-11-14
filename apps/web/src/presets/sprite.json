@@ -1,0 +1,399 @@
+{
+  "format": "ai-mobile-preset",
+  "version": 1,
+  "id": "preset-sprite",
+  "name": "立绘 · NovelAI 透明底",
+  "description": "AI 画立绘：缺外观 tags 时先写 tags（调\"生图提示词\"的 API），用 NovelAI V5 直接画一张透明底的平静底图，再照着底图画别的表情（默认只重画脸，身子、衣服一像素不动，换表情时立绘不会跳）和动作。自带平静、大笑、害羞、愤怒、悲伤、惊讶、嫌弃、微笑、睡着九个表情和三个动作：增删、改名、改 tags 都在这里（关掉的不画），出图参数在\"出图参数\"里。底图换成 V4.5 时把画法里透明背景的几个词换成 simple background, white background，画完会自动去背景。",
+  "category": "sprite",
+  "defaultFor": [
+    "sprite"
+  ],
+  "blocks": [
+    {
+      "identifier": "main",
+      "name": "任务",
+      "role": "system",
+      "content": "你在替{{char}}准备 NovelAI 立绘的提示词：视觉小说那样的角色立绘，一个人、全身、透明背景，换表情时只换脸。tags 用 Danbooru 风格的英文。只输出一个 JSON 对象，不要任何其他文字。",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "looksTask",
+      "name": "写外观 tags",
+      "role": "system",
+      "content": "这次的任务：从下面的角色卡和世界书里找出{{char}}的长相，写成 NovelAI 的外观 tags。\n- appearance：人数和性别放最前面（1girl 或 1boy，再加 solo），接着写年龄感、发色、发型和发长、刘海、瞳色、肤色、体型、显眼的特征（痣、獠牙、尖耳、兽耳、尾巴、眼镜、发饰……）。只写长相：不写衣服、表情、动作、背景、画风和质量词。设定里没写的不要编；只有一点线索时挑最合理、最常见的写法。\n- negative：画{{char}}时容易画错、要避开的（例如设定是黑发就写 blonde hair），没有就写空字符串。\n- outfit：{{char}}最常穿的一套（中文名 + 英文 tags，只写衣服、鞋袜、配饰），立绘默认穿它；设定里看不出来时按身份和性格挑一套日常的。\n- \"现在的长相\"里已经有外观 tags 的，在它上面补全、改正，别整个推翻。\n输出格式：\n{\"appearance\": \"1girl, solo, ...\", \"negative\": \"\", \"outfit\": {\"name\": \"中文名\", \"tags\": \"英文 tags\"}}",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-tags"
+      ]
+    },
+    {
+      "identifier": "labelTask",
+      "name": "给新表情 / 动作写 tags",
+      "role": "system",
+      "content": "这次的任务：给{{char}}的一个表情或动作写 NovelAI 的 tags（是哪个、叫什么在\"这次要写的\"里）。\n- 表情：只写脸上的（眉毛、眼睛、嘴、脸红、眼泪、汗……），例如 坏笑 写 smirk, half-closed eyes, raised eyebrow；不写动作、衣服、背景。\n- 动作：只写姿势和手（站着还是坐着、手放在哪），保持一个人、全身入画、正面或稍微侧身；不写表情、衣服、背景。\n- hint：一句中文，什么时候用这个表情、换这个动作（写给聊天的模型看）。\n- emotion：只在写表情时填，从这些里挑最接近的一个（NovelAI 换表情工具认的值）：neutral, happy, sad, angry, scared, surprised, tired, excited, nervous, thinking, confused, shy, disgusted, smug, bored, laughing, irritated, aroused, embarrassed, worried, love, determined, hurt, playful；写动作时写空字符串。\n输出格式：\n{\"tags\": \"英文 tags\", \"hint\": \"什么时候用\", \"emotion\": \"\"}",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-label"
+      ]
+    },
+    {
+      "identifier": "spriteCharacter",
+      "name": "角色（名字、描述、性格、场景）",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "spriteSource",
+      "name": "角色卡的材料（作者备注、世界书）",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "spriteLooks",
+      "name": "现在的长相（外观 tags、同人 tag、衣服）",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "spriteAsk",
+      "name": "这次要写的",
+      "role": "user",
+      "content": "",
+      "marker": true,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      }
+    },
+    {
+      "identifier": "draw",
+      "name": "画法（正向）",
+      "role": "system",
+      "content": "{{char_appearance}}, {{char_outfit}}, {{pose}}, {{expression}}, full body, straight-on, looking at viewer, 2.1::transparent background::, has alpha",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-draw"
+      ]
+    },
+    {
+      "identifier": "negative",
+      "name": "负面",
+      "role": "system",
+      "content": "multiple views, cropped, out of frame, upper body, cowboy shot, close-up, from behind, scenery, detailed background, text, logo, watermark, signature, speech bubble",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-negative"
+      ]
+    },
+    {
+      "identifier": "exprCalm",
+      "name": "表情 · 平静",
+      "role": "system",
+      "content": "closed mouth, expressionless, relaxed",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-expr:平静"
+      ],
+      "extra": {
+        "emotion": "neutral",
+        "hint": "没什么特别的情绪时（默认）"
+      }
+    },
+    {
+      "identifier": "exprLaugh",
+      "name": "表情 · 大笑",
+      "role": "system",
+      "content": "laughing, open mouth, closed eyes, :d, teeth",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-expr:大笑"
+      ],
+      "extra": {
+        "emotion": "laughing",
+        "hint": "被逗乐、特别开心时"
+      }
+    },
+    {
+      "identifier": "exprShy",
+      "name": "表情 · 害羞",
+      "role": "system",
+      "content": "blush, shy, embarrassed, looking away, closed mouth",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-expr:害羞"
+      ],
+      "extra": {
+        "emotion": "shy",
+        "hint": "被夸、被撩、不好意思时"
+      }
+    },
+    {
+      "identifier": "exprAngry",
+      "name": "表情 · 愤怒",
+      "role": "system",
+      "content": "angry, frown, v-shaped eyebrows, clenched teeth, glaring",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-expr:愤怒"
+      ],
+      "extra": {
+        "emotion": "angry",
+        "hint": "生气、被惹恼时"
+      }
+    },
+    {
+      "identifier": "exprSad",
+      "name": "表情 · 悲伤",
+      "role": "system",
+      "content": "sad, frown, downturned eyes, teary eyes, closed mouth",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-expr:悲伤"
+      ],
+      "extra": {
+        "emotion": "sad",
+        "hint": "难过、失落、委屈时"
+      }
+    },
+    {
+      "identifier": "exprSurprised",
+      "name": "表情 · 惊讶",
+      "role": "system",
+      "content": "surprised, open mouth, wide-eyed, raised eyebrows, :o",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-expr:惊讶"
+      ],
+      "extra": {
+        "emotion": "surprised",
+        "hint": "吃惊、没想到时"
+      }
+    },
+    {
+      "identifier": "exprDisgust",
+      "name": "表情 · 嫌弃",
+      "role": "system",
+      "content": "disgust, frown, half-closed eyes, wavy mouth",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-expr:嫌弃"
+      ],
+      "extra": {
+        "emotion": "disgusted",
+        "hint": "看不惯、嫌弃你时（没刷牙、没洗澡……）"
+      }
+    },
+    {
+      "identifier": "exprSmile",
+      "name": "表情 · 微笑",
+      "role": "system",
+      "content": "smile, closed mouth, happy",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-expr:微笑"
+      ],
+      "extra": {
+        "emotion": "happy",
+        "hint": "开心、温柔、打招呼时"
+      }
+    },
+    {
+      "identifier": "exprSleep",
+      "name": "表情 · 睡着",
+      "role": "system",
+      "content": "closed eyes, sleeping, closed mouth, relaxed",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-expr:睡着"
+      ],
+      "extra": {
+        "hint": "睡着了（哄睡、困得不行时）"
+      }
+    },
+    {
+      "identifier": "poseStand",
+      "name": "动作 · 站立",
+      "role": "system",
+      "content": "standing, arms at sides",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-pose:站立"
+      ],
+      "extra": {
+        "fits": [
+          "stand"
+        ],
+        "hint": "平时站着"
+      }
+    },
+    {
+      "identifier": "poseSit",
+      "name": "动作 · 坐着",
+      "role": "system",
+      "content": "sitting, on chair, hands on lap",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-pose:坐着"
+      ],
+      "extra": {
+        "fits": [
+          "sit",
+          "study",
+          "eat"
+        ],
+        "hint": "坐下来时（一起学习、吃饭）"
+      }
+    },
+    {
+      "identifier": "poseWave",
+      "name": "动作 · 挥手",
+      "role": "system",
+      "content": "standing, waving, arm up, open hand",
+      "marker": false,
+      "enabled": true,
+      "injection": {
+        "position": "relative",
+        "depth": 4
+      },
+      "triggers": [
+        "sprite-pose:挥手"
+      ],
+      "extra": {
+        "hint": "打招呼、说再见时"
+      }
+    }
+  ],
+  "sampler": {
+    "temperature": 0.7,
+    "topP": 1,
+    "maxTokens": 1200,
+    "contextTokens": 32000,
+    "frequencyPenalty": 0,
+    "presencePenalty": 0,
+    "stream": false
+  },
+  "extra": {
+    "sprite": {
+      "model": "nai-diffusion-5-full",
+      "width": 832,
+      "height": 1216,
+      "steps": 28,
+      "scale": 4,
+      "sampler": "k_euler_ancestral",
+      "noiseSchedule": "karras",
+      "baseExpression": "平静",
+      "basePose": "站立",
+      "expressionMethod": "inpaint",
+      "maskScale": 1.3,
+      "inpaintStrength": 1,
+      "inpaintModel": "",
+      "emotionLevel": 0,
+      "img2imgStrength": 0.55,
+      "poseMethod": "reference",
+      "referenceModel": "nai-diffusion-4-5-full",
+      "referenceStrength": 0.7,
+      "referenceFidelity": 0.75,
+      "removeBackground": true,
+      "extra": {}
+    }
+  }
+}

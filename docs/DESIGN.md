@@ -1191,6 +1191,7 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
   3. **一次只出 1 张**；
   4. **不用图生图**。
 - **模型**：选 V4.5 或更早的。V5 现在有用量上限，用完要等它慢慢恢复，从空到满大约一周。
+- **V5**（2026-08-21 发布：`nai-diffusion-5-full`、`nai-diffusion-5-curated`、`nai-diffusion-5-full-medium`）：提示词结构同 V4（`v4_prompt`），参数版本 4，网页版带 `straight_alpha`（`novelai.ts` 照此发）；新 VAE 能直接画透明背景（§10.7）；精准参考、Vibe Transfer 发布时没有（还在 V4.5 上）。
 - **App 怎么守住**：
   - 每次自动出图前，检查这四条和模型，有一条不满足就不自动出；
   - 出完读一次订阅余额，确认没有扣点。
@@ -1242,7 +1243,8 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 ### 10.4 人物一致性（第二阶段）
 
 > **已实现**：角色设定 → 生图里的"同人角色"开关、角色 tag、作品 tag、补充外观 tags，"试画一张"真的出图（白底全身像，穿节律里今天那套）；角色卡列表上标"同人"；导入角色后给出"生图：同人 / 原创"的入口。
-> **还没做**：原创角色的定妆照和 vibe 编码、识图反推外观 tags。
+> AI 画立绘（§10.7）：从角色卡、世界书写外观 tags；没有立绘的角色画透明底的底图，再照着它画各个表情、动作（局部重绘只换脸 / Director Tools 换表情 / 精准参考换动作）。
+> **还没做**：原创角色的定妆照和 vibe 编码、识图反推外观 tags（现在是从角色卡的文字写）。
 
 | 角色 | 做法 | 花费 |
 |---|---|---|
@@ -1273,6 +1275,39 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 - 遇到同样的情境，先在图库里找，找到就直接用；只有缺的组合和"偶尔一张"的时刻才重新画。
 - 空闲时预先画：专注时画好休息时要用的图，选片时画好入座的图。
 - 一次只能出一张图：所有出图排队，你手动要的图排在前面。
+
+### 10.7 AI 画立绘（立绘预设，已实现）
+
+> `presets/sprite.json`（立绘预设）、`@app/shared` 的 `spritePreset.ts`、`@app/ai` 的 `agents/sprite.ts` 和 `image/novelai.ts`、`services/sprites.ts`、`components/settings/portraits/SpriteGenerator.vue`。
+
+**调研结论（2026-11，对照官方文档和社区客户端；开发时没有接真的 Key，接口字段按 novelai-python、ComfyUI 的几个 NovelAI 节点核对）**
+
+- **能不能直接画透明底：能。**
+  - V5 的新 VAE 原生带 alpha 通道：提示词里写 `transparent background` / `has alpha` / `alpha transparency`，官方建议把透明背景加权（`2.1::transparent background::`）；画出来就是去好背景的立绘，半透明的火焰、魔法也行。网页版对 V5 请求带 `straight_alpha`（不预乘的 alpha，PNG 本来就要这样）。
+  - V4.5 及更早不能，要画完再用 Director Tools 的 **Remove BG**（`/ai/augment-image` 的 `bg-removal`；网页版有 Masked / Generated / Blend 三种，能补出缺的头发）。花点数。
+- **能不能保持一致换表情：能，三种办法。**
+  1. **局部重绘（infill）只换脸**：遮罩只盖脸那一块，框外原样贴回（`add_original_image`），身子、衣服、姿势一像素不动，换表情时立绘不会跳；任何表情 tags 都能画。V5 Full 有自己的重绘模型（`…-inpainting`），V5 Curated 没有，网页版用 V4.5 Curated 的。**默认用这个。**
+  2. **Director Tools → Emotion**：NovelAI 官方的"表情差分"。24 种情绪（neutral、happy、sad、angry、scared、surprised、tired、excited、nervous、thinking、confused、shy、disgusted、smug、bored、laughing、irritated、aroused、embarrassed、worried、love、determined、hurt、playful）+ 6 档强度 + 补充 tags。官方建议：最适合正面、清楚的单人二次元脸，先做一张平静的，再从它换别的表情——正好是"先画平静底图"的做法。官方也说改动不一定只在脸上；没有"睡着"这种情绪。
+  3. **图生图（img2img）**：整张按新 tags 改，变化最大，衣服、头发也可能跟着变。
+- **换动作**：要整张重画。V4.5 的 **精准参考**（Precise Reference，角色 / 角色和画风，强度 + 保真度）照着底图画最像，每张多 5 点、只有 V4.5 能用（V5 发布时还没有），画出来不是透明底要再去背景；或者用 V5、同一个种子只换动作 tags 重画（透明底，但人不一定那么像）。
+- **花费**：Opus 只有"Normal 尺寸以内、28 步以内、一次一张、不照着图改"的文生图免费（§10.2）；照着图改、去背景、精准参考都花点数，V5 另有用量上限。这个功能不按免费条件拦（你是最高档订阅、说了不在意），出图参数页上写明哪些花点数。
+- **接口字段**（官方没公开文档，按社区客户端）：
+  - `POST {站点}/ai/augment-image`：`{req_type, width, height, image, prompt?, defry?}`，宽高要和图一样（不然 500）；换表情时 `prompt` 写成 `情绪;;补充的 tags`、`defry` 是强度档（0 正常 – 5 最弱）；返回 zip。
+  - 局部重绘：`action: infill`、重绘模型、`image` + `mask`（同尺寸 PNG，白色重画）、`inpaintImg2ImgStrength`（不到 1 时社区客户端另带 `img2img: {strength, color_correct}`）；图生图：`action: img2img`、`strength`、`noise`、`extra_noise_seed`。
+  - 精准参考：`director_reference_images`（参考图垫成 1024×1536 / 1536×1024 / 1472×1472，别的尺寸报错）、`director_reference_descriptions`（`base_caption` 写 `character` 或 `character&style`）、`director_reference_strength_values`、`director_reference_secondary_strength_values`（= 1 − 保真度）、`director_reference_information_extracted`。
+- 资料：[Director Tools](https://docs.novelai.net/en/image/directortools/)、[Precise Reference](https://docs.novelai.net/en/image/precisereference/)、[V5 发布（日文）](https://blognew.novelai.net/novelai-diffusion-v5-release-jp-343211a45664/)、[V5 介绍页](https://novelai.net/v5)、[novelai-python](https://github.com/LlmKira/novelai-python)、[ComfyUI_NAIDGenerator](https://github.com/bedovyy/ComfyUI_NAIDGenerator)、[ComfyUI_RS_NAI_API_Request](https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request)。
+
+**流程**（"角色 → 立绘 → AI 画立绘"，没有立绘的角色直接摊开；照"建世界"的做法，先给你看、确认后才存）：
+1. **长相**：缺外观 tags 时，「生图提示词」按立绘预设的 `sprite-tags` 任务从角色卡、世界书写外观 tags 和一套常穿的衣服（衣服记成立绘的一套服装，带 tags）；"生图"页也有这个按钮。
+2. **底图**：按预设的"画法"拼提示词（长相 + 这身衣服 + 底图的动作和表情，默认站立、平静），用出图参数里的模型（默认 V5）画；穿节律今天那身、衣柜里的或 AI 写的那套；可以给一张参考图（V4.5 精准参考）。画出来按图的四边看是不是透明底，不是的话（预设开着时）去背景。第一张图定立绘框，按透明轮廓猜脸放好头像框。
+3. **表情**：照着底图（`PortraitSet.genBase`，导入的图也能当底图）按出图参数里的办法画；只重画脸时遮罩 = 头像框放大几倍（界面上在底图上框出来），种子沿用底图的；画完和底图比，底图透明的地方变得不透明了（重画的那块铺上了背景）就去背景。"画没有的"按预设里表情的顺序一个个画，出错就停。
+4. **动作**：精准参考或同一个种子重画；画完按猜的脸对齐到立绘框（`alignFit`，限制在编辑页能调的范围里）。
+5. 画的图和导入的一样存进素材库、标好表情 / 动作 / 服装（`Portrait.gen` 记着怎么画的：办法、提示词、种子、模型、照着哪张），各处照常按 `pickPortrait` 挑；重画同一个表情时换掉上一张。所有出图排进同一个队列，一次一张。
+
+**立绘预设**（分类"立绘"，用途"立绘"）里有两种块：
+- 交给文本模型（"生图提示词"的 API）的任务：`sprite-tags` 写外观 tags、`sprite-label` 给预设里没有的表情 / 动作写 tags；程序填充块是角色、角色卡的材料、现在的长相、这次要写的。
+- 直接拼进 NovelAI 提示词的块（不发给文本模型）：画法 `sprite-draw`（能用 `{{char_appearance}}` `{{char_outfit}}` `{{expression}}` `{{pose}}`）、负面 `sprite-negative`、每个表情一块 `sprite-expr:名字`（内容是 tags，块上能选 Director Tools 的情绪、写给聊天模型的说明）、每个动作一块 `sprite-pose:名字`（能选适合的场景姿势）。有几个、叫什么都随你，关掉的不画（同游戏的尺度：名字写在触发条件里）。自带平静、大笑、害羞、愤怒、悲伤、惊讶、嫌弃、微笑、睡着九个表情（"睡着"没有对应的 Emotion 情绪，用 Director Tools 时它改用只重画脸）和站立、坐着、挥手三个动作。
+- **出图参数**（预设的 `extra.sprite`，预设编辑页"出图参数"）：画底图的模型、宽高、步数、引导、采样器、噪声调度；底图用哪个表情和动作；换表情的办法（只重画脸 / Director Tools / 图生图）和遮罩大小、重绘强度、重绘模型、Emotion 强度、图生图强度；换动作的办法（精准参考 / 同一个种子）和参考模型、强度、保真度；不是透明底时去背景；原样并入请求的参数。代码里的默认值只给缺了的字段补上。
 
 ---
 

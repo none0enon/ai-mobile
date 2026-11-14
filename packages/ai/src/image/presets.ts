@@ -18,16 +18,84 @@ export function resolveSize(size: ImageSize | undefined): { width: number; heigh
 export const NOVELAI_MODELS = [
   'nai-diffusion-4-5-full',
   'nai-diffusion-4-5-curated',
+  'nai-diffusion-5-full',
+  'nai-diffusion-5-curated',
+  'nai-diffusion-5-full-medium',
   'nai-diffusion-4-full',
   'nai-diffusion-4-curated-preview',
   'nai-diffusion-3',
   'nai-diffusion-furry-3',
 ];
 
-/** V4 起（含 4.5）用 v4_prompt；V3 用老的参数 */
+/** NovelAI 的采样器、噪声调度（第一个是默认的） */
+export const NOVELAI_SAMPLERS = ['k_euler_ancestral', 'k_euler', 'k_dpmpp_2s_ancestral', 'k_dpmpp_2m_sde', 'k_dpmpp_2m', 'k_dpmpp_sde'] as const;
+export const NOVELAI_SCHEDULES = ['karras', 'native', 'exponential', 'polyexponential'] as const;
+
+/** V4 起（含 4.5、V5）用 v4_prompt；V3 用老的参数 */
 export function novelaiGeneration(model: string): 'v4' | 'v3' {
-  return /nai-diffusion-4/.test(model) ? 'v4' : 'v3';
+  return /nai-diffusion-[45]/.test(model) ? 'v4' : 'v3';
 }
+
+/** V5（2026-08 发布）：提示词结构同 V4，参数版本 4（网页版这么发）；新 VAE 能直接画透明背景 */
+export function isNovelaiV5(model: string): boolean {
+  return /nai-diffusion-5/.test(model);
+}
+
+/**
+ * 局部重绘用的模型：重绘版是名字后面加 -inpainting；NovelAI 没有 V5 Curated 的重绘版，网页版用 V4.5 Curated 的（社区客户端同此）。
+ * 预设里写了重绘模型时用写的那个
+ */
+export function novelaiInpaintModel(model: string): string {
+  if (/-inpainting$/.test(model)) return model;
+  if (/^nai-diffusion-5-curated/.test(model)) return 'nai-diffusion-4-5-curated-inpainting';
+  return `${model}-inpainting`;
+}
+
+/** 精准参考（Precise Reference）只有 V4.5 能用（官方文档） */
+export function supportsCharacterReference(model: string): boolean {
+  return /nai-diffusion-4-5/.test(model);
+}
+
+/** 精准参考的参考图只收这三种尺寸，别的尺寸接口报 400 / 500：按比例最接近的垫（官方文档、社区客户端） */
+export const NOVELAI_REFERENCE_CANVASES = [
+  { width: 1024, height: 1536 },
+  { width: 1536, height: 1024 },
+  { width: 1472, height: 1472 },
+] as const;
+
+/**
+ * Director Tools 换表情能选的情绪（/ai/augment-image 的 emotion，写成 "情绪;;补充的 tags"）。
+ * 是接口认的值，不是表情的规定：立绘预设里每个表情选一个用
+ */
+export const NOVELAI_EMOTIONS = [
+  'neutral',
+  'happy',
+  'sad',
+  'angry',
+  'scared',
+  'surprised',
+  'tired',
+  'excited',
+  'nervous',
+  'thinking',
+  'confused',
+  'shy',
+  'disgusted',
+  'smug',
+  'bored',
+  'laughing',
+  'irritated',
+  'aroused',
+  'embarrassed',
+  'worried',
+  'love',
+  'determined',
+  'hurt',
+  'playful',
+] as const;
+
+/** 换表情的强度档（defry 0–5），同网页版 */
+export const NOVELAI_EMOTION_LEVELS = ['正常', '稍弱', '弱', '更弱', '很弱', '最弱'] as const;
 
 /**
  * NovelAI 网页版勾选"质量标签"时追加在提示词末尾的词。服务端不会自动加，直接调接口要自己加。
@@ -75,8 +143,8 @@ export const NOVELAI_UC_PRESETS: Record<string, { heavy: string; light: string }
 export { joinTags } from '@app/shared';
 
 /**
- * Opus 订阅免点数的条件（设计文档 §10.2）：一次一张、不超过 1024×1024 像素、不超过 28 步
+ * Opus 订阅免点数的条件（设计文档 §10.2）：一次一张、不超过 1024×1024 像素、不超过 28 步、不照着图改
  */
-export function freeForOpus(p: { width: number; height: number; steps: number; n_samples?: number }): boolean {
-  return p.width * p.height <= 1024 * 1024 && p.steps <= 28 && (p.n_samples ?? 1) === 1;
+export function freeForOpus(p: { width: number; height: number; steps: number; n_samples?: number; image?: unknown }): boolean {
+  return p.width * p.height <= 1024 * 1024 && p.steps <= 28 && (p.n_samples ?? 1) === 1 && !p.image;
 }

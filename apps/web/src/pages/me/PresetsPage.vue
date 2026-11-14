@@ -11,7 +11,7 @@ import { useCharacterStore } from '@/stores/characters';
 import { useLibraryStore } from '@/stores/library';
 
 /**
- * 预设按用途分九类（?cat= 选哪一类）。每一类上面是"用在哪"：
+ * 预设按用途分类（PRESET_CATEGORY_ORDER，?cat= 选哪一类）。每一类上面是"用在哪"：
  * - 对话：每个角色选自己的对话预设；
  * - 其他：每个用途（一起吃饭、主动消息、番外、总结、配图、陪伴学习时画的图、节律……）选一个这一类的预设，
  *   一起做事、主动消息可以选"跟随对话预设"，一起做事时画的图可以选"跟随配图"。
@@ -70,7 +70,7 @@ function pick(id: string | null) {
 
 <template>
   <div class="page" data-page="presets">
-    <PageHeader title="预设" subtitle="按用途分九类；每一类都能导入、复制、改、删" fallback="/me">
+    <PageHeader title="预设" :subtitle="`按用途分 ${PRESET_CATEGORY_ORDER.length} 类；每一类都能导入、复制、改、删`" fallback="/me">
       <template #right>
         <RouterLink to="/import" class="icon-btn" aria-label="导入预设"><span class="i-lucide-file-down text-[20px]" /></RouterLink>
       </template>

@@ -14,12 +14,10 @@ import {
   wallDate,
   type RhythmContext,
   slotIn,
-  substituteMacros,
   templateFromWorld,
   unregisterWorld,
   worldFromSpec,
   worldOf,
-  type Character,
   type CharacterRhythm,
   type DayOutfit,
   type OutfitKind,
@@ -42,6 +40,7 @@ import { useEnvironmentStore } from './environment';
 import { useHubStore } from './hub';
 import { autoSave, getEntries, write } from '@/db/idb';
 import { usePersonaStore } from './personas';
+import { characterLines, sourceLines } from '@/services/characterSource';
 import { uid } from '@/utils/id';
 
 /**
@@ -245,38 +244,6 @@ export const useRhythmStore = defineStore('rhythm', () => {
   }
 
   // —— 交给「节律」——
-
-  function characterLines(c: Character, user: string): string {
-    const sub = (t: string) => substituteMacros(t, { char: c.name, user }).trim();
-    return [
-      `名字：${c.name}（界面里称呼"${c.pronoun}"）`,
-      c.card.description ? `描述：${sub(c.card.description)}` : '',
-      c.card.personality ? `性格：${sub(c.card.personality)}` : '',
-      c.card.scenario ? `场景：${sub(c.card.scenario)}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-  }
-
-  /** 建世界的材料：角色卡的作者备注和绑定的世界书（开着的条目），太长时截断 */
-  function sourceLines(c: Character, user: string): string {
-    const lib = useLibraryStore();
-    const parts: string[] = [];
-    let budget = 9000;
-    if (c.card.creatorNotes.trim()) parts.push(`作者备注：${c.card.creatorNotes.trim().slice(0, 600)}`);
-    for (const id of c.lorebookIds) {
-      const book = lib.lorebookById(id);
-      if (!book) continue;
-      for (const e of book.entries) {
-        if (!e.enabled || !e.content.trim() || budget <= 0) continue;
-        const title = e.comment || e.keys.slice(0, 3).join('、');
-        const text = substituteMacros(e.content, { char: c.name, user }).trim().slice(0, Math.min(1200, budget));
-        budget -= text.length;
-        parts.push(`【${title}】${text}`);
-      }
-    }
-    return parts.length ? `世界书和设定：\n${parts.join('\n')}` : '';
-  }
 
   function promiseLines(characterId: string): string {
     const chat = useChatStore();

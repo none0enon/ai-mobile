@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import type { Character, Portrait } from '@app/shared';
+import { SPRITE_EXPRESSION_METHODS, SPRITE_POSE_METHODS, type Character, type Portrait, type PortraitGen } from '@app/shared';
 import { showConfirmDialog } from 'vant';
 import { computed, ref } from 'vue';
 import LabelPicker from './LabelPicker.vue';
 import PortraitFigure from '@/components/figure/PortraitFigure.vue';
 import { ensureExpression, ensureOutfit, ensurePose, removePortrait } from '@/services/portraits';
+import { baseOf, setBase } from '@/services/sprites';
 import { useCharacterStore } from '@/stores/characters';
 
 /**
@@ -63,6 +64,17 @@ function addPose(label: string) {
 }
 function addOutfit(label: string) {
   if (set.value) outfit.value = ensureOutfit(set.value, label);
+}
+
+// —— AI 画的 ——
+const GEN_LABEL: Record<PortraitGen['method'], string> = {
+  base: '底图',
+  ...Object.fromEntries(Object.entries(SPRITE_EXPRESSION_METHODS).map(([k, m]) => [k, `换表情 · ${m.label}`])),
+  ...Object.fromEntries(Object.entries(SPRITE_POSE_METHODS).map(([k, m]) => [k, `换动作 · ${m.label}`])),
+} as Record<PortraitGen['method'], string>;
+const isBase = computed(() => !!p.value && baseOf(props.character)?.id === p.value.id);
+function useAsBase() {
+  if (p.value) setBase(props.character, p.value.id);
 }
 
 // —— 对齐 ——
@@ -161,12 +173,47 @@ async function remove() {
         <span class="flex-1 text-[13.5px]">留着备用，不参与自动挑选</span>
         <van-switch v-model="hidden" size="20px" aria-label="不参与自动挑选" />
       </div>
+      <div class="pe-row mt-2">
+        <span class="flex-1 min-w-0">
+          <span class="block text-[13.5px]">AI 画立绘时照着这张画</span>
+          <span class="block text-[11.5px] text-ink-3">别的表情、动作都照它画（导入的图也行）</span>
+        </span>
+        <button type="button" class="pe-base" :class="{ on: isBase }" :aria-pressed="isBase" @click="useAsBase">{{ isBase ? '是底图' : '当底图' }}</button>
+      </div>
+      <div v-if="p.gen" class="pe-gen">
+        <div class="text-[12.5px] text-ink-2">AI 画的 · {{ GEN_LABEL[p.gen.method] }}{{ p.gen.removedBg ? ' · 去过背景' : '' }}</div>
+        <div class="text-[11.5px] text-ink-3 mt-0.5">{{ p.gen.model }}{{ p.gen.seed ? ` · 种子 ${p.gen.seed}` : '' }}</div>
+        <div class="text-[11.5px] text-ink-3 mt-0.5 break-all pe-mono">{{ p.gen.prompt }}</div>
+      </div>
       <van-button round block plain type="danger" class="!mt-4" icon="delete-o" @click="remove">删掉这张</van-button>
     </div>
   </van-popup>
 </template>
 
 <style scoped>
+.pe-base {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 15px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.pe-base.on {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.pe-gen {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--panel);
+}
+.pe-mono {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+}
 .pe {
   padding-top: 14px;
 }
