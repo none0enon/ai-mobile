@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Character, MessagePart } from '@app/shared';
+import { pokeHow, pokeLine, type Character, type MessagePart } from '@app/shared';
 import { computed, onBeforeUnmount, ref } from 'vue';
 import { showImagePreview, showToast } from 'vant';
 import { assetUrl } from '@/services/assets';
@@ -183,9 +183,8 @@ async function playVoice() {
 
   <!-- 拍一拍 -->
   <div v-else-if="part.type === 'poke'" class="poke">
-    <span class="i-lucide-hand text-[13px]" />
-    <template v-if="part.actor === 'user'">你拍了拍{{ character.name }}的{{ part.target }}</template>
-    <template v-else>{{ character.name }}拍了拍你</template>
+    <span :class="pokeHow(part.how)?.icon ?? 'i-lucide-hand'" class="text-[13px]" />
+    {{ pokeLine(part, '你', character.name) }}
   </div>
 
   <!-- 通话记录 -->

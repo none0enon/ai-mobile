@@ -99,6 +99,9 @@ export interface PokeReaction {
   lines: string[];
 }
 
+/** 戳戳乐里怎么碰她：用手、用嘴、蹭蹭（poke.ts） */
+export type PokeHow = 'hand' | 'mouth' | 'rub';
+
 /** 戳戳乐热区 */
 export interface PokeHotspot {
   id: string;

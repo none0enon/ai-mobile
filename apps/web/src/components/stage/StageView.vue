@@ -25,6 +25,8 @@ const props = withDefaults(
     dim?: number;
     pokeable?: boolean;
     showHotspots?: boolean;
+    /** 戳的时候怎么碰（戳戳乐里用手 / 用嘴 / 蹭蹭）：热区读屏念的动词、点一下和长按时冒出来的图标 */
+    pokeAs?: { verb: string; tap: string; long: string };
     /** 立绘框位置：水平中心 %、距底部 %、高度 % */
     layout?: { left: number; bottom: number; height: number };
   }>(),
@@ -36,6 +38,7 @@ const props = withDefaults(
     dim: 0,
     pokeable: false,
     showHotspots: false,
+    pokeAs: () => ({ verb: '戳', tap: 'i-lucide-heart', long: 'i-lucide-hand-heart' }),
     layout: () => ({ left: 50, bottom: 14, height: 76 }),
   },
 );
@@ -123,7 +126,7 @@ function cancel() {
           class="hotspot"
           :class="{ visible: showHotspots }"
           :style="shapeStyle(h)"
-          :aria-label="`戳${h.label}`"
+          :aria-label="`${pokeAs.verb}${h.label}`"
           :data-zone="h.id"
           @pointerdown="down(h, $event)"
           @pointerup="up"
@@ -137,7 +140,7 @@ function cancel() {
     </div>
     <template v-for="f in effects" :key="f.id">
       <span class="ripple" :style="{ left: `${f.x}px`, top: `${f.y}px` }" />
-      <span class="heart" :class="f.kind === 'long' ? 'i-lucide-hand-heart' : 'i-lucide-heart'" :style="{ left: `${f.x}px`, top: `${f.y}px` }" />
+      <span class="heart" :class="f.kind === 'long' ? pokeAs.long : pokeAs.tap" :style="{ left: `${f.x}px`, top: `${f.y}px` }" />
     </template>
     <slot />
   </div>

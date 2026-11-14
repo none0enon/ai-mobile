@@ -107,4 +107,28 @@ export const pokeHotspots: PokeHotspot[] = [
     shape: { kind: 'rect', x: 0.18, y: 0.7, w: 0.64, h: 0.14 },
     tap: { expression: 'surprised', lines: ['吓我一跳！', '嗯？叫我干嘛～', '要我陪你出去走走吗？'] },
   },
+  {
+    id: 'lips',
+    part: 'lips',
+    label: '嘴唇',
+    shape: { kind: 'rect', x: 0.455, y: 0.465, w: 0.09, h: 0.05 },
+    tap: { expression: 'blush', lines: ['唔……！', '偷、偷袭！', '……再来一下也不是不行。'] },
+    longPress: { expression: 'shy', lines: ['……喘不过气了啦。', '你今天怎么这么黏人。'] },
+  },
+  {
+    id: 'neck',
+    part: 'neck',
+    label: '脖子',
+    shape: { kind: 'rect', x: 0.42, y: 0.56, w: 0.16, h: 0.13 },
+    tap: { expression: 'surprised', lines: ['好痒！', '别碰脖子……', '呀，凉！'] },
+    longPress: { expression: 'blush', lines: ['……别在那儿呼气啦。'] },
+  },
+  {
+    id: 'body',
+    part: 'body',
+    label: '身子',
+    shape: { kind: 'rect', x: 0.2, y: 0.85, w: 0.6, h: 0.15 },
+    tap: { expression: 'shy', lines: ['手往哪儿放呢！', '……你干嘛呀。', '老实点！'] },
+    longPress: { expression: 'blush', lines: ['……真拿你没办法。', '再乱摸我可要摸回去了。'] },
+  },
 ];
