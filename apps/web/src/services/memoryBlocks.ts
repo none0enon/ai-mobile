@@ -2,12 +2,14 @@ import { dayLabel, lineTime } from '@app/ai';
 import type { AppBlockFill, Character, Chat, Memory } from '@app/shared';
 import { useMemoryStore } from '@/stores/memory';
 import type { RecallLine } from './recall';
+import { recentMomentsBlock } from './social';
 
 /**
  * 记忆进提示词的两块（设计文档 §5.1 的"过往摘要"和"长期记忆 + 关系状态"）：
  * - 过往摘要：画像卡（她知道的你）+ 时间线（各层还没合并的段，越早越概括）；
  * - 长期记忆：关系状态 + 每次都带的（置顶的、到期要问的）+ 这一轮取到的记忆（按发生时间排好，带日期）。
  * 主动消息没有"你刚说的话"可以搜，只带每次都带的和最重要的 30 条。
+ * 最近三天的朋友圈（她发的、你发的她看得到的，连同点赞评论）接在长期记忆后面：聊天、主动消息都知道朋友圈里发生了什么。
  */
 
 const DAY = 86_400_000;
@@ -78,7 +80,7 @@ export function summaryBlock(chat: Chat, character: Character, timeZone: string)
 }
 
 /** 长期记忆：关系 + 每次都带的 + 这一轮取到的 */
-export function memoryBlock(character: Character, recall: RecallLine[], now: number, timeZone: string, opts: { proactive?: boolean } = {}): AppBlockFill {
+export function memoryBlock(character: Character, recall: RecallLine[], now: number, timeZone: string, opts: { proactive?: boolean; /** 不带"最近的朋友圈"（发朋友圈时那一块单独给） */ moments?: boolean } = {}): AppBlockFill {
   const fixed = alwaysOn(character.id, now);
   const fixedIds = new Set(fixed.map((m) => m.id));
   const lines: string[] = [];
@@ -99,6 +101,11 @@ export function memoryBlock(character: Character, recall: RecallLine[], now: num
     const picked = recall.filter((l) => !(l.kind === 'memory' && fixedIds.has(l.id))).sort((a, b) => a.at - b.at);
     if (picked.length) lines.push(`${character.name}想起来的事（按时间先后）：\n${picked.map((l) => `- ${dayLabel(l.at, timeZone)}：${l.text}`).join('\n')}`);
     source += ` + 取到的 ${picked.length} 条`;
+  }
+  const moments = opts.moments === false ? '' : recentMomentsBlock(character);
+  if (moments) {
+    lines.push(moments);
+    source += ' + 最近的朋友圈';
   }
   return { content: lines.join('\n\n'), source };
 }

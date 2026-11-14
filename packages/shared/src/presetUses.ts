@@ -13,12 +13,14 @@ import type { Preset, PresetCategory, PromptBlock } from './types/preset.ts';
  *   装修小屋用"一起游戏 · 装修小屋"（game-decor）。
  * - 创意工坊：写小说用"小说"预设（novel，调"创作 · 小说"的 API），画画用"一起游戏 · 创意工坊"的生图预设（game-workshop-image，可以跟随配图），
  *   把作品给她看、她捧场或吐槽用"一起游戏 · 创意工坊"（game-workshop）。
+ * - 朋友圈：她发朋友圈、回应你的朋友圈和评论用"社媒"预设（social，调"社媒 · 朋友圈"的 API）；配图用"配图"的生图预设。
  * - 立绘：AI 画立绘用"立绘"预设（sprite）：写外观 tags、各个表情和动作的 tags、出图参数都在它里面。
  */
 export type FeatureSceneId = Exclude<SceneId, 'free'>;
 export type PresetUseId =
   | 'call'
   | 'proactive'
+  | 'social'
   | 'theater'
   | 'summary'
   | 'consolidate'
@@ -156,6 +158,7 @@ export const PRESET_USES: PresetUse[] = [
     follow: null,
   },
   { id: 'proactive', category: 'proactive', label: '主动消息', desc: '到点时角色先发来的那条', icon: 'i-lucide-bell-ring', follow: 'chat' },
+  { id: 'social', category: 'social', label: '朋友圈', desc: '她发朋友圈（云端每天随机时间发，或者在朋友圈页里让她现在发）、给你的朋友圈点赞评论、回你的评论', icon: 'i-lucide-aperture', follow: null },
   { id: 'theater', category: 'theater', label: '番外', desc: '"我的 → 试一试 → 写一段番外"', icon: 'i-lucide-book-heart', follow: null },
   { id: 'summary', category: 'summary', label: '总结聊天', desc: '每攒够几条（"我的 → 消息设置"里改）自动写梗概、故事片段和记忆，聊天 ⋯ 里也能手动整理', icon: 'i-lucide-notebook-pen', follow: null },
   { id: 'consolidate', category: 'summary', label: '记忆整理', desc: '每天凌晨 4 点在云端合并重复的记忆、合并时间线、过期的事改时态、修改画像卡；记忆本里也能"立即整理"', icon: 'i-lucide-sparkles', follow: null },

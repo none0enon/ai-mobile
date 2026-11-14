@@ -94,6 +94,7 @@ const DEFAULT_MAX_TOKENS: Partial<Record<AgentRole, number>> = {
   summary: 4000,
   consolidate: 3000,
   proactive: 600,
+  social: 3000,
   vision: 800,
 };
 

@@ -1,4 +1,4 @@
-import { apiKeyId, DEFAULT_PROACTIVE_RULES, type HubInbox, type HubMemoryResults, type HubStatus, type HubTouchpoint,
+import { AGENT_META, apiKeyId, DEFAULT_PROACTIVE_RULES, type HubInbox, type HubMemoryResults, type HubMoments, type HubStatus, type HubTouchpoint,
   type Character, type HubRhythms, type Message, type NotificationPreview, type ProactiveContext, type ProactiveCredentials } from '@app/shared';
 import { defineStore } from 'pinia';
 import { computed, reactive, ref, watch } from 'vue';
@@ -8,6 +8,7 @@ import { alwaysOn, memoryBlock, summaryBlock } from '@/services/memoryBlocks';
 import { personaOf } from '@/services/prompt';
 import { homeBlock, lifeFlags } from '@/services/homeBlock';
 import { settleSyncJobs } from '@/services/hubSync';
+import { receiveHubMoments, socialCloudContext } from '@/services/social';
 import { useAiStore } from './ai';
 import { useAppStore } from './app';
 import { useCharacterStore } from './characters';
@@ -17,6 +18,7 @@ import { useLibraryStore } from './library';
 import { useMemoryStore } from './memory';
 import { afterSummarized, lastN, useMessageSettingsStore } from './messageSettings';
 import { useRhythmStore } from './rhythm';
+import { useSocialStore } from './social';
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 interface SavedHub {
@@ -25,11 +27,15 @@ interface SavedHub {
   rhythmRevisions: Record<string, number>; rhythmHashes: Record<string, string>; rhythmApiHash: string;
   /** 记忆整理：每个角色上传过的版本和内容指纹、API 指纹、已经应用到哪一次云端结果 */
   memoryRevisions?: Record<string, number>; memoryHashes?: Record<string, string>; memoryApiHash?: string; memoryAppliedAt?: number;
+  /** 朋友圈：每个角色上传过的版本和内容指纹、API 指纹 */
+  socialRevisions?: Record<string, number>; socialHashes?: Record<string, string>; socialApiHash?: string;
   lastSyncAt?: number;
 }
 export const useHubStore = defineStore('hub', () => {
   const config = reactive<SavedHub>({ url: '', cursor: 0, deviceId: '', active: false, preview: 'name-only', revisions: {}, hashes: {}, apiHash: '', rhythmRevisions: {}, rhythmHashes: {}, rhythmApiHash: '',
-    memoryRevisions: {}, memoryHashes: {}, memoryApiHash: '', memoryAppliedAt: 0 });
+    memoryRevisions: {}, memoryHashes: {}, memoryApiHash: '', memoryAppliedAt: 0, socialRevisions: {}, socialHashes: {}, socialApiHash: '' });
+  /** 云端没发出来的朋友圈（"云端与同步"、朋友圈设置里显示） */
+  const socialErrors = ref<HubMoments['errors']>([]);
   /** 云端记忆整理失败的角色（"云端与同步"里显示） */
   const memoryErrors = ref<HubMemoryResults['errors']>([]);
   const token = ref('');
@@ -41,6 +47,8 @@ export const useHubStore = defineStore('hub', () => {
   const error = ref('');
   const supportsRhythm = computed(() => typeof status.value?.rhythmConfigured === 'boolean');
   const supportsMemory = computed(() => typeof status.value?.memoryConfigured === 'boolean');
+  /** 旧版 Worker 没有朋友圈：不算"必须升级"，只是云端不会自动发 */
+  const supportsSocial = computed(() => typeof status.value?.socialConfigured === 'boolean');
   const upgradeRequired = computed(() => !!status.value && (!supportsRhythm.value || !supportsMemory.value));
   const syncing = ref(false);
   let started = false;
@@ -80,7 +88,7 @@ export const useHubStore = defineStore('hub', () => {
     syncing.value = false;
     error.value = '';
     if (config.url !== base) Object.assign(config, { cursor: 0, active: false, revisions: {}, hashes: {}, apiHash: '', rhythmRevisions: {}, rhythmHashes: {}, rhythmApiHash: '',
-      memoryRevisions: {}, memoryHashes: {}, memoryApiHash: '', memoryAppliedAt: 0, lastSyncAt: undefined });
+      memoryRevisions: {}, memoryHashes: {}, memoryApiHash: '', memoryAppliedAt: 0, socialRevisions: {}, socialHashes: {}, socialApiHash: '', lastSyncAt: undefined });
     status.value = null; points.value = []; lastSyncAt.value = config.lastSyncAt ?? null;
     config.url = base;
     config.deviceId = result.deviceId;
@@ -114,6 +122,12 @@ export const useHubStore = defineStore('hub', () => {
           const data = await request<{ contexts: { id: string; revision: number }[] }>('/v1/memory/contexts');
           config.memoryRevisions = Object.fromEntries(data.contexts.map((c) => [c.id, c.revision]));
           config.memoryHashes = {}; config.memoryApiHash = '';
+        } }] : []),
+        ...(supportsSocial.value ? [{ label: '朋友圈版本', run: async () => {
+          const data = await request<{ contexts: { id: string; revision: number }[] }>('/v1/social/contexts');
+          config.socialRevisions = Object.fromEntries(data.contexts.map((c) => [c.id, c.revision]));
+          config.socialHashes = Object.fromEntries(Object.keys(config.socialHashes ?? {}).map((id) => [id, '']));
+          config.socialApiHash = '';
         } }] : []),
       ];
       await settleSyncJobs(jobs);
@@ -219,9 +233,9 @@ export const useHubStore = defineStore('hub', () => {
     if (failed?.status === 'rejected') throw failed.reason;
   }
 
-  async function uploadApi(role: 'proactive' | 'rhythm' | 'consolidate' = 'proactive') {
+  async function uploadApi(role: 'proactive' | 'rhythm' | 'consolidate' | 'social' = 'proactive') {
     const ai = useAiStore();
-    if (!ai.isLive(role)) throw new Error(`请先在 API 设置中接通${role === 'rhythm' ? '节律' : role === 'consolidate' ? '记忆整理' : '主动消息'}`);
+    if (!ai.isLive(role)) throw new Error(`请先在 API 设置中接通${AGENT_META[role].label}`);
     // 主动消息可能跟随「陪伴 · 快速」、它再跟随主对话：一路上的设置都要带上，云端才解析得出用哪个 API
     const chain = ai.system.router.chain(role);
     const source = chain.at(-1) ?? role;
@@ -231,8 +245,9 @@ export const useHubStore = defineStore('hub', () => {
       outputFilters: ai.outputFilters,
     });
     const fingerprint = await hash(credentials);
-    const key = role === 'rhythm' ? 'rhythmApiHash' : role === 'consolidate' ? 'memoryApiHash' : 'apiHash';
-    const configured = role === 'rhythm' ? status.value?.rhythmConfigured : role === 'consolidate' ? status.value?.memoryConfigured : status.value?.configured;
+    const key = role === 'rhythm' ? 'rhythmApiHash' : role === 'consolidate' ? 'memoryApiHash' : role === 'social' ? 'socialApiHash' : 'apiHash';
+    const configured = role === 'rhythm' ? status.value?.rhythmConfigured : role === 'consolidate' ? status.value?.memoryConfigured
+      : role === 'social' ? status.value?.socialConfigured : status.value?.configured;
     if (config[key] === fingerprint && configured) return;
     await request(`/v1/secrets/${role}`, 'PUT', credentials);
     config[key] = fingerprint;
@@ -297,6 +312,57 @@ export const useHubStore = defineStore('hub', () => {
     await save();
     const failure = results.find((r) => r.status === 'rejected');
     if (failure?.status === 'rejected') throw failure.reason;
+  }
+
+  /** 朋友圈：开着"自动发朋友圈"的角色各上传一份（角色卡、节律、记忆、最近的聊天和朋友圈），云端每天在随机的时间替她发 */
+  function socialContexts() {
+    // "社媒 · 朋友圈"没接通时不传（传了云端也发不出来）
+    if (!useAiStore().isLive('social')) return [];
+    return useCharacterStore().list.flatMap((c) => {
+      const context = socialCloudContext(c.id);
+      return context ? [context] : [];
+    });
+  }
+
+  async function uploadSocial() {
+    if (!useSocialStore().ready) return;
+    config.socialRevisions ??= {};
+    config.socialHashes ??= {};
+    const revisions = config.socialRevisions;
+    const hashes = config.socialHashes;
+    const snapshots = clone(socialContexts());
+    const present = new Set(snapshots.map((c) => c.character.id));
+    // Only unregister this device's previously uploaded roles. Empty devices cannot erase other roles.
+    const results = await Promise.allSettled([
+      ...snapshots.map(async (context) => {
+        const id = context.character.id;
+        const fingerprint = await hash(context);
+        if (hashes[id] === fingerprint) return;
+        const result = await request<{ revision: number }>(`/v1/social/contexts/${encodeURIComponent(id)}`, 'PUT', { context, revision: revisions[id] ?? 0 });
+        revisions[id] = result.revision; hashes[id] = fingerprint;
+      }),
+      ...Object.keys(hashes).filter((id) => !present.has(id)).map(async (id) => {
+        await request(`/v1/social/contexts/${encodeURIComponent(id)}`, 'DELETE');
+        delete hashes[id]; delete revisions[id];
+      }),
+      ...(snapshots.length ? [uploadApi('social')] : []),
+    ]);
+    await save();
+    const failure = results.find((r) => r.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+  }
+
+  /** 拉云端发的朋友圈：放进来、记进记忆、把要配的图画出来；有新的弹一条横幅 */
+  async function pullSocial() {
+    const social = useSocialStore();
+    if (!social.ready) return;
+    const data = await request<HubMoments>(`/v1/social/posts?since=${social.cursor}`);
+    socialErrors.value = data.errors;
+    const added = receiveHubMoments(data.posts.map((p) => p.moment));
+    social.cursor = Math.max(social.cursor, ...data.posts.map((p) => p.doneAt));
+    const latest = added.at(-1);
+    const author = useCharacterStore().byId(latest?.authorId);
+    if (latest && author) useAppStore().showBanner({ characterId: author.id, title: author.name, text: `发了一条朋友圈${latest.text ? `：${latest.text}` : ''}`, to: '/moments', icon: 'i-lucide-aperture' });
   }
 
   /** 拉云端整理好的结果，按顺序应用（你在手机上改过的那一处跳过） */
@@ -380,6 +446,7 @@ export const useHubStore = defineStore('hub', () => {
           { label: '节律设置', run: uploadRhythms },
         ] : []),
         ...(supportsMemory.value ? [{ label: '记忆整理', run: () => pullMemories().then(uploadMemories) }] : []),
+        ...(supportsSocial.value ? [{ label: '朋友圈', run: () => pullSocial().then(uploadSocial) }] : []),
         ...(config.active ? [
           { label: '角色上下文（含时区和作息）', run: uploadContexts },
           { label: '主动消息 API', run: () => uploadApi() },
@@ -436,13 +503,15 @@ export const useHubStore = defineStore('hub', () => {
     navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.type === 'hub-inbox') void syncNow(); });
     watch(() => config.preview, () => { void save(); });
     let debounce: ReturnType<typeof setTimeout>;
-    watch(() => [contexts(), rhythmContexts(), useAiStore().routes, useAiStore().outputFilters,
+    watch(() => [contexts(), rhythmContexts(), socialContexts(), useAiStore().routes, useAiStore().outputFilters,
       useAiStore().keyOf(apiKeyId(useAiStore().system.router.source('proactive'))),
       useAiStore().keyOf(apiKeyId(useAiStore().system.router.source('proactive'), true)),
       useAiStore().keyOf(apiKeyId(useAiStore().system.router.source('rhythm'))),
-      useAiStore().keyOf(apiKeyId(useAiStore().system.router.source('rhythm'), true)), useChatStore().streams], () => {
+      useAiStore().keyOf(apiKeyId(useAiStore().system.router.source('rhythm'), true)),
+      useAiStore().keyOf(apiKeyId(useAiStore().system.router.source('social'))),
+      useAiStore().keyOf(apiKeyId(useAiStore().system.router.source('social'), true)), useChatStore().streams], () => {
       clearTimeout(debounce); debounce = setTimeout(() => void syncNow(), 500);
     }, { deep: true });
   }
-  return { config, savedPassword, connected, status, points, error, syncing, lastSyncAt, memoryErrors, supportsRhythm, supportsMemory, upgradeRequired, hydrate, connect, resyncFromDevice, disconnect, syncNow, enable, disable, subscribe, addWebhook, removeChannel, testChannel, start };
+  return { config, savedPassword, connected, status, points, error, syncing, lastSyncAt, memoryErrors, socialErrors, supportsRhythm, supportsMemory, supportsSocial, upgradeRequired, hydrate, connect, resyncFromDevice, disconnect, syncNow, enable, disable, subscribe, addWebhook, removeChannel, testChannel, start };
 });

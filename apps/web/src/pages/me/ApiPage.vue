@@ -31,7 +31,7 @@ const chars = useCharacterStore();
 const GROUPS: { title: string; roles: AgentRole[]; note: string }[] = [
   {
     title: '文字',
-    roles: ['main', 'companion', 'sidestory', 'novel', 'summary', 'consolidate', 'imagePrompt', 'rhythm', 'health', 'device', 'proactive', 'vision'],
+    roles: ['main', 'companion', 'sidestory', 'novel', 'summary', 'consolidate', 'imagePrompt', 'rhythm', 'health', 'device', 'proactive', 'social', 'vision'],
     note: '渠道可选自定义、Claude、OpenAI 兼容、Gemini、Vertex Agent、DeepSeek。「陪伴 · 快速」写一起做事时的短句，选便宜、快的模型；生图提示词、节律和心跳的控制指令默认跟随它。其余功能可以跟随主对话或「陪伴 · 快速」，也可以单独设置。',
   },
   { title: '语音', roles: ['tts', 'stt'], note: '语音合成可选自定义（OpenAI 格式 /audio/speech）、硅基流动、MiniMax、火山引擎、Fish Audio、GPT-SoVITS；音色在"我的 → 语音"里按角色设置。' },
@@ -39,9 +39,9 @@ const GROUPS: { title: string; roles: AgentRole[]; note: string }[] = [
   { title: '记忆', roles: ['embedding'], note: '向量化可选自定义（OpenAI 格式 /embeddings）、硅基流动、Gemini。备用 API 只在模型相同时才会用：不同模型的向量不能互相比较，换了模型要重算向量。' },
 ];
 /** 提示词和采样参数在预设里的功能（温度不在这里调） */
-const PRESET_DRIVEN: Partial<Record<AgentRole, string>> = { companion: '"功能"', sidestory: '"小剧场"', novel: '"小说"', summary: '"总结"', consolidate: '"总结"', imagePrompt: '"生图"', proactive: '"主动消息"', health: '"健康"', device: '"控制指令"' };
+const PRESET_DRIVEN: Partial<Record<AgentRole, string>> = { companion: '"功能"', sidestory: '"小剧场"', novel: '"小说"', summary: '"总结"', consolidate: '"总结"', imagePrompt: '"生图"', proactive: '"主动消息"', health: '"健康"', device: '"控制指令"', social: '"社媒"' };
 /** 后台跑的功能可以设每日上限（总结、记忆整理不设上限） */
-const BUDGETED = new Set<AgentRole>(['sidestory', 'imagePrompt', 'proactive', 'embedding']);
+const BUDGETED = new Set<AgentRole>(['sidestory', 'imagePrompt', 'proactive', 'social', 'embedding']);
 /** 推理强度：OpenAI 的 reasoning_effort、Claude 的思考预算 / effort、Gemini 的 thinkingBudget / thinkingLevel */
 const EFFORTS: { value: ReasoningEffort; label: string }[] = [
   { value: 'auto', label: '自动' },

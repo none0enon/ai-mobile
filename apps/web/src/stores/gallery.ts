@@ -126,8 +126,8 @@ export const useGalleryStore = defineStore('gallery', () => {
   /**
    * 能不能自动画：生图接通了、自动画开着；NovelAI 只在不花点的设置下（步数不超过 28、不用 V5；尺寸和张数程序本来就守着）
    */
-  function autoCheck(): { ok: true } | { ok: false; reason: string } {
-    if (!autoDraw.value) return { ok: false, reason: '自动画关着' };
+  function autoCheck(opts: { /** 不看场景的"自动画"开关（朋友圈的配图有自己的开关） */ ignoreSwitch?: boolean } = {}): { ok: true } | { ok: false; reason: string } {
+    if (!autoDraw.value && !opts.ignoreSwitch) return { ok: false, reason: '自动画关着' };
     const ai = useAiStore();
     const s = ai.status('image');
     if (!s.live) return { ok: false, reason: `生图 API 还没接通：${s.reason}` };

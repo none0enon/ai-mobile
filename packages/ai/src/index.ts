@@ -78,3 +78,4 @@ export * from './agents/rhythm.ts';
 export * from './agents/health.ts';
 export * from './agents/device.ts';
 export * from './agents/sprite.ts';
+export * from './agents/social.ts';

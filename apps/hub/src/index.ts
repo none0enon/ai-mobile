@@ -1,11 +1,12 @@
 import { AgentSystem } from '@app/ai';
-import { zonedParts, type MemoryConsolidationContext, type MemoryJobResult, type ProactiveContext, type ProactiveCredentials, type RhythmContext, type Touchpoint } from '@app/shared';
+import { SOCIAL_PER_DAY_MAX, zonedParts, type MemoryConsolidationContext, type MemoryJobResult, type Moment, type ProactiveContext, type ProactiveCredentials, type RhythmContext, type SocialContext, type Touchpoint } from '@app/shared';
 import { digest, equalSecret, seal } from './crypto.ts';
 import type { Env } from './env.ts';
 import { PushDeliveryError, sendChannel, type Channel, type Webhook } from './push.ts';
 import { getMeta, runScheduled, setMeta } from './scheduler.ts';
 import { runRhythmScheduled } from './rhythm.ts';
 import { runMemoryScheduled } from './memory.ts';
+import { runSocialScheduled } from './social.ts';
 
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
 function assert(ok: unknown, message: string): asserts ok {
@@ -70,15 +71,16 @@ async function api(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === '/v1/status' && request.method === 'GET') {
-    const [enabled, lastCronAt, lastError, configured, channels, rhythmConfigured, lastRhythmError, memoryConfigured, lastMemoryError] = await Promise.all([
+    const [enabled, lastCronAt, lastError, configured, channels, rhythmConfigured, lastRhythmError, memoryConfigured, lastMemoryError, socialConfigured, lastSocialError] = await Promise.all([
       getMeta(env, 'enabled', false), getMeta<number | null>(env, 'lastCronAt', null), getMeta<string | null>(env, 'lastError', null),
       env.DB.prepare("SELECT id FROM secrets WHERE id = 'proactive'").first(),
       env.DB.prepare('SELECT id, kind, label, last_ok_at AS lastOkAt FROM push_channels').all(),
       env.DB.prepare("SELECT id FROM secrets WHERE id = 'rhythm'").first(), getMeta<string | null>(env, 'lastRhythmError', null),
       env.DB.prepare("SELECT id FROM secrets WHERE id = 'consolidate'").first(), getMeta<string | null>(env, 'lastMemoryError', null),
+      env.DB.prepare("SELECT id FROM secrets WHERE id = 'social'").first(), getMeta<string | null>(env, 'lastSocialError', null),
     ]);
     return json({ enabled, lastCronAt, lastError, configured: !!configured, rhythmConfigured: !!rhythmConfigured, lastRhythmError,
-      memoryConfigured: !!memoryConfigured, lastMemoryError, vapidPublicKey: env.VAPID_PUBLIC_KEY ?? null, channels: channels.results });
+      memoryConfigured: !!memoryConfigured, lastMemoryError, socialConfigured: !!socialConfigured, lastSocialError, vapidPublicKey: env.VAPID_PUBLIC_KEY ?? null, channels: channels.results });
   }
   if (path === '/v1/proactive/enabled' && request.method === 'PUT') {
     const { enabled } = await body<{ enabled: boolean }>(request);
@@ -189,8 +191,53 @@ async function api(request: Request, env: Env): Promise<Response> {
       errors: errors.results.map((e) => ({ characterId: e.character_id, date: e.date, reason: e.last_error })),
     });
   }
-  if (['/v1/secrets/proactive', '/v1/secrets/rhythm', '/v1/secrets/consolidate'].includes(path) && request.method === 'PUT') {
-    const role = path === '/v1/secrets/rhythm' ? 'rhythm' : path === '/v1/secrets/consolidate' ? 'consolidate' : 'proactive';
+  if (path === '/v1/social/contexts' && request.method === 'GET') {
+    return json({ contexts: (await env.DB.prepare('SELECT character_id AS id, revision FROM social_contexts').all()).results });
+  }
+  if (path.startsWith('/v1/social/contexts/')) {
+    const id = decodeURIComponent(path.slice('/v1/social/contexts/'.length));
+    if (request.method === 'DELETE') {
+      await env.DB.batch([
+        env.DB.prepare('DELETE FROM social_contexts WHERE character_id = ?').bind(id),
+        env.DB.prepare('DELETE FROM social_posts WHERE character_id = ? AND data IS NULL').bind(id),
+      ]);
+      return json({ ok: true });
+    }
+    if (request.method === 'PUT') {
+      const { context: c, revision } = await body<{ context: SocialContext; revision: number }>(request);
+      assert(c?.character?.id === id && c.character.name && c.character.card && typeof c.userName === 'string', '朋友圈的角色无效');
+      assert(typeof c.timezone === 'string' && c.timezone, '缺少时区');
+      try { zonedParts(Date.now(), c.timezone); } catch { throw new HttpError(400, '无效的 IANA 时区'); }
+      assert(typeof c.settings?.enabled === 'boolean' && Number.isInteger(c.settings.perDay) && c.settings.perDay >= 1 && c.settings.perDay <= SOCIAL_PER_DAY_MAX, '朋友圈设置无效');
+      assert([c.awake?.from, c.awake?.to].every((t) => typeof t === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(t)), '作息时间须为 HH:mm');
+      assert([c.memories, c.recent, c.feed].every((t) => typeof t === 'string') && (c.day === null || Array.isArray(c.day?.schedule)), '朋友圈的内容无效');
+      assert(c.preset && Array.isArray(c.preset.blocks), '缺少"社媒"预设');
+      assert(['full', 'name-only', 'hidden'].includes(c.preview), '通知预览无效');
+      assert(Number.isSafeInteger(revision) && revision >= 0, 'revision 无效');
+      const updated = await env.DB.prepare(`INSERT INTO social_contexts(character_id, revision, data, updated_at)
+        SELECT ?, 1, ?, ? WHERE ? = 0 OR EXISTS (SELECT 1 FROM social_contexts WHERE character_id = ?)
+        ON CONFLICT(character_id) DO UPDATE SET revision = social_contexts.revision + 1, data = excluded.data, updated_at = excluded.updated_at
+        WHERE social_contexts.revision = ? RETURNING revision`)
+        .bind(id, JSON.stringify(c), Date.now(), revision, id, revision).first<{ revision: number }>();
+      if (!updated) throw new HttpError(409, '另一台设备更新了朋友圈设置，请在「云端与同步」选择「用本机设置重新同步」');
+      return json(updated);
+    }
+  }
+  if (path === '/v1/social/posts' && request.method === 'GET') {
+    const since = Number(url.searchParams.get('since') ?? 0);
+    assert(Number.isSafeInteger(since) && since >= 0, 'since 无效');
+    // since 那一刻的也返回（同一毫秒可能有两条）：手机按 id 去重
+    const rows = await env.DB.prepare('SELECT data, done_at FROM social_posts WHERE done_at >= ? AND data IS NOT NULL ORDER BY done_at LIMIT 50')
+      .bind(since).all<{ data: string; done_at: number }>();
+    const errors = await env.DB.prepare('SELECT character_id, date, last_error FROM social_posts WHERE data IS NULL AND last_error IS NOT NULL AND due_at > ?')
+      .bind(Date.now() - 86_400_000).all<{ character_id: string; date: string; last_error: string }>();
+    return json({
+      posts: rows.results.map((r) => ({ doneAt: r.done_at, moment: JSON.parse(r.data) as Moment })),
+      errors: errors.results.map((e) => ({ characterId: e.character_id, date: e.date, reason: e.last_error })),
+    });
+  }
+  if (['/v1/secrets/proactive', '/v1/secrets/rhythm', '/v1/secrets/consolidate', '/v1/secrets/social'].includes(path) && request.method === 'PUT') {
+    const role = path === '/v1/secrets/rhythm' ? 'rhythm' : path === '/v1/secrets/consolidate' ? 'consolidate' : path === '/v1/secrets/social' ? 'social' : 'proactive';
     const credentials = await body<ProactiveCredentials>(request);
     assert(Array.isArray(credentials.routes) && credentials.keys && Array.isArray(credentials.outputFilters), 'API 配置无效');
     const system = new AgentSystem({ config: { routes: () => credentials.routes, keyOf: (id) => credentials.keys[id] || null } });
@@ -267,7 +314,8 @@ export default {
   },
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     // Scheduled execution is independent of HTTP requests and browser/service-worker lifetime.
-    const jobs = await Promise.allSettled([runScheduled(env, controller.scheduledTime), runRhythmScheduled(env, controller.scheduledTime), runMemoryScheduled(env, controller.scheduledTime)]);
+    const jobs = await Promise.allSettled([runScheduled(env, controller.scheduledTime), runRhythmScheduled(env, controller.scheduledTime), runMemoryScheduled(env, controller.scheduledTime),
+      runSocialScheduled(env, controller.scheduledTime)]);
     const failure = jobs.find((r) => r.status === 'rejected');
     if (failure?.status === 'rejected') throw failure.reason;
   },

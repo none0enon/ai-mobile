@@ -80,6 +80,9 @@ export interface HubStatus {
   /** 云端记忆整理的 API 已上传 */
   memoryConfigured?: boolean;
   lastMemoryError?: string | null;
+  /** 云端朋友圈的 API 已上传；旧版 Worker 没有这个字段 */
+  socialConfigured?: boolean;
+  lastSocialError?: string | null;
   vapidPublicKey: string | null;
   channels: { id: string; kind: 'webpush' | 'webhook'; label: string; lastOkAt: number | null }[];
 }

@@ -34,6 +34,8 @@ import { useMemoryStore } from './stores/memory';
 import { usePersonaStore } from './stores/personas';
 import { useHomeStore } from './stores/home';
 import { useHealthStore } from './stores/health';
+import { useSocialStore } from '@/stores/social';
+import { startSocialSchedule } from '@/services/social';
 import { maybeAutoConsolidate } from './services/consolidate';
 import { useServicesStore } from './stores/services';
 import { useRealWorldStore } from './stores/realworld';
@@ -86,6 +88,8 @@ const hydrated = Promise.allSettled([
   usePersonaStore().hydrate(),
   useHomeStore().hydrate(),
   useHealthStore().hydrate(),
+  // 朋友圈：她们发的、你发的，和朋友圈的设置
+  useSocialStore().hydrate(),
 ]);
 
 // iPhone 上只有用户点过屏幕后"解锁"的 <audio> 才能在网络请求之后播放语音：第一次点屏幕时解锁
@@ -120,5 +124,7 @@ void hydrated.then(async (results) => {
   void useRealWorldStore().start().finally(() => useWeatherStore().start());
   useProactiveStore().start();
   useHubStore().start();
+  // 云端没接通时，App 开着也按同样的随机时间替她们发朋友圈
+  startSocialSchedule();
   void maybeAutoConsolidate(useHubStore().connected);
 }).catch(() => { startup.error = true; });

@@ -138,6 +138,7 @@ export type AgentRole =
   | 'health'
   | 'device'
   | 'proactive'
+  | 'social'
   | 'vision'
   | 'tts'
   | 'stt';
@@ -282,6 +283,13 @@ export const AGENT_META: Record<
     capability: 'chat',
     runsOn: 'worker',
     icon: 'i-lucide-bell-ring',
+  },
+  social: {
+    label: '社媒 · 朋友圈',
+    desc: '她们发朋友圈（云端每天在随机的时间发，按节律和最近的聊天）、给你的朋友圈点赞评论、回你的评论；要配图时调"生图"',
+    capability: 'chat',
+    runsOn: 'both',
+    icon: 'i-lucide-aperture',
   },
   vision: {
     label: '识图',

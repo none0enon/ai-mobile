@@ -2,10 +2,11 @@
 import { AGENT_META, type AgentRole } from '@app/shared';
 import { closeToast, showLoadingToast, showToast } from 'vant';
 import { computed, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import Avatar from '@/components/common/Avatar.vue';
 import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
 import PersonTabs from '@/components/common/PersonTabs.vue';
+import MomentsSettings from '@/components/settings/MomentsSettings.vue';
 import { pwa } from '@/pwa';
 import { useLibraryStore } from '@/stores/library';
 import { services, writeSidestory, type SidestoryOutcome } from '@/services';
@@ -20,6 +21,7 @@ import { useProactiveStore } from '@/stores/proactive';
 import { useRhythmStore } from '@/stores/rhythm';
 import { useHubStore } from '@/stores/hub';
 import { useServicesStore } from '@/stores/services';
+import { useSocialStore } from '@/stores/social';
 import { useWeatherStore } from '@/stores/weather';
 import { showErrorDialog } from '@/utils/errors';
 
@@ -50,6 +52,13 @@ const weather = useWeatherStore();
 const servicesValue = computed(() => {
   const on = [svc.mapsReady && 'Google 地图', svc.qweatherReady && '和风天气', svc.musicReady && '网易云'].filter(Boolean);
   return on.length ? `${on.length} 个已接通` : '';
+});
+// —— 朋友圈：显示最近几条、谁自己发（从朋友圈页的"去改"过来时直接打开）——
+const social = useSocialStore();
+const momentsOpen = ref(useRoute().query.open === 'moments');
+const momentsValue = computed(() => {
+  const posting = chars.list.filter((c) => social.characterSettings(c.id).enabled).length;
+  return [social.settings.visibleCount ? `最近 ${social.settings.visibleCount} 条可见` : '全部可见', posting ? `${posting} 个角色会发` : '都不自动发'].join(' · ');
 });
 const envValue = computed(() => (weather.mine ? `${weather.mine.place} · ${weather.mine.text} ${weather.temp(weather.mine.tempC)}` : '还没设置城市'));
 
@@ -125,6 +134,7 @@ const groups = computed((): { title: string; rows: Row[] }[] => [
         value: !hub.config.active ? '云端未开启' : !chars.list.some((c) => c.proactive.enabled) ? '都没打开' : upcoming.value ? `今天还会找你 ${upcoming.value} 次` : '查看云端计划',
         to: '/me/proactive',
       },
+      { icon: 'i-lucide-aperture', label: '朋友圈', value: momentsValue.value, click: () => (momentsOpen.value = true) },
       { icon: 'i-lucide-calendar-clock', label: '节律', value: rhythmValue.value, to: '/me/rhythm' },
       { icon: 'i-lucide-heart-pulse', label: '健康计划', value: me.value.health?.enabled ? '' : '健康系统没开', to: '/me/health' },
       { icon: weather.mine?.icon ?? 'i-lucide-cloud-sun', label: '环境与作息', value: envValue.value, to: '/me/environment' },
@@ -253,6 +263,11 @@ function drawStory() {
 
       <p class="text-center text-[12px] text-ink-3 mt-6">AI 陪伴（暂名）· M1 · 没填 Key 的部分用演示数据</p>
     </div>
+
+    <!-- 朋友圈：显示最近几条、谁自己发 -->
+    <van-popup v-model:show="momentsOpen" position="bottom" round teleport="body" :style="{ maxHeight: '86%' }">
+      <MomentsSettings v-if="momentsOpen" />
+    </van-popup>
 
     <!-- 补整理聊天 -->
     <van-popup v-model:show="backfillOpen" position="bottom" round teleport="body" :style="{ maxHeight: '80%' }">
