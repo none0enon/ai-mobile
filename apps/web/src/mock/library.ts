@@ -74,7 +74,7 @@ export const lorebooks: Lorebook[] = [
 
 // 预设不在这里：App 自带的预设是 src/presets/ 里的预设文件，第一次打开时放进预设库（stores/library.ts）
 
-/** 占位立绘上的戳戳乐热区（坐标相对立绘框 0-1）。真立绘在"立绘"页里自己画 */
+/** 占位立绘上的戳戳乐热区（坐标相对立绘框 0-1）；台词也是导入立绘后默认热区的台词。有立绘时在"立绘"页里拖 */
 export const pokeHotspots: PokeHotspot[] = [
   {
     id: 'head',

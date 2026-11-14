@@ -4,7 +4,7 @@ import { mix } from '@/utils/color';
 
 /**
  * 占位立绘：用 SVG 画一个简笔半身像，表情 / 服装 / 姿势都能变，用来演示换表情和戳戳乐。
- * 导入真立绘后，StageView 会改用图片（按 {服装}_{姿势}_{表情}.webp 查找），这个组件只做兜底。
+ * 导入立绘后各处改用图片（PortraitFigure 挑一张），这个组件只在没有立绘时兜底。
  * 画布 600×1000；crop="head" 时只取头部，用作头像。
  */
 const props = withDefaults(

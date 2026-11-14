@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { isExpression, lrcIndexAt, type MessagePart } from '@app/shared';
+import { expressionField, lrcIndexAt, type MessagePart } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -132,7 +132,7 @@ function parseBatch(valid: Set<number>) {
     return list
       .map((x) => x as { line?: unknown; text?: unknown; expr?: unknown })
       .filter((x) => valid.has(Number(x.line)) && typeof x.text === 'string' && x.text.trim())
-      .map((x) => ({ line: Number(x.line), text: String(x.text).trim().slice(0, 40), ...(typeof x.expr === 'string' && isExpression(x.expr) ? { expr: x.expr } : {}) }));
+      .map((x) => ({ line: Number(x.line), text: String(x.text).trim().slice(0, 40), ...expressionField(x.expr, her.value.portraits) }));
   };
 }
 

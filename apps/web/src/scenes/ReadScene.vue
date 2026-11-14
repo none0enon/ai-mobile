@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { errorText } from '@app/ai';
-import { clipRich, isExpression, repairJsonLatex, type MessagePart } from '@app/shared';
+import { clipRich, expressionField, repairJsonLatex, type MessagePart } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, onBeforeUnmount, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -487,7 +487,7 @@ async function requestNotes() {
           // 公式不切开；JSON 里没转义的 \frac \theta 改回来
           quote: typeof x.quote === 'string' ? clipRich(repairJsonLatex(x.quote.trim()), 120, '') : '',
           note: clipRich(repairJsonLatex(String(x.note).trim()), 160, ''),
-          ...(typeof x.expr === 'string' && isExpression(x.expr) ? { expr: x.expr } : {}),
+          ...expressionField(x.expr, her.value.portraits),
         }));
       return { notes, summary: typeof o.summary === 'string' ? clipRich(repairJsonLatex(o.summary.trim()), 600, '') : '' };
     },

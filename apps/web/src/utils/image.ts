@@ -54,6 +54,32 @@ export async function compressImage(file: Blob, opts: CompressOptions): Promise<
 }
 
 /**
+ * 立绘：保留透明，长边压到 max（默认 2048px，手机上整屏立绘也够清楚），优先存 WebP。
+ * 浏览器不会编码 WebP 时（iOS Safari）存 PNG；没缩小、压完反而更大时用原文件。
+ */
+export async function compressPortrait(file: Blob, max = 2048): Promise<{ bytes: Uint8Array<ArrayBuffer>; mime: string; width: number; height: number }> {
+  const img = await loadImage(await readAsDataUrl(file));
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  if (!w || !h) throw new Error('图片读不出来');
+  const scale = Math.min(1, max / Math.max(w, h));
+  const original = async () => ({ bytes: new Uint8Array(await file.arrayBuffer()), mime: file.type || 'image/png', width: w, height: h });
+  if (scale === 1 && file.type === 'image/webp') return original();
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(w * scale));
+  canvas.height = Math.max(1, Math.round(h * scale));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('浏览器不支持 canvas');
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const encode = (type: string, quality?: number) => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
+  let blob = await encode('image/webp', 0.9);
+  if (!blob || blob.type !== 'image/webp') blob = await encode('image/png');
+  if (!blob) throw new Error('图片压缩失败');
+  if (scale === 1 && /^image\/(png|webp|avif|gif)$/.test(file.type) && file.size <= blob.size) return original();
+  return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: blob.type, width: canvas.width, height: canvas.height };
+}
+
+/**
  * 发给她看的照片：长边压到 max（默认 1600px）存成 JPEG（各家识图都认），返回字节和尺寸。
  * 手机相机拍的照片常有几千万像素，原样存既占地方、识图也慢。
  */

@@ -11,6 +11,7 @@ import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 import { useRealWorldStore } from '@/stores/realworld';
+import { useRhythmStore } from '@/stores/rhythm';
 
 /**
  * 所有场景共用的外壳：背景 + 立绘 + 顶栏 + 她的一句话 + 底部场景面板（插槽）。
@@ -79,6 +80,9 @@ function toggleMode() {
   }
 }
 const expr = computed(() => props.expression ?? chars.expression[character.value.id] ?? 'smile');
+/** 节律里她今天在这个场景穿的那套：有立绘时按它挑服装 */
+const rhythm = useRhythmStore();
+const dayOutfit = computed(() => rhythm.outfitFor(character.value.id, props.sceneId));
 const layout = computed(() => props.layout ?? { left: 50, bottom: 40, height: 50 });
 /** 有画好的图时不画立绘（图里就是她） */
 const figureHidden = computed(() => props.hideFigure || !!props.art);
@@ -94,6 +98,7 @@ function openArt() {
       :expression="expr"
       :outfit="outfit ?? scene.outfit"
       :pose="pose ?? scene.pose"
+      :day-outfit="dayOutfit"
       :backdrop="backdrop ?? backdropAt(location, sceneId)"
       :tod="tod"
       :rain="rain"

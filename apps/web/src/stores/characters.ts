@@ -1,7 +1,8 @@
-import { slotAt, worldOf, type Character } from '@app/shared';
+import { normalizeExpression, slotAt, worldOf, type Character } from '@app/shared';
 import { defineStore } from 'pinia';
 import { reactive, ref } from 'vue';
 import { autoSave, getAll, write } from '@/db/idb';
+import { dropAsset } from '@/services/assets';
 import { characters } from '@/mock/characters';
 
 /** 她们此刻在各自世界的哪儿：按作息表（和你同一个时间）。M3 起由 Worker 的 Cron 推进并同步 */
@@ -17,6 +18,10 @@ export const useCharacterStore = defineStore('characters', () => {
   const list = ref<Character[]>([...characters]);
   /** 每个角色此刻的立绘表情（由流式回复里的 [expr:] 标签、戳戳乐驱动） */
   const expression = reactive<Record<string, string>>({ suwan: 'smile', jiangyu: 'neutral' });
+  /** 换了几次表情：同一个表情有好几张立绘时按它轮着用 */
+  const expressionSeq = reactive<Record<string, number>>({});
+  /** 模型用 [pose:] 换的立绘动作（立绘的动作 id）；场景要求的姿势优先 */
+  const pose = reactive<Record<string, string>>({});
 
   const saver = autoSave(
     'characters',
@@ -50,8 +55,12 @@ export const useCharacterStore = defineStore('characters', () => {
 
   function remove(id: string) {
     const model = byId(id)?.live2d?.assetId;
+    const images = byId(id)?.portraits?.portraits.map((p) => p.assetKey) ?? [];
     list.value = list.value.filter((c) => c.id !== id);
     if (model && !list.value.some(c => c.live2d?.assetId === model)) void write('live2d', [], [model]);
+    // 立绘的图：别的角色没在用的从本机素材库删掉
+    const used = new Set(list.value.flatMap((c) => c.portraits?.portraits.map((p) => p.assetKey) ?? []));
+    for (const key of new Set(images)) if (!used.has(key)) void dropAsset(key);
   }
 
   /** 换预设：下一条回复起按新预设拼提示词，聊天记录不动 */
@@ -60,8 +69,19 @@ export const useCharacterStore = defineStore('characters', () => {
     if (c) Object.assign(c, { presetId, updatedAt: Date.now() });
   }
 
+  /** 换表情：认得出的写法（自定义表情、中文名、ST 标签）都换成这个角色的表情 id；认不出的不换 */
   function setExpression(id: string, value: string) {
-    expression[id] = value;
+    const v = normalizeExpression(value, byId(id)?.portraits);
+    if (!v) return;
+    expression[id] = v;
+    expressionSeq[id] = (expressionSeq[id] ?? 0) + 1;
+  }
+
+  /** 换立绘动作（id 或名字）；这个角色没有这个动作时不换 */
+  function setPose(id: string, value: string) {
+    const v = value.trim();
+    const p = byId(id)?.portraits?.poses.find((x) => x.id === v || x.label === v);
+    if (p) pose[id] = p.id;
   }
 
   function bumpAffection(id: string, delta: number) {
@@ -69,5 +89,5 @@ export const useCharacterStore = defineStore('characters', () => {
     if (c) c.relationship.affection = Math.max(0, Math.min(100, c.relationship.affection + delta));
   }
 
-  return { list, expression, hydrate, byId, isDemo, add, remove, setPreset, setExpression, bumpAffection };
+  return { list, expression, expressionSeq, pose, hydrate, byId, isDemo, add, remove, setPreset, setExpression, setPose, bumpAffection };
 });

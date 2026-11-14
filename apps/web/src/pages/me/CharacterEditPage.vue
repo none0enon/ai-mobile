@@ -1,21 +1,17 @@
 <script setup lang="ts">
-import { EXPRESSION_LABELS, EXPRESSIONS, imageAppearance, isFandom, OUTFITS, WEATHER_PROVIDER_LABEL, type PokeHotspot, type WeatherProviderChoice } from '@app/shared';
+import { expressionLabel, imageAppearance, isFandom, WEATHER_PROVIDER_LABEL, type WeatherProviderChoice } from '@app/shared';
 import { showImagePreview, showToast } from 'vant';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AssetImg from '@/components/common/AssetImg.vue';
 import Avatar from '@/components/common/Avatar.vue';
 import ErrorDetails from '@/components/common/ErrorDetails.vue';
-import HScroll from '@/components/common/HScroll.vue';
 import ImagePick from '@/components/common/ImagePick.vue';
 import Segmented from '@/components/common/Segmented.vue';
-import CharacterFigure from '@/components/figure/CharacterFigure.vue';
 import PresetPicker from '@/components/settings/PresetPicker.vue';
 import Live2DSettings from '@/components/settings/Live2DSettings.vue';
-import StageView from '@/components/stage/StageView.vue';
+import PortraitSettings from '@/components/settings/portraits/PortraitSettings.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
-import { FIGURE } from '@/mock/characters';
-import { pokeHotspots } from '@/mock/library';
 import { assetUrl, services, type IllustrateOutcome } from '@/services';
 import { presetFor } from '@/services/prompt';
 import { useAiStore } from '@/stores/ai';
@@ -42,7 +38,6 @@ async function pickAvatar(file: File) {
   }
 }
 const character = computed(() => chars.byId(route.params.id as string) ?? chars.list[0]!);
-const figure = computed(() => FIGURE[character.value.id] ?? { hairStyle: 'long' as const, eye: '#3b2531' });
 /** 和她平时聊天用的对话预设（同拼提示词）；一起做事时用各自的功能预设 */
 const presetId = computed(() => presetFor(character.value)?.id ?? null);
 function pickPreset(id: string | null) {
@@ -134,8 +129,6 @@ onMounted(() => {
 const TABS = ['basic', 'persona', 'greeting', 'example', 'lore', 'preset', 'sprite', 'live2d', 'voice', 'proactive', 'look'] as const;
 const tab = ref<string>(TABS.includes(route.query.tab as (typeof TABS)[number]) ? (route.query.tab as string) : 'basic');
 const ACCENTS = ['#f5b8a6', '#f39cc0', '#b7a6f5', '#8ec5e8', '#7fd1b1', '#f2c66d'];
-const outfit = ref('daily');
-const selectedZone = ref<PokeHotspot | null>(pokeHotspots[0] ?? null);
 const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立' } as const;
 </script>
 
@@ -278,36 +271,7 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
           </div>
         </van-tab>
         <van-tab title="立绘" name="sprite">
-          <div class="px-4">
-            <HScroll :active="outfit" class="gap-1.5 mt-3" aria-label="服装">
-              <button v-for="(label, key) in OUTFITS" :key="key" type="button" class="opt" :class="{ on: outfit === key }" :aria-pressed="outfit === key" @click="outfit = key">{{ label }}</button>
-            </HScroll>
-            <div class="grid grid-cols-4 gap-2 mt-3">
-              <div v-for="e in EXPRESSIONS" :key="e" class="expr">
-                <div class="expr-img">
-                  <CharacterFigure :accent="character.accent" :hair="character.hairColor" :eye="figure.eye" :hair-style="figure.hairStyle" :expression="e" :outfit="outfit" crop="head" />
-                </div>
-                <span class="text-[11.5px] text-ink-2">{{ EXPRESSION_LABELS[e] }}</span>
-              </div>
-            </div>
-            <van-button round block class="!mt-3" icon="photo-o" @click="showToast('M1：按文件名自动归类')">批量导入（{服装}_{姿势}_{表情}.webp）</van-button>
-            <p class="text-[12px] text-ink-3">也兼容 SillyTavern 的表情立绘文件夹（joy / sadness … 28 种标签自动映射）。只有有图的表情会写进给模型的提示。</p>
-
-            <div class="text-[14px] font-600 mt-4 mb-2">戳戳乐热区</div>
-            <div class="zone-preview">
-              <StageView :character="character" expression="smile" :outfit="outfit" backdrop="room" pokeable show-hotspots :layout="{ left: 50, bottom: 0, height: 100 }" @poke="(h) => (selectedZone = h)" />
-            </div>
-            <div v-if="selectedZone" class="zone-info">
-              <div class="flex items-center gap-2">
-                <span class="tag accent">{{ selectedZone.label }}</span>
-                <span class="text-[12px] text-ink-3">单击 → {{ EXPRESSION_LABELS[selectedZone.tap.expression as 'smile'] ?? selectedZone.tap.expression }}<template v-if="selectedZone.longPress"> · 长按 → {{ EXPRESSION_LABELS[selectedZone.longPress.expression as 'smile'] ?? '' }}</template></span>
-              </div>
-              <div class="flex flex-wrap gap-1.5 mt-2">
-                <span v-for="l in selectedZone.tap.lines" :key="l" class="tag">{{ l }}</span>
-              </div>
-            </div>
-            <p class="text-[12px] text-ink-3">点虚线框选中热区；M1 起可以在立绘上直接拖动画多边形。坐标相对立绘，换图分辨率也不用重画。</p>
-          </div>
+          <PortraitSettings v-if="tab === 'sprite'" :key="character.id" :character="character" />
         </van-tab>
         <van-tab title="Live2D" name="live2d">
           <Live2DSettings v-if="tab === 'live2d'" :key="character.id" :character="character" />
@@ -320,7 +284,7 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
             <van-slider v-model="character.voice.speed" :min="0.5" :max="2" :step="0.05" bar-height="4px" button-size="18px" />
             <label class="field-label">表情 → 语气（合成时带上情绪参数）</label>
             <div class="flex flex-wrap gap-1.5">
-              <span v-for="(v, k) in character.voice.emotionMap" :key="k" class="tag">{{ EXPRESSION_LABELS[k as 'smile'] ?? k }} → {{ v }}</span>
+              <span v-for="(v, k) in character.voice.emotionMap" :key="k" class="tag">{{ expressionLabel(String(k), character.portraits) }} → {{ v }}</span>
             </div>
             <van-button round block class="!mt-4" @click="showToast('M4 接入 TTS')">试听</van-button>
           </div>
@@ -451,39 +415,6 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
   border-radius: 14px;
   background: var(--panel);
 }
-.opt {
-  height: 30px;
-  padding: 0 12px;
-  border-radius: 99px;
-  background: var(--panel);
-  color: var(--ink-2);
-  font-size: 13px;
-  white-space: nowrap;
-}
-.opt.on {
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
-}
-.expr {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.expr-img {
-  width: 100%;
-  aspect-ratio: 1;
-  border-radius: 14px;
-  overflow: hidden;
-  background: var(--panel);
-}
-.zone-preview {
-  position: relative;
-  height: 330px;
-  border-radius: 18px;
-  overflow: hidden;
-}
 .link-row {
   display: flex;
   align-items: center;
@@ -523,11 +454,5 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
   border-radius: 12px;
   overflow: hidden;
   background: var(--surface);
-}
-.zone-info {
-  margin-top: 10px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: var(--panel);
 }
 </style>

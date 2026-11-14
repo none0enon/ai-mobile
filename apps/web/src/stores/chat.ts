@@ -29,7 +29,7 @@ import { services } from '@/services';
 import { putAsset } from '@/services/assets';
 import { describePhoto } from '@/services/photos';
 import { sessionSummary as musicSummary, stop as stopMusic } from '@/services/musicPlayer';
-import { assembleForChat, messageToText, personaOf, storeRegex, toLLMMessages, type ChatPrompt } from '@/services/prompt';
+import { assembleForChat, messageToText, personaOf, sceneTags, storeRegex, toLLMMessages, type ChatPrompt } from '@/services/prompt';
 import { latestRecall, noteRecallUsed, prefetchRecall } from '@/services/recall';
 import { pendingForSummary, summarizeChat, type SummaryOutcome } from '@/services/summary';
 import { useMemoryStore } from './memory';
@@ -294,7 +294,7 @@ export const useChatStore = defineStore('chat', () => {
     const abort = new AbortController();
     streams[chatId] = { messageId: id, thinking: true, reasoning: '', abort };
     const scene = getScene(chat.currentScene ?? 'free');
-    const allowedTags = opts.allowedTags ?? scene.allowedTags;
+    const allowedTags = opts.allowedTags ?? sceneTags(scene, character);
     let raw = '';
 
     try {
@@ -341,8 +341,10 @@ export const useChatStore = defineStore('chat', () => {
             const expr = [...parsed.tags].reverse().find((t) => t.tag.kind === 'expr')?.tag;
             if (expr && 'value' in expr) {
               chars.setExpression(character.id, expr.value);
-              msg.expression = expr.value;
+              msg.expression = chars.expression[character.id] ?? expr.value;
             }
+            const pose = [...parsed.tags].reverse().find((t) => t.tag.kind === 'pose')?.tag;
+            if (pose && 'value' in pose) chars.setPose(character.id, pose.value);
             opts.onText?.(msg.text);
           },
         },

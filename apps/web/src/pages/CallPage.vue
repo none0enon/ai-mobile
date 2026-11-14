@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getLocation, timeOfDay, zonedParts } from '@app/shared';
+import { baseExpression, getLocation, hasPortraits, timeOfDay, zonedParts } from '@app/shared';
 import Waveform from '@/components/call/Waveform.vue';
 import Live2DAvatar from '@/components/call/Live2DAvatar.vue';
 import Avatar from '@/components/common/Avatar.vue';
+import PortraitFigure from '@/components/figure/PortraitFigure.vue';
+import { portraitAspect } from '@/services/portraits';
 import SceneBackdrop from '@/components/figure/SceneBackdrop.vue';
 import { useVoiceCall } from '@/composables/useVoiceCall';
 import type { CallInput } from '@/stores/voice';
@@ -170,7 +172,13 @@ onBeforeUnmount(() => { clearInterval(sceneTimer); call.dispose(); });
         <div class="call-duration text-[14px] text-ink-2 num">{{ video ? '视频 · ' : '' }}{{ state.phase === 'dialing' ? '等待对方接听…' : `通话中 ${clock(state.seconds)}` }}</div>
         <div v-if="video" class="scene-label">{{ location?.name || '此刻的房间' }}<span v-if="slot?.status"> · {{ slot.status }}</span></div>
         <div v-if="video" class="video-stage">
-          <Live2DAvatar v-if="character.live2d" :key="character.live2d.assetId" :config="character.live2d" :expression="expression" :text="state.sentence" :sentence="state.sentenceId" :level="state.herAudioLevel" :audible="state.her === 'speaking' && state.phase !== 'ended'" :outfit="outfit" />
+          <Live2DAvatar v-if="character.live2d" :key="character.live2d.assetId" :config="character.live2d" :expression="baseExpression(expression, character.portraits)" :text="state.sentence" :sentence="state.sentenceId" :level="state.herAudioLevel" :audible="state.her === 'speaking' && state.phase !== 'ended'" :outfit="outfit" />
+          <div v-else-if="hasPortraits(character.portraits)" class="portrait-stage">
+            <div class="portrait-box" :style="{ aspectRatio: String(portraitAspect(character)) }">
+              <PortraitFigure :character="character" :expression="expression" :day-outfit="outfit" />
+            </div>
+            <RouterLink :to="`/me/characters/${character.id}?tab=live2d`" class="portrait-hint">现在是立绘 · 上传 Live2D 模型能动起来</RouterLink>
+          </div>
           <div v-else class="missing-model">
             <Avatar :character="character" :size="100" live />
             <p>先为{{ character.name }}上传 Live2D 模型</p>
@@ -264,6 +272,9 @@ onBeforeUnmount(() => { clearInterval(sceneTimer); call.dispose(); });
 .video-stage { position: absolute; inset: 88px 0 0; }
 .video .call-feedback { display: flex; flex-direction: column; align-items: center; position: relative; z-index: 1; margin-top: auto; padding: 12px 20px; width: 100%; max-height: 50%; overflow-y: auto; }
 .scene-label { font-size: 12px; color: var(--ink-2); margin-top: 4px; text-align: center; }
+.portrait-stage { position: absolute; inset: 0; }
+.portrait-box { position: absolute; left: 50%; bottom: 0; height: 92%; max-width: 100%; transform: translateX(-50%); filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.35)); }
+.portrait-hint { position: absolute; left: 50%; top: 6px; transform: translateX(-50%); font-size: 11.5px; padding: 3px 10px; border-radius: 12px; background: rgba(12, 10, 22, 0.45); color: #fff; white-space: nowrap; }
 .missing-model { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 13px; }
 .missing-model a { padding: 8px 16px; border-radius: 18px; background: var(--accent); color: var(--on-accent); }
 .video .captions { min-height: 56px; max-height: 16vh; background: rgba(12, 10, 22, 0.5); flex-shrink: 0; }

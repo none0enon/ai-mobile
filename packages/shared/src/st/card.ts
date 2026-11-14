@@ -149,7 +149,6 @@ export function characterFromCard(
     card: parsed.card,
     lorebookIds: opts.lorebookIds,
     presetId: opts.presetId,
-    spriteSetId: null,
     appearanceTags: '',
     negativeTags: '',
     voice: { voiceId: '', voiceLabel: '未设置', speed: 1, emotionMap: {} },

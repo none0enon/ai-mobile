@@ -45,3 +45,11 @@ export async function assetUrl(key: string): Promise<string | null> {
   urls.set(key, url);
   return url;
 }
+
+/** 删掉一份素材（调用的地方确认没有别处再用它） */
+export async function dropAsset(key: string): Promise<void> {
+  const url = urls.get(key);
+  if (url) URL.revokeObjectURL(url);
+  urls.delete(key);
+  await write('assets', [], [key]);
+}
