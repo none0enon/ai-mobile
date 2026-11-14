@@ -12,7 +12,7 @@ export interface CompressOptions {
 }
 
 /** 用 data URL 读文件（不用 blob: 地址：有些预览环境的内容安全策略不放行 blob: 图片） */
-function readAsDataUrl(file: Blob): Promise<string> {
+export function readAsDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
@@ -21,7 +21,7 @@ function readAsDataUrl(file: Blob): Promise<string> {
   });
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
+export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);

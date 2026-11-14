@@ -99,6 +99,7 @@ const ALIASES: Record<string, Expression> = {
   吃惊: 'surprised',
   震惊: 'surprised',
   伤心: 'sad',
+  悲伤: 'sad',
   哭: 'sad',
   愤怒: 'angry',
   怒: 'angry',

@@ -28,6 +28,30 @@ export interface Portrait {
   fit?: PortraitFit;
   /** 不参与自动挑选（留着备用） */
   hidden?: boolean;
+  /** AI 画的（"AI 画立绘"）：怎么画出来的，重画、照着它画别的都用它 */
+  gen?: PortraitGen;
+}
+
+/**
+ * 一张 AI 画的立绘是怎么来的：
+ * - base 底图：直接画（文生图），之后的表情、动作照着它画；
+ * - inpaint 局部重绘（只重画脸）/ emotion（Director Tools 换表情）/ img2img（整张图生图）：照着底图换表情；
+ * - reference（精准参考照着底图画）/ prompt（同一个种子换动作 tags 重画）：照着底图换动作。
+ */
+export interface PortraitGen {
+  method: 'base' | 'inpaint' | 'emotion' | 'img2img' | 'reference' | 'prompt';
+  /** 发给 NovelAI 的正向 / 负面提示词（套上生图风格以后的） */
+  prompt: string;
+  negative: string;
+  seed: number | null;
+  model: string;
+  /** 构图（立绘预设里构图块的名字：半身、全身……） */
+  framing?: string;
+  /** 照着哪张画的（底图的 id） */
+  from?: string;
+  /** 画出来没有透明背景，又用 Director Tools 去了背景 */
+  removedBg?: boolean;
+  at: number;
 }
 
 export interface PortraitFit {
@@ -60,6 +84,8 @@ export interface PortraitOutfit {
   kind?: OutfitKind;
   /** 和节律衣柜对得上的名字、别名、tags（逗号分隔），同 Live2D 换装 */
   match?: string;
+  /** 画这身衣服用的 NovelAI tags（AI 画立绘时用；只写衣服、鞋、配饰） */
+  tags?: string;
 }
 
 /** 坐标都是相对立绘框的 0-1 比例，和图片分辨率无关 */
@@ -107,4 +133,11 @@ export interface PortraitSet {
   face: { x: number; y: number; size: number };
   /** 戳戳乐热区；没有时按脸的位置给一套默认的 */
   hotspots?: PokeHotspot[];
+  /** AI 画立绘时照着哪张画别的表情、动作（立绘的 id；导入的图也能当底图）；没有时用最近画的底图 */
+  genBase?: string;
+  /**
+   * 这个角色平时用哪种构图（立绘预设里构图块的名字，App 里一般是半身）：第一张 AI 底图定的，也能改。
+   * AI 画的别的构图的图（例如全身）留着备用、不参与自动挑选，免得换表情时人忽大忽小；导入的图当作就是这种构图
+   */
+  framing?: string;
 }

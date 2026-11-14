@@ -243,14 +243,14 @@ export const AGENT_META: Record<
   },
   imagePrompt: {
     label: '生图提示词',
-    desc: '把对话场景写成 NovelAI tags',
+    desc: '把对话场景写成 NovelAI tags；AI 画立绘时从角色卡写外观 tags、给新表情写 tags',
     capability: 'chat',
     runsOn: 'both',
     icon: 'i-lucide-wand-sparkles',
   },
   image: {
     label: '生图',
-    desc: '出图，结果进相册',
+    desc: '出图，结果进相册；AI 画立绘的底图、换表情、去背景也用它（照着图改要 NovelAI）',
     capability: 'image',
     runsOn: 'worker',
     icon: 'i-lucide-image',

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { apiLabel, channelsFor, compileFilter, DEFAULT_IMAGE_STYLE, DEFAULT_OUTPUT_FILTERS, encodeVector, errorReport, kindOf, newFeatureApi, type VoiceSpec } from '@app/ai';
+import { apiLabel, channelsFor, compileFilter, DEFAULT_IMAGE_STYLE, DEFAULT_OUTPUT_FILTERS, encodeVector, errorReport, kindOf, newFeatureApi, NOVELAI_SAMPLERS, NOVELAI_SCHEDULES, type VoiceSpec } from '@app/ai';
 import { AGENT_META, apiKeyId, followOf, followOptions, isTextRole, type AgentRole, type AgentRoute, type FeatureApi, type FollowTarget, type ReasoningEffort } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, reactive, ref, watch } from 'vue';
@@ -52,8 +52,8 @@ const EFFORTS: { value: ReasoningEffort; label: string }[] = [
   { value: 'high', label: '高' },
   { value: 'max', label: '最高' },
 ];
-const NAI_SAMPLERS = ['k_euler_ancestral', 'k_euler', 'k_dpmpp_2s_ancestral', 'k_dpmpp_2m_sde', 'k_dpmpp_2m', 'k_dpmpp_sde'];
-const NAI_SCHEDULES = ['karras', 'native', 'exponential', 'polyexponential'];
+const NAI_SAMPLERS = NOVELAI_SAMPLERS;
+const NAI_SCHEDULES = NOVELAI_SCHEDULES;
 
 function clone<T>(x: T): T {
   return JSON.parse(JSON.stringify(x)) as T;

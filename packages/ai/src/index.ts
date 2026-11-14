@@ -36,9 +36,23 @@ export { sniffAudioMime } from './tts/providers.ts';
 export { transcribeAudio, canTranscribe, type SttRequest } from './stt/client.ts';
 
 export * from './image/types.ts';
-export { generateImage, canDraw } from './image/client.ts';
-export { buildNovelaiPayload, novelaiSubscription, varietySigma, type NovelaiSubscription } from './image/novelai.ts';
-export { IMAGE_SIZES, NOVELAI_MODELS, freeForOpus, joinTags, resolveSize } from './image/presets.ts';
+export { augmentImage, generateImage, canDraw, canEditImage } from './image/client.ts';
+export { buildAugmentPayload, buildNovelaiPayload, novelaiSubscription, varietySigma, type NovelaiSubscription } from './image/novelai.ts';
+export {
+  IMAGE_SIZES,
+  NOVELAI_EMOTION_LEVELS,
+  NOVELAI_EMOTIONS,
+  NOVELAI_MODELS,
+  NOVELAI_REFERENCE_CANVASES,
+  NOVELAI_SAMPLERS,
+  NOVELAI_SCHEDULES,
+  freeForOpus,
+  isNovelaiV5,
+  joinTags,
+  novelaiInpaintModel,
+  resolveSize,
+  supportsCharacterReference,
+} from './image/presets.ts';
 export { applyImageStyle, composePrompt, DEFAULT_IMAGE_STYLE } from './image/style.ts';
 export { extractImage, sniffImageMime } from './image/extract.ts';
 export { listZip, readZipEntry, unzipFirst, type ZipEntry } from './image/zip.ts';
@@ -63,3 +77,4 @@ export * from './agents/illustrate.ts';
 export * from './agents/rhythm.ts';
 export * from './agents/health.ts';
 export * from './agents/device.ts';
+export * from './agents/sprite.ts';

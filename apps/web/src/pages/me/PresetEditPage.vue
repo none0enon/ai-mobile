@@ -17,6 +17,12 @@ import {
   SCENES,
   blockLevel,
   SOUP_LEVEL,
+  SPRITE_DRAW,
+  SPRITE_EXPR,
+  SPRITE_FRAME,
+  SPRITE_NEGATIVE,
+  SPRITE_POSE,
+  SPRITE_TASKS,
   TRUTH_DARE_LEVEL,
   type PresetCategory,
   type PromptBlock,
@@ -26,6 +32,8 @@ import { computed, ref, toRaw, watch, type ComponentPublicInstance } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Segmented from '@/components/common/Segmented.vue';
 import PresetRegex from '@/components/settings/PresetRegex.vue';
+import SpriteBlockFields from '@/components/settings/SpriteBlockFields.vue';
+import SpriteParamsForm from '@/components/settings/SpriteParamsForm.vue';
 import { useDragSort } from '@/composables/useDragSort';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { useCharacterStore } from '@/stores/characters';
@@ -43,7 +51,15 @@ const router = useRouter();
 const lib = useLibraryStore();
 const chars = useCharacterStore();
 const preset = computed(() => lib.presetById(route.params.id as string));
-const tab = ref<'blocks' | 'sampler' | 'regex' | 'info'>('blocks');
+const tab = ref<'blocks' | 'params' | 'sampler' | 'regex' | 'info'>('blocks');
+/** 立绘预设多一页"出图参数"（模型、尺寸、换表情 / 换动作的办法） */
+const tabs = computed(() => [
+  { value: 'blocks' as const, label: '提示词' },
+  ...(preset.value?.category === 'sprite' ? [{ value: 'params' as const, label: '出图参数' }] : []),
+  { value: 'sampler' as const, label: '采样参数' },
+  { value: 'regex' as const, label: '正则' },
+  { value: 'info' as const, label: '名字分类' },
+]);
 const ROLE: Record<PromptBlock['role'], string> = { system: '系统', user: '用户', assistant: '助手' };
 const roleplay = computed(() => !!preset.value && isRoleplayCategory(preset.value.category));
 const usedBy = computed(() => {
@@ -73,7 +89,10 @@ const editOpen = computed({ get: () => !!editing.value, set: (v) => !v && (editi
 // 直接换到另一个预设（同一个页面换参数）：正在改的那一块属于上一个预设，关掉
 watch(
   () => route.params.id,
-  () => (editing.value = null),
+  () => {
+    editing.value = null;
+    if (tab.value === 'params' && preset.value?.category !== 'sprite') tab.value = 'blocks';
+  },
 );
 
 // —— 调顺序：长按一块拖到想要的位置（电脑上按住直接拖，手柄上也能用 ↑ ↓）——
@@ -133,9 +152,14 @@ function setPosition(b: PromptBlock, absolute: boolean) {
 /** 角色扮演预设里按开关发送的块：你人设里开着的系统，还有心跳里"连着玩具、她自己写指令" */
 const ROLEPLAY_FLAGS: Record<string, string> = { ...LIFE_FLAGS, [DEVICE_INLINE_FLAG]: '心跳：连着玩具、她自己写指令' };
 /** 触发条件的中文名：画什么、场景里的时刻、节律的任务、真心话大冒险的尺度；别的（一起做事的场景任务名）原样显示 */
+const SPRITE_TRIGGERS: Record<string, string> = { ...SPRITE_TASKS, [SPRITE_DRAW]: '画法', [SPRITE_NEGATIVE]: '负面' };
 function triggerLabel(t: string): string {
   const level = LEVEL_PREFIXES.map((p) => blockLevel({ triggers: [t] }, p)).find(Boolean);
   if (level) return `尺度"${level}"`;
+  if (t.startsWith(SPRITE_FRAME)) return `构图"${t.slice(SPRITE_FRAME.length)}"`;
+  if (t.startsWith(SPRITE_EXPR)) return `表情"${t.slice(SPRITE_EXPR.length)}"`;
+  if (t.startsWith(SPRITE_POSE)) return `动作"${t.slice(SPRITE_POSE.length)}"`;
+  if (SPRITE_TRIGGERS[t]) return SPRITE_TRIGGERS[t];
   return IMAGE_MODES[t as keyof typeof IMAGE_MODES] ?? momentLabel(t) ?? RHYTHM_TASKS[t as keyof typeof RHYTHM_TASKS] ?? HEALTH_TASKS[t as keyof typeof HEALTH_TASKS] ?? ROLEPLAY_FLAGS[t] ?? t;
 }
 /** 一起游戏的尺度：真心话大冒险、海龟汤的预设里，块上能填"…的尺度"（名字写进触发条件 前缀名字） */
@@ -255,6 +279,8 @@ const HINT: Record<PresetCategory, string> = {
     '"排这周""排今天"两件任务按触发条件只发这次要做的那几块（在块里设"只在做这些事时发送"）；"程序填充"的块是这一次的输入（你人设里的身体和目标、能练的方式和时间、食材和厨具、今天、这周的计划、最近练了什么）。动作怎么讲（大白话、少用肌肉名称）写在规则里，可以改；输出格式里的字段名别改，程序按它读。',
   device:
     '心跳里她每说完一句，按这个预设给连着的玩具写指令。"程序填充"的块是这一次的输入：连着的玩具和能写的键、你设的强度上限和最快速度、玩具现在在做什么、最近的对话、她这一句。轻重怎么对应剧情写在规则里，可以改；指令的键（VIBRATE、LINEAR……）和输出格式里的字段名别改，程序按它读，读到她原话里 at 写的那几个字时执行。',
+  sprite:
+    '"角色 → 立绘 → AI 画立绘"用。两种块：交给"生图提示词"的文本模型的任务（写外观 tags、给新表情写 tags，"程序填充"的块是这一次的输入，输出格式里的字段名别改）；直接拼进 NovelAI 提示词的画法、负面、构图、表情、动作（不发给文本模型）。构图（半身、全身……）、表情、动作一块一个，名字就是画出来的立绘标的名字，有几个、叫什么、tags 都随你改，关掉的不用；App 里平时用半身立绘，全身的也能画。画法里能用 {{char_appearance}} {{char_outfit}} {{framing}} {{expression}} {{pose}}。模型、尺寸、默认构图、换表情和换动作的办法在"出图参数"里。',
   novel:
     '创意工坊里写小说用。"商量""写下一章""写番外"几件事按触发条件只发这次要做的那一块（novel-chat、novel-chapter、novel-extra）；"程序填充"的块是这一次的输入（作品的设定和大纲、已经写好的章节、你们最近的讨论、这一次要做的）。文风、长度、尺度写在规则里，可以改；写章节时第一行"# 标题"的格式别改，程序按它分出标题和正文。',
 };
@@ -268,17 +294,7 @@ const HINT: Record<PresetCategory, string> = {
       </template>
     </PageHeader>
     <div class="page-scroll pb-10">
-      <Segmented
-        ref="tabsEl"
-        v-model="tab"
-        sticky
-        :options="[
-          { value: 'blocks', label: '提示词' },
-          { value: 'sampler', label: '采样参数' },
-          { value: 'regex', label: '正则' },
-          { value: 'info', label: '名字分类' },
-        ]"
-      />
+      <Segmented ref="tabsEl" v-model="tab" sticky :options="tabs" />
 
       <div v-if="tab === 'blocks'" ref="listEl" class="px-4 grid gap-1.5" data-testid="preset-blocks">
         <div
@@ -314,6 +330,8 @@ const HINT: Record<PresetCategory, string> = {
           长按一块拖到想要的位置（电脑上用鼠标按住直接拖），从上到下就是发给模型的顺序。{{ HINT[preset.category] }} 文字里可以用 {{ MACROS }} 这些宏。
         </p>
       </div>
+
+      <SpriteParamsForm v-else-if="tab === 'params' && preset.category === 'sprite'" :key="preset.id" :preset="preset" @touch="touch" />
 
       <van-cell-group v-else-if="tab === 'sampler'" inset>
         <van-cell :title="`温度 ${preset.sampler.temperature.toFixed(2)}`" label="越高越随性">
@@ -416,6 +434,7 @@ const HINT: Record<PresetCategory, string> = {
             <button v-for="(label, t) in RHYTHM_TASKS" :key="t" type="button" class="opt" :class="{ on: editing.triggers?.includes(t) }" @click="toggleTrigger(editing, t)">{{ label }}</button>
           </div>
         </template>
+        <SpriteBlockFields v-else-if="preset.category === 'sprite' && !editing.marker" :block="editing" @touch="touch" />
         <template v-else-if="preset.category === 'health'">
           <div class="field-label">只在做这些事时发送（都不选 = 一直发）</div>
           <div class="flex flex-wrap gap-1.5">

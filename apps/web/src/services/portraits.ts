@@ -9,9 +9,13 @@ import {
   labelId,
   type Character,
   type Expression,
+  type OutfitKind,
   type PokeHotspot,
   type Portrait,
+  type PortraitFit,
+  type PortraitGen,
   type PortraitSet,
+  type Pose,
 } from '@app/shared';
 import { assetUrl, dropAsset, putAsset } from './assets';
 import { pokeHotspots } from '@/mock/library';
@@ -119,6 +123,74 @@ export async function importPortraits(c: Character, files: File[], progress?: (d
   if (!hadOutfits && set.outfits.length) set.defaultOutfit = mostUsed(set, 'outfit') || set.defaultOutfit;
   if (result.added.length) c.updatedAt = Date.now();
   return result;
+}
+
+/** 给 AI 画的立绘标表情 / 动作 / 服装：已有的 id，或者按名字找、没有就新建（带上预设里的说明、适合的场景、衣服的 tags） */
+export interface GeneratedLabels {
+  expression?: string | { label: string; hint?: string };
+  pose?: string | { label: string; hint?: string; fits?: Pose[] };
+  outfit?: string | { label: string; tags?: string; kind?: OutfitKind };
+}
+
+/**
+ * 存一张 AI 画的立绘（"AI 画立绘"）：压好存进本机素材库，标上表情、动作、服装。
+ * replace 给了时，删掉它挑中的那几张（重画同一个表情时换掉上一张）；hidden：留着备用、不参与自动挑选（和平时的构图不一样的）
+ */
+export async function addGeneratedPortrait(
+  c: Character,
+  img: { bytes: Uint8Array<ArrayBuffer>; mime: string },
+  labels: GeneratedLabels,
+  opts: { gen: PortraitGen; name: string; fit?: PortraitFit; hidden?: boolean; replace?: (p: Portrait) => boolean; everyone: Character[] },
+): Promise<Portrait> {
+  const set = ensurePortraitSet(c);
+  const small = await compressPortrait(new Blob([img.bytes], { type: img.mime }));
+  const assetKey = await putAsset(small.bytes, small.mime);
+  const replaced = opts.replace ? set.portraits.filter(opts.replace) : [];
+  const first = !set.portraits.length;
+  const l = labels;
+  let expression = '';
+  if (typeof l.expression === 'string') expression = l.expression;
+  else if (l.expression) {
+    expression = ensureExpression(set, l.expression.label);
+    const e = set.expressions.find((x) => x.id === expression);
+    if (e && !e.hint && l.expression.hint) e.hint = l.expression.hint;
+  }
+  let pose = '';
+  if (typeof l.pose === 'string') pose = l.pose;
+  else if (l.pose) {
+    const had = set.poses.some((x) => x.label === (l.pose as { label: string }).label);
+    pose = ensurePose(set, l.pose.label);
+    const p = set.poses.find((x) => x.id === pose);
+    if (p && !had && l.pose.fits?.length) p.fits = [...l.pose.fits];
+    if (p && !p.hint && l.pose.hint) p.hint = l.pose.hint;
+  }
+  let outfit = '';
+  if (typeof l.outfit === 'string') outfit = l.outfit;
+  else if (l.outfit) {
+    outfit = ensureOutfit(set, l.outfit.label);
+    const o = set.outfits.find((x) => x.id === outfit);
+    if (o && l.outfit.tags && !o.tags) o.tags = l.outfit.tags;
+    if (o && l.outfit.kind && !o.kind) o.kind = l.outfit.kind;
+  }
+  const p: Portrait = {
+    id: uid('pt'),
+    assetKey,
+    name: opts.name,
+    width: small.width,
+    height: small.height,
+    expression,
+    pose,
+    outfit,
+    ...(opts.fit && (opts.fit.zoom !== 1 || opts.fit.x || opts.fit.y) ? { fit: { ...opts.fit } } : {}),
+    ...(opts.hidden ? { hidden: true } : {}),
+    gen: opts.gen,
+  };
+  if (first) set.aspect = Math.round((small.width / small.height) * 1000) / 1000;
+  set.portraits.push(p);
+  c.updatedAt = Date.now();
+  // 新的一张放进去以后再删旧的：万一画出来一模一样（同一个素材），文件不会被当成没人用删掉
+  for (const old of replaced) await removePortrait(c, old.id, opts.everyone);
+  return p;
 }
 
 function mostUsed(set: PortraitSet, k: 'expression' | 'pose' | 'outfit'): string {

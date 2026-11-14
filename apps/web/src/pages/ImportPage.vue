@@ -114,7 +114,7 @@ const TITLE: Record<PendingImport['kind'], string> = { card: '角色卡', preset
               {{ p.name }}
             </button>
           </div>
-          <p class="text-[12px] text-ink-3 mt-2.5 mb-0 leading-relaxed">导入的角色暂时没有自己的小世界（地图上不出现），从角色卡生成小世界是下一步。</p>
+          <p class="text-[12px] text-ink-3 mt-2.5 mb-0 leading-relaxed">导入以后可以接着建她的小世界（作息、衣柜，地图上才有她）、让 AI 写外观 tags、用 NovelAI 画透明底的立绘和各个表情，导入完成后有入口。</p>
         </template>
         <template v-if="pending.kind === 'preset' && !pending.appFile">
           <div class="text-[12.5px] text-ink-3 mt-3 mb-1.5">当哪一类预设用（之后在预设页能复制成别的类）</div>

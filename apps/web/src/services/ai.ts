@@ -219,7 +219,8 @@ async function pumpImages() {
   }
 }
 
-function enqueueImage<T>(priority: 'user' | 'auto', work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+/** 排进出图队列（AI 画立绘也走这里：同一个 NovelAI 账号一次只能画一张） */
+export function enqueueImage<T>(priority: 'user' | 'auto', work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const job: ImageJob = {
       priority,

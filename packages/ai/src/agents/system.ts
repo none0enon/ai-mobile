@@ -3,9 +3,9 @@ import { AiError, isAbortError } from '../core/errors.ts';
 import { parseJsonLoose } from '../core/util.ts';
 import { embedTexts, type EmbedPurpose, type EmbedResult } from '../embedding/client.ts';
 import { modelFamily, vectorSpace } from '../embedding/vector.ts';
-import { generateImage } from '../image/client.ts';
+import { augmentImage, generateImage } from '../image/client.ts';
 import { applyImageStyle } from '../image/style.ts';
-import type { ImageRequest, ImageResult } from '../image/types.ts';
+import type { AugmentRequest, GeneratedImage, ImageRequest, ImageResult } from '../image/types.ts';
 import { chatOnce } from '../llm/client.ts';
 import { applyFilters, compileFilters, DEFAULT_OUTPUT_FILTERS } from '../llm/filter.ts';
 import { textOf } from '../llm/messages.ts';
@@ -284,18 +284,37 @@ export class AgentSystem {
    * 生图。先套生图风格（固定的前后缀、负面词、采样器，同 SleepTogether / SillyTavern 的生图设置），
    * 分配里的 extra 再并进请求参数
    */
-  async draw(req: ImageRequest, opts: AgentCallOptions = {}): Promise<ImageResult & CallMeta> {
+  async draw(req: ImageRequest, opts: AgentCallOptions & { /** 这一次换个模型（立绘预设里写的），只用在自己的 API 上 */ model?: string } = {}): Promise<ImageResult & CallMeta> {
     return this.track('image', () => this.drawOnce(req, opts));
   }
 
-  private async drawOnce(req: ImageRequest, opts: AgentCallOptions): Promise<ImageResult & CallMeta> {
+  private async drawOnce(req: ImageRequest, opts: AgentCallOptions & { model?: string }): Promise<ImageResult & CallMeta> {
     const route = this.router.route('image');
     const styled = applyImageStyle(req, route?.imageStyle);
     const merged: ImageRequest = { ...styled, signal: req.signal ?? opts.signal, extra: route?.extra ? { ...route.extra, ...(req.extra ?? {}) } : req.extra };
-    const attempts = this.router.attempts('image');
+    const attempts = this.router.attempts('image', { model: opts.model });
     const started = Date.now();
     const { value, attempt, fellBack } = await this.router.run(attempts, (ep) => generateImage(ep, merged), this.failover('image', opts));
     return { ...value, ...this.meta(attempt, fellBack, started) };
+  }
+
+  /**
+   * Director Tools（去背景、换表情……）：用"生图"功能的 API（同一个 NovelAI 账号）。
+   * 备用 API 不是 NovelAI 时换过去也做不了，所以只换到同一种协议的备用 API
+   */
+  async augment(req: AugmentRequest, opts: AgentCallOptions = {}): Promise<{ image: GeneratedImage } & CallMeta> {
+    return this.track('image', async () => {
+      const all = this.router.attempts('image');
+      const kind = all[0]?.endpoint.kind;
+      const attempts = all.filter((a, i) => i === 0 || a.endpoint.kind === kind);
+      const started = Date.now();
+      const { value, attempt, fellBack } = await this.router.run(
+        attempts,
+        (ep) => augmentImage(ep, { ...req, signal: req.signal ?? opts.signal }),
+        this.failover('image', opts),
+      );
+      return { image: value, ...this.meta(attempt, fellBack, started) };
+    });
   }
 
   /**

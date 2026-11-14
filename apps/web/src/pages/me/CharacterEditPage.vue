@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { expressionLabel, imageAppearance, isFandom, WEATHER_PROVIDER_LABEL, type WeatherProviderChoice } from '@app/shared';
+import { availableExpressions, expressionLabel, hasPortraits, imageAppearance, isFandom, WEATHER_PROVIDER_LABEL, type WeatherProviderChoice } from '@app/shared';
 import { showImagePreview, showToast } from 'vant';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -10,6 +10,7 @@ import ImagePick from '@/components/common/ImagePick.vue';
 import Segmented from '@/components/common/Segmented.vue';
 import PresetPicker from '@/components/settings/PresetPicker.vue';
 import Live2DSettings from '@/components/settings/Live2DSettings.vue';
+import LooksWriter from '@/components/settings/portraits/LooksWriter.vue';
 import PortraitSettings from '@/components/settings/portraits/PortraitSettings.vue';
 import PageHeader from '@/layouts/PageHeader.vue';
 import { assetUrl, services, type IllustrateOutcome } from '@/services';
@@ -62,6 +63,12 @@ function setFandom(field: 'characterTag' | 'copyrightTag', v: string) {
 }
 /** 生图时实际加在最前面的长相 */
 const appearanceLine = computed(() => imageAppearance(character.value));
+/** "基本"里立绘那一行：几张、几种表情；没有时提示可以让 NovelAI 画 */
+const spriteLine = computed(() => {
+  const set = character.value.portraits;
+  if (!hasPortraits(set)) return appearanceLine.value ? '还没有立绘：导入，或者让 NovelAI 画透明底的立绘' : '还没有立绘、也没有外观 tags：让 AI 写 tags，再用 NovelAI 画';
+  return `${set.portraits.length} 张 · ${availableExpressions(set).length} 种表情${set.portraits.some((p) => p.gen) ? ' · 有 AI 画的' : ''}`;
+});
 const imageLive = computed(() => ai.status('image').live);
 /** 今天穿的那套（节律）：试画时也穿它 */
 const todayOutfit = computed(() => rhythm.outfitFor(character.value.id, null));
@@ -209,6 +216,14 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
               </span>
               <span class="i-lucide-chevron-right text-ink-3" />
             </RouterLink>
+            <button type="button" class="link-row press w-full text-left" data-testid="to-sprite" @click="tab = 'sprite'">
+              <span class="i-lucide-person-standing text-accent-ink" />
+              <span class="flex-1 min-w-0">
+                <span class="block text-[14px]">立绘</span>
+                <span class="block text-[12px] text-ink-3 truncate">{{ spriteLine }}</span>
+              </span>
+              <span class="i-lucide-chevron-right text-ink-3" />
+            </button>
             <button type="button" class="link-row press w-full text-left" data-testid="to-look" @click="tab = 'look'">
               <span class="i-lucide-wand-sparkles text-accent-ink" />
               <span class="flex-1 min-w-0">
@@ -324,6 +339,7 @@ const PERSONALITY = { clingy: '粘人', balanced: '适中', independent: '独立
             <textarea id="ce-tags" v-model="character.appearanceTags" class="textarea mono" rows="4" />
             <label class="field-label" for="ce-neg">负面 tags</label>
             <textarea id="ce-neg" v-model="character.negativeTags" class="textarea mono" rows="2" />
+            <LooksWriter :character="character" />
 
             <div class="look-line">
               <div class="text-[12px] text-ink-3">生图时加在最前面的长相</div>

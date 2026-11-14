@@ -10,6 +10,57 @@ export interface ImageCharacter {
   center?: { x: number; y: number };
 }
 
+/**
+ * 照着一张图改（只有 NovelAI 能做）：
+ * - 只给 image：图生图（img2img），strength 越大改得越多；
+ * - 再给 mask：局部重绘（infill），只重画遮罩里白色的地方，外面原样保留（用这个模型的重绘版）。
+ * 出图的宽高要和这张图一样（调用方按图的尺寸给 size）。
+ */
+export interface ImageSource {
+  /** PNG 的 base64（不带 data: 前缀） */
+  image: string;
+  /** 图生图 0.01–0.99；局部重绘 0–1（1 = 遮罩里整块重画） */
+  strength?: number;
+  /** 图生图加的噪声 0–0.99 */
+  noise?: number;
+  /** 局部重绘的遮罩：和图一样大的 PNG（base64），白色重画、黑色不动 */
+  mask?: string;
+  /** 局部重绘用的模型；不给按出图的模型推（novelaiInpaintModel） */
+  inpaintModel?: string;
+}
+
+/**
+ * NovelAI 的精准参考（Precise Reference，只有 V4.5 能用）：照着参考图里的角色（和画风）画。
+ * 参考图要先垫成 NOVELAI_REFERENCE_CANVASES 里的一种尺寸（调用方用 canvas 垫好）
+ */
+export interface ImageReference {
+  /** PNG 的 base64（不带 data: 前缀） */
+  image: string;
+  /** 连画风一起参考（character&style）；默认只参考角色 */
+  style?: boolean;
+  /** 跟参考图有多像 0–1：太高时表情、角度、动作也会照搬 */
+  strength?: number;
+  /** 参考得多死板 0–1：1 很难用提示词改，0 更灵活 */
+  fidelity?: number;
+}
+
+/** NovelAI Director Tools（/ai/augment-image）：在一张图上做一件事 */
+export interface AugmentRequest {
+  /** bg-removal 去背景 / emotion 换表情 / declutter 去杂物 / lineart / sketch / colorize …… */
+  kind: string;
+  /** PNG 的 base64（不带 data: 前缀） */
+  image: string;
+  /** 宽高要和图一样，不然接口报 500 */
+  width: number;
+  height: number;
+  /** 换表情：情绪（NOVELAI_EMOTIONS 里的一个）和补充的 tags；上色：tags */
+  emotion?: string;
+  prompt?: string;
+  /** 换表情的强度档 0（最强）– 5（最弱）；上色时是去噪强度 */
+  defry?: number;
+  signal?: AbortSignal;
+}
+
 export interface ImageRequest {
   /** 正向提示词（NovelAI tags 或自然语言描述） */
   prompt: string;
@@ -33,6 +84,10 @@ export interface ImageRequest {
   quality?: boolean;
   /** 负面提示词预设（NovelAI 网页版的 UC 预设）；默认开了质量标签时用 heavy，否则不加 */
   ucPreset?: 'heavy' | 'light' | 'none';
+  /** 照着一张图改：图生图、局部重绘（只有 NovelAI） */
+  source?: ImageSource;
+  /** 精准参考（只有 NovelAI V4.5） */
+  references?: ImageReference[];
   /** 原样并入请求参数（NovelAI 的 parameters、OpenAI 兼容接口的请求体） */
   extra?: Record<string, unknown>;
   signal?: AbortSignal;

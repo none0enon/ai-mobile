@@ -130,11 +130,12 @@ export interface RegexScript {
  * - rhythm 节律：建她的世界、排她每天的作息、三餐和穿着；
  * - health 健康：按你人设里的健康设置排这周和今天的健身计划、饮食计划；
  * - device 控制指令：心跳里按她说的话给连着的玩具写指令（Intiface Central）；
- * - novel 小说：创意工坊里和你商量设定、写章节和番外。
+ * - novel 小说：创意工坊里和你商量设定、写章节和番外；
+ * - sprite 立绘：给没有立绘的角色用 NovelAI 画立绘（写外观 tags、各个表情和动作的 tags、出图参数）。
  * 前三类是角色扮演，程序填充块和 SillyTavern 的对话预设一样（角色卡、世界书、聊天记录……），可以互相复制；
  * 后几类是一次性的任务，程序填充块是这件任务的输入（要整理的聊天、要画的画面、她的世界……）。
  */
-export type PresetCategory = 'chat' | 'feature' | 'proactive' | 'theater' | 'summary' | 'image' | 'rhythm' | 'health' | 'device' | 'novel';
+export type PresetCategory = 'chat' | 'feature' | 'proactive' | 'theater' | 'summary' | 'image' | 'rhythm' | 'health' | 'device' | 'novel' | 'sprite';
 
 export const PRESET_CATEGORIES: Record<PresetCategory, { label: string; desc: string; icon: string }> = {
   chat: { label: '对话', desc: '主对话：聊天气泡和剧场模式。每个角色选一个（角色设定 → 预设）', icon: 'i-lucide-message-circle-heart' },
@@ -155,9 +156,14 @@ export const PRESET_CATEGORIES: Record<PresetCategory, { label: string; desc: st
     desc: '一起游戏 · 创意工坊里写小说：和你商量设定、大纲和人物，写下一章、写番外（用"创作 · 小说"的 API）',
     icon: 'i-lucide-feather',
   },
+  sprite: {
+    label: '立绘',
+    desc: '用 NovelAI 给没有立绘的角色画立绘：缺外观 tags 时先写 tags，画一张透明底的底图（平静），再照着它画别的表情和动作。有几个表情、每个表情的 tags、出图参数都在这里改（"角色 → 立绘 → AI 画立绘"）',
+    icon: 'i-lucide-person-standing',
+  },
 };
 
-export const PRESET_CATEGORY_ORDER: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image', 'rhythm', 'health', 'device', 'novel'];
+export const PRESET_CATEGORY_ORDER: PresetCategory[] = ['chat', 'feature', 'proactive', 'theater', 'summary', 'image', 'rhythm', 'health', 'device', 'novel', 'sprite'];
 
 /** 角色扮演类的预设（程序填充块相同，可以互相复制） */
 export const ROLEPLAY_CATEGORIES: PresetCategory[] = ['chat', 'feature', 'proactive'];
@@ -217,7 +223,7 @@ export type LifeFlag = keyof typeof LIFE_FLAGS;
  * 任务类预设（小剧场、总结、生图）的程序填充块：只放这件任务每次的输入（要整理的聊天、要画的画面……）。
  * 说明、规则、输出格式都是预设里的普通块，可以改。
  */
-export const TASK_MARKERS: Record<'theater' | 'summary' | 'image' | 'rhythm' | 'health' | 'device' | 'novel', Record<string, string>> = {
+export const TASK_MARKERS: Record<'theater' | 'summary' | 'image' | 'rhythm' | 'health' | 'device' | 'novel' | 'sprite', Record<string, string>> = {
   theater: {
     storyCharacter: '角色',
     storyWorld: '她的世界（作息、手头的事、身边的人）',
@@ -272,6 +278,12 @@ export const TASK_MARKERS: Record<'theater' | 'summary' | 'image' | 'rhythm' | '
     novelChapters: '已经写好的章节',
     novelChat: '你们最近的讨论',
     novelAsk: '这一次要做的',
+  },
+  sprite: {
+    spriteCharacter: '角色（名字、描述、性格、场景）',
+    spriteSource: '角色卡的材料（作者备注、世界书）',
+    spriteLooks: '现在的长相（外观 tags、同人 tag、衣服）',
+    spriteAsk: '这次要写的',
   },
 };
 
