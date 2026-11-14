@@ -3,13 +3,14 @@ import { AGENT_META, type AgentRole } from '@app/shared';
 import { closeToast, showLoadingToast, showToast } from 'vant';
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import Avatar from '@/components/common/Avatar.vue';
 import PersonaAvatar from '@/components/common/PersonaAvatar.vue';
 import PersonTabs from '@/components/common/PersonTabs.vue';
 import { pwa } from '@/pwa';
 import { useLibraryStore } from '@/stores/library';
-import { album } from '@/mock/memories';
-import { useMemoryStore } from '@/stores/memory';
 import { services, writeSidestory, type SidestoryOutcome } from '@/services';
+import { pendingForSummary, SUMMARY_KEEP_RECENT } from '@/services/summary';
+import { useMessageSettingsStore } from '@/stores/messageSettings';
 import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
@@ -42,7 +43,6 @@ const rhythmValue = computed(() => {
   const noWorld = chars.list.filter((c) => !rhythm.hasWorld(c.id)).length;
   return [daily ? `${daily} 个每天变化` : '都是固定', noWorld ? `${noWorld} 个还没有小世界` : ''].filter(Boolean).join(' · ');
 });
-const totalMessages = computed(() => Object.values(chat.messages).reduce((n, l) => n + l.length, 0) + 1268);
 const THEME_LABEL = { system: '跟随系统', dark: '夜', light: '昼' } as const;
 const svc = useServicesStore();
 const weather = useWeatherStore();
@@ -52,7 +52,51 @@ const servicesValue = computed(() => {
   return on.length ? `${on.length} 个已接通` : '';
 });
 const envValue = computed(() => (weather.mine ? `${weather.mine.place} · ${weather.mine.text} ${weather.temp(weather.mine.tempC)}` : '还没设置城市'));
-const groups = computed(() => [
+
+// —— 补整理聊天：从上次整理到的地方往后，一批一批（消息设置里的 x 条）整理到剩下的不够一批 ——
+const msgSettings = useMessageSettingsStore();
+const every = computed(() => msgSettings.summaryEvery());
+const backfillOpen = ref(false);
+const backfillRows = computed(() =>
+  chars.list.flatMap((c) => {
+    const ch = chat.chatOfCharacter(c.id);
+    if (!ch) return [];
+    return [{ character: c, chatId: ch.id, pending: pendingForSummary(ch, chat.list(ch.id)).length, progress: chat.backfills[ch.id], busy: !!chat.summarizing[ch.id] }];
+  }),
+);
+type BackfillRow = (typeof backfillRows.value)[number];
+const backfillValue = computed(() => {
+  const running = backfillRows.value.filter((r) => r.progress).length;
+  if (running) return `正在整理 ${running} 个`;
+  const ready = backfillRows.value.filter((r) => r.pending >= every.value).length;
+  return ready ? `${ready} 个可以补整理` : '';
+});
+function backfillNote(r: BackfillRow): string {
+  if (r.progress) return `已整理 ${r.progress.done} 批，还剩 ${r.progress.remaining} 条`;
+  if (r.busy) return '正在整理…';
+  if (r.pending >= every.value) return `待整理 ${r.pending} 条，能整理 ${Math.floor(r.pending / every.value)} 批`;
+  return r.pending ? `待整理 ${r.pending} 条，不够一批，攒够了会自动整理` : '都整理过了';
+}
+async function startBackfill(r: BackfillRow) {
+  if (!ai.isLive('summary')) return showToast('"总结 / 记忆"还没接通 API');
+  const name = r.character.name;
+  try {
+    const out = await chat.backfill(r.chatId);
+    if (!out) showToast(`${name}这边正在整理，等一下再来`);
+    else showToast(out.paused ? `${name}：暂停了，已整理 ${out.done} 批` : `${name}：补整理完了，整理了 ${out.done} 批`);
+  } catch (e) {
+    showErrorDialog(`${name}的聊天补整理停下了`, e);
+  }
+}
+
+interface Row {
+  icon: string;
+  label: string;
+  value: string;
+  to?: string;
+  click?: () => void;
+}
+const groups = computed((): { title: string; rows: Row[] }[] => [
   {
     title: '角色与设定',
     rows: [
@@ -89,6 +133,7 @@ const groups = computed(() => [
   {
     title: '数据',
     rows: [
+      { icon: 'i-lucide-notebook-pen', label: '补整理聊天', value: backfillValue.value, click: () => (backfillOpen.value = true) },
       { icon: 'i-lucide-refresh-cw', label: '云端与同步', value: hub.connected ? (hub.error ? '同步异常' : hub.lastSyncAt ? '已同步' : '等待同步') : '仅本机', to: '/me/sync' },
       { icon: 'i-lucide-palette', label: '外观', value: THEME_LABEL[app.themeSetting], to: '/me/appearance' },
       { icon: 'i-lucide-smartphone', label: '装成 App', value: pwa.standalone ? '已安装' : pwa.canPrompt ? '可以安装' : '', to: '/me/install' },
@@ -167,9 +212,6 @@ function drawStory() {
   story.value = null;
   void router.push(`/chat/${id}`);
 }
-const memoryStore = useMemoryStore();
-/** 在用的记忆（不含忘掉的、被取代的） */
-const memoryCount = computed(() => memoryStore.memories.filter((m) => !m.deleted && m.status === 'active').length);
 </script>
 
 <template>
@@ -184,17 +226,10 @@ const memoryCount = computed(() => memoryStore.memories.filter((m) => !m.deleted
         <RouterLink to="/me/personas" class="switch">切换人设</RouterLink>
       </header>
 
-      <div class="stats mx-4">
-        <div><b class="num">30</b><span>相识天数</span></div>
-        <div><b class="num">{{ totalMessages.toLocaleString('zh-CN') }}</b><span>条对话</span></div>
-        <div><b class="num">{{ memoryCount }}</b><span>条记忆</span></div>
-        <div><b class="num">{{ album.length }}</b><span>张 CG</span></div>
-      </div>
-
       <section v-for="g in groups" :key="g.title" class="mt-4">
         <div class="group-title">{{ g.title }}</div>
         <van-cell-group inset>
-          <van-cell v-for="r in g.rows" :key="r.label" :title="r.label" :value="r.value" is-link :to="r.to" center>
+          <van-cell v-for="r in g.rows" :key="r.label" :title="r.label" :value="r.value" is-link :to="r.to" center @click="r.click?.()">
             <template #icon><span :class="r.icon" class="row-icon" /></template>
           </van-cell>
         </van-cell-group>
@@ -218,6 +253,28 @@ const memoryCount = computed(() => memoryStore.memories.filter((m) => !m.deleted
 
       <p class="text-center text-[12px] text-ink-3 mt-6">AI 陪伴（暂名）· M1 · 没填 Key 的部分用演示数据</p>
     </div>
+
+    <!-- 补整理聊天 -->
+    <van-popup v-model:show="backfillOpen" position="bottom" round teleport="body" :style="{ maxHeight: '80%' }">
+      <div class="sheet" data-sheet="backfill">
+        <div class="sheet-title">补整理聊天</div>
+        <p class="text-[12.5px] text-ink-3 leading-relaxed mt-1 mb-2">
+          从上次整理到的地方往后，每 {{ every }} 条一批用「总结 / 记忆」写梗概、故事片段和记忆，直到剩下的不够一批；最近 {{ SUMMARY_KEEP_RECENT }} 条先不整理。可以随时暂停，下次接着来。每批几条在「消息设置」里改。
+        </p>
+        <RouterLink v-if="!ai.isLive('summary')" to="/me/api" class="text-accent-ink text-[13px]">先接通「总结 / 记忆」API →</RouterLink>
+        <div class="grid gap-2 mt-2">
+          <div v-for="r in backfillRows" :key="r.chatId" class="backfill-row">
+            <Avatar :character="r.character" :size="36" />
+            <div class="flex-1 min-w-0">
+              <div class="text-[14.5px] font-600">{{ r.character.name }}</div>
+              <div class="text-[12px] text-ink-3">{{ backfillNote(r) }}</div>
+            </div>
+            <van-button v-if="r.progress" size="small" round type="warning" @click="chat.pauseBackfill(r.chatId)">暂停</van-button>
+            <van-button v-else size="small" round :disabled="!ai.isLive('summary') || r.busy || r.pending < every" @click="startBackfill(r)">补整理</van-button>
+          </div>
+        </div>
+      </div>
+    </van-popup>
 
     <!-- 番外 -->
     <van-popup v-model:show="storyOpen" position="bottom" round :style="{ maxHeight: '86%' }">
@@ -260,27 +317,13 @@ const memoryCount = computed(() => memoryStore.memories.filter((m) => !m.deleted
   text-decoration: none;
   flex-shrink: 0;
 }
-.stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  margin-top: 16px;
-  padding: 14px 6px;
-  border-radius: 18px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-}
-.stats div {
+.backfill-row {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
-}
-.stats b {
-  font-size: 18px;
-}
-.stats span {
-  font-size: 11.5px;
-  color: var(--ink-3);
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--panel);
 }
 .group-title {
   padding: 0 16px 8px 28px;

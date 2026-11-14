@@ -31,7 +31,7 @@ import { describePhoto } from '@/services/photos';
 import { sessionSummary as musicSummary, stop as stopMusic } from '@/services/musicPlayer';
 import { assembleForChat, messageToText, personaOf, sceneTags, storeRegex, toLLMMessages, type ChatPrompt } from '@/services/prompt';
 import { latestRecall, noteRecallUsed, prefetchRecall } from '@/services/recall';
-import { pendingForSummary, summarizeChat, type SummaryOutcome } from '@/services/summary';
+import { backfillChat, pendingForSummary, summarizeChat, type BackfillProgress, type SummaryOutcome } from '@/services/summary';
 import { useMemoryStore } from './memory';
 import { useMessageSettingsStore } from './messageSettings';
 import { uid } from '@/utils/id';
@@ -543,6 +543,39 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /** 补整理（我的 → 补整理聊天）进行中的进度。只放内存；离开页面也接着整理 */
+  const backfills = reactive<Record<string, BackfillProgress>>({});
+  const backfillAborts = new Map<string, AbortController>();
+
+  /**
+   * 补整理一条长聊天：一批一批整理到剩下的不够一批。期间算作"正在整理"，自动整理不会同时整理同一批。
+   * 暂停时返回 paused；下次从停下的地方接着来
+   */
+  async function backfill(chatId: string): Promise<(BackfillProgress & { paused: boolean }) | null> {
+    const chat = chatById(chatId);
+    if (!chat || summarizing[chatId]) return null;
+    const abort = new AbortController();
+    backfillAborts.set(chatId, abort);
+    backfills[chatId] = { done: 0, remaining: pendingForSummary(chat, list(chatId)).length };
+    summarizing[chatId] = true;
+    try {
+      const r = await backfillChat(chat, () => list(chatId), (p) => Object.assign(backfills[chatId] ?? {}, p), abort.signal);
+      summaryBackoff.delete(chatId);
+      return { ...r, paused: abort.signal.aborted };
+    } catch (e) {
+      if (isAbortError(e) && backfills[chatId]) return { ...backfills[chatId], paused: true };
+      throw e;
+    } finally {
+      backfillAborts.delete(chatId);
+      delete backfills[chatId];
+      delete summarizing[chatId];
+    }
+  }
+
+  function pauseBackfill(chatId: string) {
+    backfillAborts.get(chatId)?.abort();
+  }
+
   /** 最近几句对话（给生图提示词智能体、番外智能体看） */
   function recentLines(chatId: string, n = 6): string[] {
     const chat = chatById(chatId);
@@ -1036,6 +1069,9 @@ export const useChatStore = defineStore('chat', () => {
     recentLines,
     summarizing,
     summarizeNow,
+    backfills,
+    backfill,
+    pauseBackfill,
     refreshRecall,
     ensureRecall,
     poke,

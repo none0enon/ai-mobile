@@ -1,4 +1,4 @@
-import { calendarParts, shiftDate, zonedDateKey, zonedInstant } from './timezone.ts';
+import { calendarParts, daysBetweenDates, shiftDate, zonedDateKey, zonedInstant } from './timezone.ts';
 
 /**
  * 取记忆时从一句话里认出来的线索（全在本机算，不联网）：
@@ -202,7 +202,7 @@ export function todaySpecials(input: SpecialDayInput): string[] {
   }
   if (input.metAt) {
     const met = zonedDateKey(input.metAt, timeZone);
-    const daysKnown = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${met}T00:00:00Z`)) / 86_400_000);
+    const daysKnown = daysBetweenDates(met, today);
     if (daysKnown > 0 && (daysKnown % 100 === 0 || (met.slice(5) === md && met !== today))) out.add('纪念日');
   }
   return [...out];

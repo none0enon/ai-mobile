@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { isAbortError } from '@app/ai';
-import type { Memory, MemoryType } from '@app/shared';
+import { daysBetweenDates, zonedDateKey, type Memory, type MemoryType, type Message } from '@app/shared';
 import { closeToast, showConfirmDialog, showLoadingToast, showToast } from 'vant';
 import { computed, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -11,15 +10,13 @@ import CgArt from '@/components/figure/CgArt.vue';
 import { album, diaries, MEMORY_TYPE_META, timeline, type AlbumItem } from '@/mock/memories';
 import { services } from '@/services';
 import { consolidateNow } from '@/services/consolidate';
-import { backfillChat, pendingForSummary, SUMMARY_KEEP_RECENT } from '@/services/summary';
-import { useAiStore } from '@/stores/ai';
 import { useAppStore } from '@/stores/app';
 import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
+import { useEnvironmentStore } from '@/stores/environment';
 import { memKey, useMemoryStore } from '@/stores/memory';
-import { useMessageSettingsStore } from '@/stores/messageSettings';
 import { showErrorDialog } from '@/utils/errors';
-import { daysBetween, monthDay } from '@/utils/time';
+import { monthDay } from '@/utils/time';
 
 type Tab = 'timeline' | 'diary' | 'album' | 'book';
 const route = useRoute();
@@ -28,8 +25,7 @@ const app = useAppStore();
 const chars = useCharacterStore();
 const chats = useChatStore();
 const mem = useMemoryStore();
-const ai = useAiStore();
-const msgSettings = useMessageSettingsStore();
+const env = useEnvironmentStore();
 /**
  * 回忆按人分：上面一排头像切换看谁的回忆（?char=），默认是当前陪着你的角色。
  * 换人时点缀色也跟着换（App.vue 读 ?char）。
@@ -42,7 +38,31 @@ const chat = computed(() => chats.chatOfCharacter(character.value.id));
 const myDiaries = computed(() => diaries.filter((d) => d.characterId === character.value.id));
 const myAlbum = computed(() => album.filter((a) => a.characterId === character.value.id));
 const rel = computed(() => character.value.relationship);
-const metDays = computed(() => daysBetween(rel.value.metAt, Date.now()));
+const messages = computed(() => (chat.value ? chats.list(chat.value.id) : []));
+
+/** 这条聊天里真画出来的图：配图（不算你拍的照片、没画成的、演示里的示意图），和一起做事的卡片里画的 */
+function cgCount(list: Message[]): number {
+  let n = 0;
+  for (const m of list) {
+    for (const p of m.parts) {
+      if (p.type === 'image') n += p.generated && !p.photo && p.assetKey ? 1 : 0;
+      else if ('images' in p && p.images) n += p.images.filter((i) => i.assetKey || i.url).length;
+    }
+  }
+  return n;
+}
+
+/** 你们之间的几个数：相识天数按「环境与作息」的时区算日子（聊天比相识日还早时从第一条算） */
+const stats = computed(() => {
+  const tz = env.settings.timezone;
+  const metAt = Math.min(rel.value.metAt, messages.value[0]?.createdAt ?? Infinity);
+  return [
+    { label: '相识天数', value: Math.max(0, daysBetweenDates(zonedDateKey(metAt, tz), zonedDateKey(Date.now(), tz))) },
+    { label: '条对话', value: messages.value.filter((m) => m.role === 'user' || m.role === 'assistant').length },
+    { label: '条记忆', value: mem.activeOf(character.value.id).length },
+    { label: '张 CG', value: cgCount(messages.value) },
+  ];
+});
 
 const tab = ref<Tab>((['timeline', 'diary', 'album', 'book'] as Tab[]).includes(route.query.tab as Tab) ? (route.query.tab as Tab) : 'timeline');
 watch(tab, (t) => void router.replace({ query: { ...route.query, tab: t } }));
@@ -195,37 +215,6 @@ async function runConsolidate() {
   }
 }
 
-const pending = computed(() => (chat.value ? pendingForSummary(chat.value, chats.list(chat.value.id)).length : 0));
-const summarizing = computed(() => !!chat.value && !!chats.summarizing[chat.value.id]);
-async function summarizePending() {
-  const c = chat.value;
-  if (!c || summarizing.value) return;
-  try {
-    const r = await chats.summarizeNow(c.id);
-    showToast(r ? `已整理 ${r.covered} 条聊天，记下 ${r.memories.length} 件事` : '暂时没有可整理的聊天');
-  } catch (e) { showErrorDialog('聊天没整理成', e); }
-}
-const backfill = reactive({ running: false, done: 0, remaining: 0 });
-let backfillAbort: AbortController | null = null;
-async function runBackfill() {
-  const c = chat.value;
-  if (!c || backfill.running) return;
-  if (!ai.isLive('summary')) return showToast('"总结 / 记忆"还没接通 API');
-  backfillAbort = new AbortController();
-  Object.assign(backfill, { running: true, done: 0, remaining: pending.value });
-  try {
-    const r = await backfillChat(c, () => chats.list(c.id), (p) => Object.assign(backfill, p), backfillAbort.signal);
-    showToast(backfillAbort.signal.aborted ? `暂停了：已整理 ${r.done} 批` : `补整理完了：整理了 ${r.done} 批`);
-  } catch (e) {
-    if (!isAbortError(e)) showErrorDialog('补整理停下了', e);
-  } finally {
-    backfill.running = false;
-  }
-}
-function pauseBackfill() {
-  backfillAbort?.abort();
-}
-
 const expanded = ref<string | null>(null);
 watch(character, () => (expanded.value = myDiaries.value[0]?.id ?? null), { immediate: true });
 const viewing = ref<AlbumItem | null>(null);
@@ -262,7 +251,7 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
             <span class="text-[17px] font-700">{{ character.name }}</span>
             <span class="mood">心情：{{ rel.mood }}</span>
           </div>
-          <div class="text-[12.5px] text-ink-3 mt-0.5">相识 {{ metDays }} 天 · {{ character.pronoun }}叫你"{{ rel.userNickname }}"，你叫{{ character.pronoun }}"{{ rel.charNickname }}"</div>
+          <div class="text-[12.5px] text-ink-3 mt-0.5">{{ character.pronoun }}叫你"{{ rel.userNickname }}"，你叫{{ character.pronoun }}"{{ rel.charNickname }}"</div>
           <div class="flex items-center gap-2 mt-2">
             <span class="i-lucide-heart text-accent text-[14px]" />
             <van-progress :percentage="rel.affection" :show-pivot="false" stroke-width="5" class="flex-1" />
@@ -286,15 +275,8 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
         ]"
       />
 
-      <div v-if="tab === 'timeline' || tab === 'book'" class="card mx-4 my-3">
-        <div class="text-[14px] font-600">待整理聊天 {{ pending }} / {{ msgSettings.summaryEvery() }} 条</div>
-        <p class="text-[12.5px] text-ink-3 my-2">达到 {{ msgSettings.summaryEvery() }} 条定稿消息后自动整理；最近 {{ SUMMARY_KEEP_RECENT }} 条暂不整理。也可以提前整理已有聊天。</p>
-        <RouterLink v-if="!ai.isLive('summary')" to="/me/api" class="text-accent-ink text-[13px]">先接通「总结 / 记忆」API →</RouterLink>
-        <div v-else class="flex flex-wrap gap-2">
-          <van-button size="small" round :disabled="!pending || backfill.running" :loading="summarizing" @click="summarizePending">整理已有聊天</van-button>
-          <van-button v-if="!backfill.running && pending > msgSettings.summaryEvery()" size="small" round :disabled="summarizing" @click="runBackfill">补整理多批聊天</van-button>
-          <van-button v-if="backfill.running" size="small" round type="warning" @click="pauseBackfill">暂停补整理（已整理 {{ backfill.done }} 批）</van-button>
-        </div>
+      <div class="stats mx-4 my-3">
+        <div v-for="s in stats" :key="s.label"><b class="num">{{ s.value.toLocaleString('zh-CN') }}</b><span>{{ s.label }}</span></div>
       </div>
 
       <!-- 时间线 -->
@@ -424,7 +406,7 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
               <button v-else class="mini" aria-label="放回去" @click="restore(m)"><span class="i-lucide-undo-2" /></button>
             </div>
           </div>
-          <p v-if="!shown.length" class="text-center text-ink-3 text-[13px] py-6">{{ all.length ? '没有找到' : '还没有整理出事实记忆；可以先用上方按钮整理已有聊天' }}</p>
+          <p v-if="!shown.length" class="text-center text-ink-3 text-[13px] py-6">{{ all.length ? '没有找到' : '还没有整理出事实记忆；可以在聊天右上角「更多 → 整理这段聊天」里整理已有聊天' }}</p>
         </div>
         <RouterLink to="/me/api" class="embed-note">
           <span class="i-lucide-waypoints" />
@@ -508,6 +490,27 @@ const albumOpen = computed({ get: () => !!viewing.value, set: (v) => (viewing.va
   border-radius: 20px;
   background: linear-gradient(135deg, var(--accent-soft), transparent 70%), var(--surface);
   border: 1px solid var(--border);
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 14px 6px;
+  border-radius: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.stats div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.stats b {
+  font-size: 18px;
+}
+.stats span {
+  font-size: 11.5px;
+  color: var(--ink-3);
 }
 .mood {
   padding: 1px 8px;

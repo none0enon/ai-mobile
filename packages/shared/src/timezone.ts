@@ -36,6 +36,11 @@ export function shiftDate(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** 两个本地日期（"2026-11-09"）差几天：to 比 from 晚几天 */
+export function daysBetweenDates(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
 /** Wall time → instant. A repeated DST time uses its first occurrence; a gap moves forward. */
 export function zonedInstant(date: string, minute: number, timeZone: string): number {
   const wall = Date.parse(`${date}T00:00:00Z`) + minute * 60_000;
