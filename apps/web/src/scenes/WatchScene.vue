@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { cueIndexAt, isExpression, mediaClock, parseSubtitles, type MessagePart, type SubtitleCue } from '@app/shared';
+import { cueIndexAt, expressionField, mediaClock, parseSubtitles, type MessagePart, type SubtitleCue } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -289,7 +289,7 @@ function parseBatch(valid: Set<number>) {
     const list = o.reactions
       .map((x) => x as { cue?: unknown; text?: unknown; expr?: unknown })
       .filter((x) => valid.has(Number(x.cue)) && typeof x.text === 'string' && x.text.trim())
-      .map((x) => ({ cue: Number(x.cue), text: String(x.text).trim().slice(0, 60), ...(typeof x.expr === 'string' && isExpression(x.expr) ? { expr: x.expr } : {}) }));
+      .map((x) => ({ cue: Number(x.cue), text: String(x.text).trim().slice(0, 60), ...expressionField(x.expr, her.value.portraits) }));
     return { reactions: list, summary: typeof o.summary === 'string' ? o.summary.trim().slice(0, 600) : '' };
   };
 }

@@ -1,4 +1,4 @@
-import type { CharacterLive2D, DayOutfit, Live2DOutfit, Live2DParameter, RhythmSlot } from '@app/shared';
+import { matchOutfit, type CharacterLive2D, type DayOutfit, type Live2DOutfit, type Live2DParameter, type RhythmSlot } from '@app/shared';
 
 export function isMadaraRig(parameters: Live2DParameter[]): boolean {
   return ['ParamGestureLive', 'ParamGestureRaise', 'ParamGestureFold', 'ParamOutfitPose'].every(id => parameters.some(p => p.id === id));
@@ -22,32 +22,10 @@ export function suggestedOutfits(parameters: Live2DParameter[]): Live2DOutfit[] 
   ];
 }
 
-const normalize = (text: string) => text.normalize('NFKC').toLowerCase().replace(/[_\s-]+/g, ' ').trim();
-function includesTerm(haystack: string, term: string) {
-  const at = haystack.indexOf(term);
-  if (at < 0) return false;
-  // English tags match words: "armor" must not match "armorless".
-  if (/^[a-z0-9 ]+$/.test(term)) return (` ${haystack} `).includes(` ${term} `) || haystack.split(/[,，;；|/]+/).some(s => s.trim() === term);
-  return true;
-}
-
 /** Exact garment names first, then explicit aliases/tags, then the saved default. */
 export function selectOutfit(config: Pick<CharacterLive2D, 'outfits' | 'defaultOutfit'>, desired?: DayOutfit, fallback: Live2DOutfit[] = []): Live2DOutfit | undefined {
   const outfits = config.outfits?.length ? config.outfits : fallback;
-  const name = normalize(desired?.name ?? '');
-  const text = normalize(`${desired?.name ?? ''},${desired?.tags ?? ''}`).replace(/[,，;；|/]+/g, ' ');
-  const exact = name && outfits.find(o => normalize(o.name) === name);
-  if (exact) return exact;
-  let match: Live2DOutfit | undefined;
-  let score = 0;
-  for (const outfit of outfits) {
-    const terms = [outfit.name, ...outfit.match.split(/[,，;；\n|]+/)];
-    for (const raw of terms) {
-      const term = normalize(raw);
-      if (term.length >= 2 && term.length > score && includesTerm(text, term)) { match = outfit; score = term.length; }
-    }
-  }
-  return match ?? outfits.find(o => o.id === config.defaultOutfit) ?? outfits[0];
+  return matchOutfit(outfits, desired, (o) => o) ?? outfits.find(o => o.id === config.defaultOutfit) ?? outfits[0];
 }
 
 /** A call follows the character's current rhythm activity, including custom locations. */

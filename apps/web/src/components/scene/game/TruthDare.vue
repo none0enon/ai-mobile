@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { isExpression, isTruthDarePreset, parseControlTags, presetLevels, TRUTH_DARE_LEVEL, type MessagePart, type PresetUseId, type TruthDareTally } from '@app/shared';
+import { expressionField, isTruthDarePreset, parseControlTags, presetLevels, TRUTH_DARE_LEVEL, type MessagePart, type PresetUseId, type TruthDareTally } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -134,7 +134,7 @@ function clean(v: unknown, max: number): string {
 }
 
 function expr(v: unknown): { expr?: string } {
-  return isExpression(v) ? { expr: v } : {};
+  return expressionField(v, her.value.portraits);
 }
 
 function parseCard(v: unknown): { card: string; line: string; expr?: string } | null {

@@ -3,7 +3,7 @@
  * 由 sleep-together 原型的 makeTagStripper（只认 [expr:x]）扩展而来。
  *
  *   [expr:smile]          切换立绘表情（只允许立绘套装里有图的表情）
- *   [pose:sit]            切换姿势
+ *   [pose:托腮]           换立绘的动作（只在聊天里、她有两个以上的动作时可用，能用的动作写进提示词）
  *   [outfit:pajama]       切换服装
  *   [bg:cafe]             切换背景
  *   [cg:雨天的图书馆]      请求一张配图（交给生图提示词智能体）
@@ -36,7 +36,7 @@ export type TagStreamEvent = { type: 'text'; text: string } | { type: 'tag'; tag
  */
 export const CONTROL_TAG_DOCS: Record<ControlTagKind, { syntax: string; desc: string }> = {
   expr: { syntax: '[expr:表情]', desc: '情绪变化时切换立绘表情，只能用下面列出的表情' },
-  pose: { syntax: '[pose:姿势]', desc: '换一个姿势（sit、stand……）' },
+  pose: { syntax: '[pose:动作]', desc: '想换个动作时切换立绘的动作，只能用下面列出的动作' },
   outfit: { syntax: '[outfit:服装]', desc: '换一身衣服（pajama、casual……）' },
   bg: { syntax: '[bg:地点]', desc: '换背景（cafe、library……）' },
   cg: {

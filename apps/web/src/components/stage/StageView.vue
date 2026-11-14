@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import type { Character, PokeHotspot, TimeOfDay } from '@app/shared';
+import type { Character, DayOutfit, PokeHotspot, TimeOfDay } from '@app/shared';
 import { computed, ref } from 'vue';
-import CharacterFigure from '@/components/figure/CharacterFigure.vue';
+import PortraitFigure from '@/components/figure/PortraitFigure.vue';
 import SceneBackdrop from '@/components/figure/SceneBackdrop.vue';
-import { FIGURE } from '@/mock/characters';
-import { pokeHotspots } from '@/mock/library';
+import { hotspotsOf, portraitAspect } from '@/services/portraits';
 
 /**
  * 舞台：背景 + 立绘（表情交叉淡化）+ 戳戳乐热区 + 覆盖层插槽（对话框、顶部按钮）。
- * 热区坐标相对立绘框（0-1），立绘框按 600:1000 的比例摆放，换了真立绘也一样。
+ * 立绘框高度按 layout，宽度按立绘的宽高比（没有立绘时是占位立绘的 600:1000）；热区坐标相对立绘框（0-1）。
+ * outfit / pose 是场景要的服装、姿势，dayOutfit 是节律里今天穿的那套：有立绘时按它们挑一张（PortraitFigure）。
  */
 const props = withDefaults(
   defineProps<{
@@ -16,6 +16,9 @@ const props = withDefaults(
     expression: string;
     outfit?: string;
     pose?: string;
+    dayOutfit?: DayOutfit;
+    /** 同一个样子有几张时挑哪张；不给时跟着换表情的次数轮 */
+    seed?: number;
     backdrop?: string;
     tod?: TimeOfDay;
     rain?: boolean;
@@ -39,11 +42,12 @@ const props = withDefaults(
 const emit = defineEmits<{ (e: 'poke', hotspot: PokeHotspot, kind: 'tap' | 'long'): void }>();
 
 const root = ref<HTMLElement | null>(null);
-const figure = computed(() => FIGURE[props.character.id] ?? { hairStyle: 'long' as const, eye: '#3b2531' });
+const pokeHotspots = computed(() => hotspotsOf(props.character));
 const boxStyle = computed(() => ({
   left: `${props.layout.left}%`,
   bottom: `${props.layout.bottom}%`,
   height: `${props.layout.height}%`,
+  aspectRatio: String(portraitAspect(props.character)),
 }));
 
 function shapeStyle(h: PokeHotspot) {
@@ -110,20 +114,7 @@ function cancel() {
     <SceneBackdrop :kind="backdrop" :tod="tod" :rain="rain" :dim="dim" />
     <div class="figure-box" :style="boxStyle">
       <div class="breathe">
-        <Transition name="xfade">
-          <div :key="`${expression}-${outfit}-${pose}`" class="figure-layer">
-            <CharacterFigure
-              :accent="character.accent"
-              :hair="character.hairColor"
-              :eye="figure.eye"
-              :hair-style="figure.hairStyle"
-              :expression="expression"
-              :outfit="outfit"
-              :pose="pose"
-              :title="`${character.name}的立绘（占位）`"
-            />
-          </div>
-        </Transition>
+        <PortraitFigure :character="character" :expression="expression" :outfit="outfit" :pose="pose" :day-outfit="dayOutfit" :seed="seed" />
       </div>
       <template v-if="pokeable">
         <button
@@ -162,7 +153,6 @@ function cancel() {
 }
 .figure-box {
   position: absolute;
-  aspect-ratio: 600 / 1000;
   transform: translateX(-50%);
   max-width: 96%;
 }
@@ -172,18 +162,6 @@ function cancel() {
   animation: breathe 5s ease-in-out infinite;
   transform-origin: 50% 100%;
   filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.35));
-}
-.figure-layer {
-  position: absolute;
-  inset: 0;
-}
-.xfade-enter-active,
-.xfade-leave-active {
-  transition: opacity 0.26s ease;
-}
-.xfade-enter-from,
-.xfade-leave-to {
-  opacity: 0;
 }
 .hotspot {
   position: absolute;

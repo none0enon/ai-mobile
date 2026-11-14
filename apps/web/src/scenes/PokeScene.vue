@@ -63,7 +63,7 @@ const line = computed(() => aiLine.value || bubble.value?.text || '戳戳看？�
     </div>
     <p class="text-[12.5px] text-ink-3 mt-3 leading-relaxed">
       单击戳 · 长按摸头 · 1.2 秒内连击 6 下她会生气。每戳 4 下，AI 会接一句更丰富的反应，聊天里也会留下"你拍了拍她的头"。
-      热区在 <RouterLink to="/me/characters/suwan?tab=sprite" class="text-accent-ink">角色 → 立绘</RouterLink> 里画。
+      热区在 <RouterLink :to="`/me/characters/${character.id}?tab=sprite`" class="text-accent-ink">角色 → 立绘</RouterLink> 里画。
     </p>
   </SceneShell>
 </template>

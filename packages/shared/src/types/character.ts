@@ -115,12 +115,13 @@ export interface Character extends SyncMeta {
   avatar: string | null;
   /** 角色主题色，界面点缀色跟随它 */
   accent: string;
-  /** 占位立绘用的发色（真立绘导入后不再需要） */
+  /** 占位立绘用的发色（导入立绘后不再需要） */
   hairColor: string;
   card: StCardFields;
   lorebookIds: string[];
   presetId: string | null;
-  spriteSetId: string | null;
+  /** 立绘（图片在本机素材库，这里只有元数据）；没有时用占位立绘 */
+  portraits?: import('./sprite.ts').PortraitSet;
   /** NovelAI 外观基础 tags，生图提示词智能体会在此基础上补动作、服装、场景（同人角色可以只补角色 tag 认不全的地方） */
   appearanceTags: string;
   negativeTags: string;

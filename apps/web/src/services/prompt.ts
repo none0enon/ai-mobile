@@ -4,11 +4,13 @@ import {
   buildChatRequest,
   CONTROL_TAG_DOCS,
   estimateTokens,
+  expressionPromptLines,
   formatEnvironmentBlock,
   getLocation,
   getScene,
   isRealPlace,
   MEAL_LABEL,
+  portraitTags,
   PRESET_CATEGORIES,
   presetUse,
   sceneUse,
@@ -18,6 +20,7 @@ import {
   type Character,
   type Chat,
   type ChatTurn,
+  type ControlTagKind,
   type GenerationType,
   type Message,
   type MessagePart,
@@ -254,22 +257,30 @@ function appFills(chat: Chat, character: Character, history: Message[], now: Dat
       source: `时间 / 节气 / 天气（${[weather ? `你那边 ${weather.city}` : '你那边没取到', herWeather ? `${character.name}那边 ${herWeather.city}` : ''].filter(Boolean).join('，')}）/ 今日活动 / 她在哪 / 她今天穿什么`,
     },
     sceneRules: {
-      content: `${scene.promptFragment.replaceAll('{{char}}', character.name)}\n${tagsLine(scene)}`,
+      content: `${scene.promptFragment.replaceAll('{{char}}', character.name)}\n${tagsLine(scene, character)}`,
       source: `场景"${scene.name}"`,
     },
   };
 }
 
-/** 这个场景能用的标签：每个都写清楚写法和什么时候用（只给名字的话模型写不对，比如 [cg] 后面不带画面就画不出来） */
-function tagsLine(scene: ReturnType<typeof getScene>): string {
-  const tags = scene.allowedTags.map((t) => `- ${CONTROL_TAG_DOCS[t].syntax}：${CONTROL_TAG_DOCS[t].desc}`);
-  return `回复里可以夹带这些隐藏标签（对方看不到，程序会执行）：\n${tags.join('\n')}\n可用表情：neutral smile laugh blush shy pout surprised sad angry sleepy sleep`;
+/**
+ * 这个场景能用的标签：每个都写清楚写法和什么时候用（只给名字的话模型写不对，比如 [cg] 后面不带画面就画不出来）。
+ * 表情只列她有立绘的（没有立绘时列全部基础表情）；聊天里她有两个以上的动作时加上 [pose:] 和能用的动作
+ */
+export function sceneTags(scene: ReturnType<typeof getScene>, character: Character): ControlTagKind[] {
+  return scene.id === 'free' ? portraitTags(scene.allowedTags, character.portraits) : scene.allowedTags;
+}
+
+function tagsLine(scene: ReturnType<typeof getScene>, character: Character): string {
+  const allowed = sceneTags(scene, character);
+  const tags = allowed.map((t) => `- ${CONTROL_TAG_DOCS[t].syntax}：${CONTROL_TAG_DOCS[t].desc}`);
+  return `回复里可以夹带这些隐藏标签（对方看不到，程序会执行）：\n${tags.join('\n')}\n${expressionPromptLines(character.portraits, { poses: allowed.includes('pose') })}`;
 }
 
 /** 功能预设自己写了场景规则时，程序那块只填这个场景能用的标签和表情 */
-function sceneTagsOnly(chat: Chat): AppBlockFill {
+function sceneTagsOnly(chat: Chat, character: Character): AppBlockFill {
   const scene = getScene(chat.currentScene ?? 'free');
-  return { content: tagsLine(scene), source: `场景"${scene.name}"能用的标签和表情（场景规则写在预设里）` };
+  return { content: tagsLine(scene, character), source: `场景"${scene.name}"能用的标签和表情（场景规则写在预设里）` };
 }
 
 /** 这个角色的对话预设；没选、或选的那个被删了时用第一个对话预设；一个对话预设都没有时为空 */
@@ -381,7 +392,7 @@ export function assembleForChat(chat: Chat, character: Character, history: Messa
   if (opts.quiet) app.proactive = { content: opts.quiet, source: '主动消息：这一次要她做的事' };
   if (opts.task) app.sceneTask = { content: opts.task.input, source: `场景任务：${opts.task.name}` };
   // 功能预设里写了自己的"场景规则"：程序那块只填能用的标签和表情，不再重复场景规则
-  if (preset.blocks.some((b) => b.identifier === 'sceneRule' && !b.marker && b.enabled) && app.sceneRules) app.sceneRules = sceneTagsOnly(chat);
+  if (preset.blocks.some((b) => b.identifier === 'sceneRule' && !b.marker && b.enabled) && app.sceneRules) app.sceneRules = sceneTagsOnly(chat, character);
   // 聊天记录：按消息设置的发送条数截取；预设中"仅格式提示词"的正则按深度执行（世界书扫描修改后的文本）
   // "已总结的消息不发送给 AI"：总结覆盖到的那条之前的不发（提示词里用时间线和取到的记忆代替）
   const msgSettings = useMessageSettingsStore();

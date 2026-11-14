@@ -1,31 +1,24 @@
 <script setup lang="ts">
 import type { Character } from '@app/shared';
 import { computed } from 'vue';
-import CharacterFigure from './CharacterFigure.vue';
+import PortraitFigure from './PortraitFigure.vue';
 import SceneBackdrop from './SceneBackdrop.vue';
-import { FIGURE } from '@/mock/characters';
+import { portraitAspect } from '@/services/portraits';
 
-/** 占位"CG"：场景背景 + 角色。真实版本是 NovelAI 生成的图片 */
+/** 占位"CG"：场景背景 + 她的立绘（没有立绘时是占位立绘）。真实版本是 NovelAI 生成的图片 */
 const props = withDefaults(
   defineProps<{ character: Character; scene?: string; expression?: string; outfit?: string; ratio?: string; pending?: boolean }>(),
   { scene: 'library', expression: 'smile', outfit: 'daily', ratio: '3 / 4', pending: false },
 );
-const figure = computed(() => FIGURE[props.character.id] ?? { hairStyle: 'long' as const, eye: '#3b2531' });
+const aspect = computed(() => String(portraitAspect(props.character)));
 const tod = computed(() => (['aquarium', 'cinema', 'night-market', 'amusement', 'bedroom'].includes(props.scene) ? 'night' : 'afternoon'));
 </script>
 
 <template>
   <div class="cg" :style="{ aspectRatio: ratio }">
     <SceneBackdrop :kind="scene" :tod="tod" />
-    <div class="cg-figure">
-      <CharacterFigure
-        :accent="character.accent"
-        :hair="character.hairColor"
-        :eye="figure.eye"
-        :hair-style="figure.hairStyle"
-        :expression="expression"
-        :outfit="outfit"
-      />
+    <div class="cg-figure" :style="{ aspectRatio: aspect }">
+      <PortraitFigure :character="character" :expression="expression" :outfit="outfit" :seed="0" />
     </div>
     <div v-if="pending" class="cg-pending">
       <span class="i-lucide-wand-sparkles text-[20px]" />
@@ -46,8 +39,8 @@ const tod = computed(() => (['aquarium', 'cinema', 'night-market', 'amusement', 
   position: absolute;
   left: 50%;
   bottom: -8%;
-  width: 78%;
   height: 92%;
+  max-width: 96%;
   transform: translateX(-50%);
 }
 .cg-pending {

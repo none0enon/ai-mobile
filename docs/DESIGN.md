@@ -220,7 +220,8 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 
 | 标签 | 作用 |
 |---|---|
-| `[expr:smile]` | 切换立绘表情。只允许立绘套装里有图的表情，列表会写进提示词 |
+| `[expr:smile]` | 切换立绘表情。只允许立绘套装里有图的表情（含自定义表情），列表会写进提示词 |
+| `[pose:托腮]` | 换立绘的动作。只在聊天里、她有两个以上的动作时可用 |
 | `[pose:sit]` `[outfit:pajama]` `[bg:cafe]` | 姿势 / 服装 / 背景 |
 | `[cg:画面描述]` | 请求配图 |
 | `[music:歌名-歌手]` | 分享歌曲（生成歌曲卡片，可"一起听"） |
@@ -1144,9 +1145,20 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 ## 10. 立绘与 NovelAI
 
 ### 10.1 立绘套装
-- **组成**：服装 × 姿势 × 表情；按 `{服装}_{姿势}_{表情}.webp` 批量导入。
-- **缺图回退**（`resolveSprite`）：同服装同姿势 neutral → 同服装默认姿势 neutral → 默认服装 neutral。
-- **默认服装**：场景决定（运动服、睡衣、约会装……）。
+> **已实现**（`types/sprite.ts`、`portraits.ts`、`components/figure/PortraitFigure.vue`、`components/settings/portraits/`）。
+- **组成**：一张图就是一个完整的样子（服装 + 动作 + 表情画在一起），不是分层。每个角色张数、表情、动作、服装都不一样，三样都是标签：
+  - 表情：11 个基础表情之外可以自定义（坏笑、不屑……），自定义表情挂一个最像的基础表情，缺图回退、语音情绪、Live2D、占位立绘都按它；id 就是 `[expr:…]` 里写的值（中文也行），改名字 id 跟着改；
+  - 动作：自己起名（托腮、抱臂……），可选"适合"的场景姿势（stand / sit / study / eat / lie），写给模型看的说明；
+  - 服装：自己起名，可选用途（日常 / 运动 / 睡衣 / 约会）和与节律衣柜对得上的名字、别名（同 Live2D 换装，`outfitMatch.ts` 共用）。
+  - 同一个样子可以有好几张（变体），换表情时按次数轮着用。
+- **存放**：图片压到长边 2048、存 WebP（Safari 存 PNG）进本机素材库（内容哈希），角色上只有元数据 `Character.portraits`（同 Live2D）。删图时别的角色没用的文件一起删。
+- **挑选**（`pickPortrait`）：各模块只说想要什么（表情、场景姿势、场景服装、节律里今天那套），依次比 服装 > 表情 > 动作：
+  - 服装：指定的 → 节律今天那套对上名字 / 别名 → 场景的用途 → 默认；
+  - 表情按层退（`expressionTiers`）：自己 → 它的基础表情 → 同一基础表情的别的自定义表情 → 退一步的基础表情（大笑 → 微笑 → 脸红 → 平静……）→ 平静；
+  - 动作：场景姿势有"适合"的动作就用 → 模型 `[pose:]` 换过的 → 默认动作；动作只在表情同一层里分先后。
+  - 一张都没有时画占位立绘。
+- **导入**：多选或整个文件夹。文件名按 `{服装}_{动作}_{表情}`、`{动作}_{表情}`、`{表情}` 自动标（表情认基础表情、中文名、ST 标签、别名；结尾编号是变体；角色名、一批都带着的前缀不算；三段式里认不出的表情当新的自定义表情）；第一次分出动作 / 服装时默认取图最多的。只有编号的文件名导入后点图标，编辑页能翻页、叠参考图对齐（每张图自己的缩放、平移）。
+- **立绘框**：宽高比按第一张图，图底边居中放进框；头像框（脸的中心、边长）裁头像和表情缩略图，戳戳乐热区默认按头像框摆，可以拖。
 - **兼容 ST 表情文件夹**：ST 的 28 个分类标签映射到本 App 的表情：
 
 | 本 App 表情 | ST 标签 |
@@ -1161,7 +1173,7 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 | 难过 | sadness、grief、disappointment、remorse |
 | 生气 | anger、disapproval |
 
-- **提示词**：只把有图的表情写进提示词。
+- **提示词**：只把有图的表情写进提示词（基础表情带中文名，自定义的带说明）；聊天里有两个以上的动作时加上 `[pose:动作]` 和能用的动作。场景让模型写 JSON 时的 `expr` 也认自定义表情（`expressionField`）。
 - **切换**：表情交叉淡化 260ms；立绘预加载，用 `img.decode()` 避免闪烁。
 
 ### 10.2 NovelAI
@@ -1305,7 +1317,7 @@ M4–M6 在 M3 之后互不依赖，可以按你的优先级调换（例如先�
 ### 12.1 领域类型
 在 `packages/shared/src/types/*`，客户端和 Worker 共用。这个包不依赖 DOM 和 Node，可以原样放进 Worker。
 
-- **角色与配置**：Character（含 ST 字段、外观 tags、语音、主动配置、关系状态、此刻所在地点 `locationId`、界面里的称呼 `pronoun`：她 / 他 / TA，导入的卡没有这一项，要自己选）、Persona（可选的家务系统 `housework`、健康系统 `health`，`types/life.ts`；存在本机 settings 表的 `personas`）、Lorebook / LoreEntry、Preset / PromptBlock、SpriteSet / PokeHotspot。
+- **角色与配置**：Character（含 ST 字段、外观 tags、语音、主动配置、关系状态、此刻所在地点 `locationId`、界面里的称呼 `pronoun`：她 / 他 / TA，导入的卡没有这一项，要自己选）、Persona（可选的家务系统 `housework`、健康系统 `health`，`types/life.ts`；存在本机 settings 表的 `personas`）、Lorebook / LoreEntry、Preset / PromptBlock、立绘 `portraits`（PortraitSet：图、自定义表情 / 动作 / 服装、头像框、PokeHotspot，挂在 Character 上，图在本机素材库）。
 - **对话**：
   - Chat：一个角色一条；`togetherAt` / `currentScene` 记你们此刻在哪、在做什么（只在场景页开着时有）；`background` 是这个聊天单独的背景（ChatBackground：图片 key、遮罩、模糊）；
   - Message：parts 有文字 / 语音 / 图片 / 歌曲 / 拍一拍 / 通话记录 / 运动 / 家务 / 饭照 / 学习 / 约会 / 礼物 / 场景分段；还有 swipes。
@@ -1497,9 +1509,9 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
     - 骨架阶段存在 localStorage（`stores/appearance.ts`）；
     - M1 起存 IndexedDB，按内容哈希传 R2，随 `Chat.background`、`Character.avatar`、`Persona.avatar` 同步。
 - **占位美术**：
-  - 立绘是 SVG 简笔画，11 种表情、5 套服装、5 种姿势（`components/figure/CharacterFigure.vue`）；
+  - 没导入立绘时是 SVG 简笔画占位，11 种表情、5 套服装、5 种姿势（`components/figure/CharacterFigure.vue`）；
   - 背景按场景和时段画（`SceneBackdrop.vue`）；
-  - 导入真立绘、真背景后自动替换。
+  - 在"角色 → 立绘"里导入立绘后各处自动换成立绘（§10.1）；真背景以后同样替换。
 - **服务接口**：在 `services/types.ts`，界面只依赖接口。对话、语音合成、向量化、生图的实现在 `services/ai.ts`（交给 `packages/ai` 的多智能体）：智能体有可用连接时真的调用，否则退回假实现（`services/mock/*`），假模型会流式吐控制标签，演示换表情、发歌、要配图、来电。语音识别、音乐、天气、地图、同步、推送仍是假实现。
 - **预览**：`pnpm build:preview` 用内存路由 + 单文件打包，生成可发布的预览页（`scripts/make-artifact.mjs`）。
 
@@ -1542,7 +1554,7 @@ CREATE TABLE usage (date TEXT, agent TEXT, tokens INTEGER, PRIMARY KEY (date, ag
 | Google 地图在中国大陆不可用；Places 按次计费 | 地图接口抽象成 `MapsClient`，可换高德等；附近地点缓存一天；没 Key 时用示意图 |
 
 **待定**（需要你决定）
-1. 立绘的形式：每个表情一张 PNG，还是分层（身体 + 表情）？各有几套服装、几种姿势？
+1. ~~立绘的形式~~ 已定：一张图一个样子（不分层），张数、表情、动作、服装每个角色自己定（§10.1）。
 2. TTS 想用哪家，有没有想要的音色？是否需要训练 / 克隆音色？
 3. ~~NovelAI 是什么档位？~~ 已定：Opus，小图不限量；每月按 1000 点算要花点的地方（§10.5）。
 4. Worker 用哪个域名？需要时是否接受 5 美元/月的付费版？

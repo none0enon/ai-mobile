@@ -1,5 +1,6 @@
 import {
   AiError,
+  DEFAULT_EMOTION_MAP,
   buildSidestoryMessages,
   errorText,
   fromOpenAIBody,
@@ -82,7 +83,17 @@ export class RoutedLLM implements LLMClient {
 
 export function voiceSpec(c: Character): VoiceSpec {
   const v = c.voice;
-  return { voiceId: v.voiceId, model: v.model, speed: v.speed, pitch: v.pitch, style: v.style, refText: v.refText, refLang: v.refLang, emotionMap: v.emotionMap };
+  return { voiceId: v.voiceId, model: v.model, speed: v.speed, pitch: v.pitch, style: v.style, refText: v.refText, refLang: v.refLang, emotionMap: { ...portraitEmotions(c), ...v.emotionMap } };
+}
+
+/** 立绘的自定义表情（坏笑、不屑……）说话时用它挂的基础表情的情绪 */
+function portraitEmotions(c: Character): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const e of c.portraits?.expressions ?? []) {
+    const emotion = e.base === 'neutral' ? '' : c.voice.emotionMap[e.base] || DEFAULT_EMOTION_MAP[e.base];
+    if (emotion) out[e.id] = emotion;
+  }
+  return out;
 }
 
 /** 这个角色的声音能不能真的合成："语音合成"功能的 API 能用、选了音色（Fish Audio 不选也有默认音色） */

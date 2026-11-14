@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import type { Character } from '@app/shared';
 import { computed } from 'vue';
-import CharacterFigure from '@/components/figure/CharacterFigure.vue';
-import { FIGURE } from '@/mock/characters';
+import PortraitFigure from '@/components/figure/PortraitFigure.vue';
 import { useAppearanceStore } from '@/stores/appearance';
 import { useCharacterStore } from '@/stores/characters';
 import { mix } from '@/utils/color';
 
-/** 头像：你给她上传过头像就用那张图；没有时用占位立绘的头部裁切 */
+/** 头像：你给她上传过头像就用那张图；没有时按头像框裁她的立绘（live 时跟着表情换；没有立绘时是占位立绘） */
 const props = withDefaults(
   defineProps<{ character: Character; size?: number; ring?: boolean; live?: boolean; status?: 'online' | 'busy' | null }>(),
   { size: 44, ring: false, live: false, status: null },
@@ -16,7 +15,6 @@ const chars = useCharacterStore();
 const looks = useAppearanceStore();
 const src = computed(() => looks.imageUrl(looks.avatarKey('character', props.character.id) ?? props.character.avatar));
 const expression = computed(() => (props.live ? (chars.expression[props.character.id] ?? 'smile') : 'smile'));
-const figure = computed(() => FIGURE[props.character.id] ?? { hairStyle: 'long' as const, eye: '#3b2531' });
 const bg = computed(
   () => `linear-gradient(160deg, ${mix(props.character.accent, '#ffffff', 0.25)}, ${mix(props.character.accent, '#3b2a4a', 0.35)})`,
 );
@@ -30,16 +28,7 @@ const bg = computed(
     :title="character.name"
   >
     <img v-if="src" :src="src" class="avatar-img" alt="" />
-    <CharacterFigure
-      v-else
-      :accent="character.accent"
-      :hair="character.hairColor"
-      :eye="figure.eye"
-      :hair-style="figure.hairStyle"
-      :expression="expression"
-      crop="head"
-      :title="`${character.name}的头像`"
-    />
+    <PortraitFigure v-else class="avatar-fig" :character="character" :expression="expression" crop="head" :seed="live ? undefined : 0" :title="`${character.name}的头像`" />
     <span v-if="status" class="status" :class="status" />
   </span>
 </template>
@@ -59,7 +48,7 @@ const bg = computed(
   border-radius: 50%;
   object-fit: cover;
 }
-.avatar :deep(svg) {
+.avatar-fig {
   border-radius: 50%;
   overflow: hidden;
 }

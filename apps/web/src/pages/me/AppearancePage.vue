@@ -173,13 +173,13 @@ const reduceMotion = ref(false);
           <Avatar :character="c" :size="40" />
           <div class="flex-1 min-w-0">
             <div class="text-[15px] font-600 truncate">{{ c.name }}</div>
-            <div class="text-[12px] text-ink-3 truncate">{{ hasAvatar('character', c.id) ? '用的是你上传的图' : '用的是占位立绘的头像' }}</div>
+            <div class="text-[12px] text-ink-3 truncate">{{ hasAvatar('character', c.id) ? '用的是你上传的图' : c.portraits?.portraits.length ? '用的是立绘（按头像框裁，跟着表情换）' : '用的是占位立绘的头像' }}</div>
           </div>
           <button v-if="hasAvatar('character', c.id)" class="mini-btn" @click="looks.resetAvatar('character', c.id)">恢复</button>
           <ImagePick class="mini-btn primary" :data-upload="`character-${c.id}`" @pick="(f) => pickAvatar('character', c.id, f)">上传</ImagePick>
         </div>
       </div>
-      <p class="note">头像会居中裁成正方形。立绘是另一回事：在角色卡 → 立绘里导入。</p>
+      <p class="note">上传的头像会居中裁成正方形。没上传时用立绘按头像框裁（在角色卡 → 立绘里导入、拖头像框）。</p>
 
       <div class="group-title">阅读</div>
       <van-cell-group inset>

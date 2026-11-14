@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { isExpression, presetLevels, SOUP_LEVEL, worldOf, type MessagePart } from '@app/shared';
+import { expressionField, presetLevels, SOUP_LEVEL, worldOf, type MessagePart } from '@app/shared';
 import { showToast } from 'vant';
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -203,7 +203,7 @@ function parseJudge(v: unknown): Judge | null {
     hits: Array.isArray(o.hits) ? o.hits.map(Number).filter((i) => i >= 1 && i <= n) : [],
     close: o.close === true,
     line: typeof o.line === 'string' ? o.line.trim().slice(0, 60) : '',
-    ...(typeof o.expr === 'string' && isExpression(o.expr) ? { expr: o.expr } : {}),
+    ...expressionField(o.expr, her.value.portraits),
   };
 }
 async function ask(text?: string) {

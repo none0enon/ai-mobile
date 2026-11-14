@@ -32,6 +32,7 @@ import { useCharacterStore } from '@/stores/characters';
 import { useChatStore } from '@/stores/chat';
 import { useMemoryStore } from '@/stores/memory';
 import { useMessageSettingsStore } from '@/stores/messageSettings';
+import { useRhythmStore } from '@/stores/rhythm';
 import { useWeatherStore } from '@/stores/weather';
 import { dividerTime, hhmm } from '@/utils/time';
 import { copyWithToast, showErrorDialog } from '@/utils/errors';
@@ -56,6 +57,9 @@ const mode = computed<'im' | 'stage'>(() => {
 const messages = computed(() => chatStore.list(chatId.value));
 const stream = computed(() => chatStore.streams[chatId.value]);
 const expression = computed(() => chars.expression[character.value?.id ?? ''] ?? 'neutral');
+/** 剧场里她今天穿的那套（节律）：有立绘时按它挑服装 */
+const rhythmStore = useRhythmStore();
+const stageOutfit = computed(() => (character.value ? rhythmStore.outfitFor(character.value.id, null) : undefined));
 const lastAi = computed(() => [...messages.value].reverse().find((m) => m.role === 'assistant'));
 const preset = computed(() => presetFor(character.value));
 
@@ -626,7 +630,7 @@ const stageRain = computed(() => isRainy(stageWeather.value?.text) && (!stageLoc
     </template>
 
     <!-- 剧场模式 -->
-    <StageView v-else :character="character" :expression="expression" :backdrop="stageBackdrop" :rain="stageRain" pokeable @poke="onPoke">
+    <StageView v-else :character="character" :expression="expression" :day-outfit="stageOutfit" :backdrop="stageBackdrop" :rain="stageRain" pokeable @poke="onPoke">
       <div class="stage-top">
         <button class="chip-btn" aria-label="返回" @click="goBack('/chats')"><span class="i-lucide-chevron-left text-[20px]" /></button>
         <RouterLink v-if="placeKnown" :to="mapLink" class="chip-btn loc-chip !px-3 num"

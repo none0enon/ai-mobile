@@ -39,7 +39,6 @@ export const characters: Character[] = [
     },
     lorebookIds: ['lb-suwan', 'lb-city'],
     presetId: 'preset-daily',
-    spriteSetId: 'sprite-suwan',
     appearanceTags:
       '1girl, solo, long hair, dark brown hair, hair clip, brown eyes, beige cardigan, white blouse, soft smile, gentle eyes',
     negativeTags: 'lowres, bad anatomy, bad hands, text, watermark, extra fingers',
@@ -102,7 +101,6 @@ export const characters: Character[] = [
     },
     lorebookIds: ['lb-city'],
     presetId: 'preset-daily',
-    spriteSetId: null,
     appearanceTags: '1boy, solo, short hair, black hair, sharp eyes, sportswear, towel around neck',
     negativeTags: 'lowres, bad anatomy, text, watermark',
     voice: {

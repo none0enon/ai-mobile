@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { isDecorPreset, isExpression, parseControlTags, type MessagePart, type PresetUseId } from '@app/shared';
+import { baseExpression, expressionField, isDecorPreset, parseControlTags, type MessagePart, type PresetUseId } from '@app/shared';
 import { showConfirmDialog, showImagePreview, showToast } from 'vant';
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, shallowRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -397,7 +397,7 @@ async function herReply(task: string, userText: string | undefined, extra: (stri
     }
     if (alive) {
       line.value = r.message.text;
-      engine.value?.herReact(r.message.expression ?? chars.expression[her.value.id]);
+      engine.value?.herReact(baseExpression(r.message.expression ?? chars.expression[her.value.id], her.value.portraits));
     }
     return true;
   } finally {
@@ -423,7 +423,7 @@ function parsePlan(v: unknown): { line: string; expr?: string; actions: PlanActi
   const actions = parsePlanActions(o.actions);
   const l = clean(o.line, 60);
   if (!actions.length && !l) return null;
-  return { line: l, actions, ...(isExpression(o.expr) ? { expr: o.expr } : {}) };
+  return { line: l, actions, ...expressionField(o.expr, her.value.portraits) };
 }
 
 async function herPlan() {
@@ -459,7 +459,7 @@ async function herPlan() {
       line.value = said;
       say('assistant', said, { expression: plan.expr, agent: true });
     }
-    engine.value?.herReact(plan.expr ?? 'smile');
+    engine.value?.herReact(baseExpression(plan.expr ?? 'smile', her.value.portraits));
     if (!out.done.length) {
       showToast(out.skipped.length ? `${her.value.pronoun}想放的${out.skipped.join('、')}` : `${her.value.pronoun}这次没动`);
       return;
@@ -501,7 +501,7 @@ async function design(who: 'you' | 'her'): Promise<Avatar | null> {
       (v) => {
         const o = v as { avatar?: unknown; line?: unknown; expr?: unknown } | null;
         if (!o || typeof o.avatar !== 'object' || !o.avatar) return null;
-        return { avatar: parseAvatar(o.avatar, base), line: clean(o.line, 50), ...(isExpression(o.expr) ? { expr: o.expr } : {}) };
+        return { avatar: parseAvatar(o.avatar, base), line: clean(o.line, 50), ...expressionField(o.expr, her.value.portraits) };
       },
       abort.signal,
       { use: USE },
